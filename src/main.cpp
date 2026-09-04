@@ -560,7 +560,8 @@ void presentScene() {
         const status = document.getElementById('view-status');
         if (status) {
             status.textContent =
-                `Camera ${quarterTurns * 90} degrees around Z, pan X ${panX.toFixed(2)}, Y ${panY.toFixed(2)}`;
+                'Camera ' + (quarterTurns * 90) + ' degrees around Z; pan X ' +
+                panX.toFixed(2) + '; Y ' + panY.toFixed(2);
         }
     }, pointer, FRAME_WIDTH, FRAME_HEIGHT, cameraQuarterTurns, cameraPanX, cameraPanY);
 }
