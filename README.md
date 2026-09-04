@@ -1,33 +1,48 @@
 # isoweb
 
-A browser rendering experiment built as C++ compiled with Emscripten to WebAssembly.
+Browser-side C++/WebAssembly isometric rendering experiment built on DFPSR.
 
-The current scene is intentionally small: a cube, a sphere, a bounded ground plane and a background. The scene is rendered by a CPU ray tracer into a DFPSR RGBA image. Lighting and shadows are geometric, not painted overlays: every visible surface uses its real normal for Lambert shading and casts a shadow ray towards the point light to determine occlusion.
+The renderer is deliberately graphics-only. Camera state, projection, lighting, shadows, render objects, Z-level views and screen-space controls live in C++/WASM; the browser supplies the canvas presentation layer, viewport sizing, pointer/wheel input and transparent accessibility hitboxes.
 
-The camera has four discrete 90-degree viewpoints around the world Z axis. The scene itself never rotates. Camera panning stays entirely on the world X/Y ground plane and is clamped before the finite world can be panned completely out of view.
+## Demo camera controls
 
-Visible camera controls are DFPSR-rendered sprites composited into the framebuffer. Transparent DOM buttons are used only as accessible pointer/touch hitboxes.
+- Eight discrete yaw positions around the world Z axis, 45° apart.
+- X/Y ground-plane panning with bounded world edges.
+- Regular zoom presets at 0.5×, 1× and 2×. Detailed mode adds 0.25×, 4× and a fit-whole-world view.
+- Dynamic Z-level selection. Z levels are alternate render views of the same world, not physical camera height. Lower levels can be ghosted translucently beneath the selected level; upper levels are never shown until selected.
+- Reset controls affect only their own camera component.
+- Disabled controls are rendered dimmed when that action would have no effect.
 
-## Controls
+Desktop wheel mappings:
 
-- Left control cluster: quarter-turn camera rotation clockwise/counter-clockwise.
-- Right control cluster: up/down/left/right panning.
-- Mouse/trackpad wheel: vertical ground-plane panning.
-- `Ctrl` + wheel: horizontal ground-plane panning.
-- Touch: drag/swipe vertically or horizontally to pan on the X/Y ground plane.
+- wheel: X-direction pan
+- Ctrl + wheel: Y-direction pan
+- Alt + wheel: zoom
+- Shift + wheel: Z-yaw, down clockwise and up counter-clockwise
 
-## Dependencies
+Touch mappings:
 
-Both dependencies are vendored as pinned git submodules:
+- one-finger drag: X/Y pan
+- two-finger pinch: zoom
+- two-finger twist: Z-yaw
 
-- `vendor/dfpsr` -> `Dawoodoz/DFPSR` at `66e9e9592752a338ae12d4e21d526d82b0f8579d`
-- `vendor/pages` -> `kitty-crow/github-pages-template` at `426075b675d8ff79b8f97e351905b0358c612e05`
+## Demo Z levels
 
-DFPSR stays headless in the browser. Its native window layer is replaced with its own `NoWindow` backend, while a tiny Emscripten bridge blits the completed RGBA buffer into an HTML canvas.
+The current demo supplies three `LevelView` entries only to exercise the API:
 
-## Local build
+- lower: purple cone and yellow pyramid, darker floor, its own point-light position
+- default: blue cube and orange sphere, current floor colour, its own point-light position
+- upper: blue dodecahedron and red icosahedron, lighter floor, its own point-light position
 
-Prerequisites: Bun and the Emscripten SDK (`em++` on PATH).
+The engine does not assume three levels. The level stack is a dynamic container and can contain any number of views.
+
+## Rendering
+
+The scene is CPU-rendered by DFPSR and compiled with Emscripten. Primary rays intersect the active level geometry, surface normals drive Lambert lighting, and secondary rays test real geometry for point-light shadow occlusion. Lower-level ghost views are rendered independently using each lower level's own geometry and light before translucent compositing.
+
+DFPSR runs headlessly with its `NoWindow` and `NoSound` backends. The browser receives the finished RGBA framebuffer and blits it to the canvas.
+
+## Build
 
 ```sh
 git submodule update --init --recursive
@@ -38,4 +53,4 @@ bun run build:wasm
 bun run audit:mobile
 ```
 
-Serve `site/` from a local HTTP server to test the generated WebAssembly build.
+Detailed zoom mode can currently be exercised with `?detailed=1`.

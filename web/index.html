@@ -8,103 +8,37 @@
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <main class="scene" aria-label="Interactive isometric ray-traced scene">
+  <main class="scene" aria-label="Interactive isometric renderer demo">
     <div id="viewport" class="viewport">
       <canvas
         id="canvas"
         width="512"
         height="288"
         role="img"
-        aria-label="A ray-traced isometric scene containing a blue cube and an orange sphere on a tiled ground plane, with physically derived lighting and cast shadows."
+        aria-label="An isometric multi-level ray-traced scene with camera controls."
       ></canvas>
 
-      <button
-        id="zoom-in"
-        class="control-hitbox"
-        type="button"
-        aria-label="Zoom in"
-        disabled
-      ></button>
-      <button
-        id="reset-zoom"
-        class="control-hitbox"
-        type="button"
-        aria-label="Reset zoom to 1x"
-        disabled
-      ></button>
-      <button
-        id="rotate-counterclockwise"
-        class="control-hitbox"
-        type="button"
-        aria-label="Rotate camera 45 degrees counter-clockwise around the Z axis"
-        disabled
-      ></button>
-      <button
-        id="reset-yaw"
-        class="control-hitbox"
-        type="button"
-        aria-label="Reset camera yaw to 0 degrees"
-        disabled
-      ></button>
-      <button
-        id="rotate-clockwise"
-        class="control-hitbox"
-        type="button"
-        aria-label="Rotate camera 45 degrees clockwise around the Z axis"
-        disabled
-      ></button>
-      <button
-        id="zoom-out"
-        class="control-hitbox"
-        type="button"
-        aria-label="Zoom out"
-        disabled
-      ></button>
+      <button id="zoom-in" class="control-hitbox" type="button" aria-label="Zoom in" disabled></button>
+      <button id="reset-zoom" class="control-hitbox" type="button" aria-label="Reset zoom to 1x" disabled></button>
+      <button id="zoom-out" class="control-hitbox" type="button" aria-label="Zoom out" disabled></button>
 
-      <button
-        id="pan-up"
-        class="control-hitbox"
-        type="button"
-        aria-label="Pan camera up along the X axis"
-        disabled
-      ></button>
-      <button
-        id="pan-down"
-        class="control-hitbox"
-        type="button"
-        aria-label="Pan camera down along the X axis"
-        disabled
-      ></button>
-      <button
-        id="pan-left"
-        class="control-hitbox"
-        type="button"
-        aria-label="Pan camera left along the Y axis"
-        disabled
-      ></button>
-      <button
-        id="pan-right"
-        class="control-hitbox"
-        type="button"
-        aria-label="Pan camera right along the Y axis"
-        disabled
-      ></button>
-      <button
-        id="reset-camera"
-        class="control-hitbox"
-        type="button"
-        aria-label="Reset camera X and Y position to centre"
-        disabled
-      ></button>
+      <button id="level-up" class="control-hitbox" type="button" aria-label="Show next higher Z level" disabled></button>
+      <button id="reset-level" class="control-hitbox" type="button" aria-label="Reset to default Z level" disabled></button>
+      <button id="level-down" class="control-hitbox" type="button" aria-label="Show next lower Z level" disabled></button>
+
+      <button id="rotate-counterclockwise" class="control-hitbox" type="button" aria-label="Rotate camera 45 degrees counter-clockwise around Z" disabled></button>
+      <button id="reset-yaw" class="control-hitbox" type="button" aria-label="Reset camera yaw to 0 degrees" disabled></button>
+      <button id="rotate-clockwise" class="control-hitbox" type="button" aria-label="Rotate camera 45 degrees clockwise around Z" disabled></button>
+
+      <button id="pan-up" class="control-hitbox" type="button" aria-label="Pan camera up along X" disabled></button>
+      <button id="pan-down" class="control-hitbox" type="button" aria-label="Pan camera down along X" disabled></button>
+      <button id="pan-left" class="control-hitbox" type="button" aria-label="Pan camera left along Y" disabled></button>
+      <button id="pan-right" class="control-hitbox" type="button" aria-label="Pan camera right along Y" disabled></button>
+      <button id="reset-camera" class="control-hitbox" type="button" aria-label="Reset camera X and Y position" disabled></button>
     </div>
 
     <div id="loading" class="loading" role="status" aria-live="polite">Rendering C++ / WASM…</div>
-    <div id="view-status" class="visually-hidden" role="status" aria-live="polite">Camera view 0 degrees around Z</div>
-
-    <div class="badge" aria-hidden="true">
-      <strong>isoweb</strong>
-      <span>DFPSR · C++ · WASM · ray cast</span>
-    </div>
+    <div id="view-status" class="visually-hidden" role="status" aria-live="polite">Camera ready</div>
   </main>
 
   <script>
@@ -113,10 +47,13 @@
         const viewport = document.getElementById('viewport');
         const zoomIn = document.getElementById('zoom-in');
         const resetZoom = document.getElementById('reset-zoom');
+        const zoomOut = document.getElementById('zoom-out');
+        const levelUp = document.getElementById('level-up');
+        const resetLevel = document.getElementById('reset-level');
+        const levelDown = document.getElementById('level-down');
         const counterClockwise = document.getElementById('rotate-counterclockwise');
         const resetYaw = document.getElementById('reset-yaw');
         const clockwise = document.getElementById('rotate-clockwise');
-        const zoomOut = document.getElementById('zoom-out');
         const panUp = document.getElementById('pan-up');
         const panDown = document.getElementById('pan-down');
         const panLeft = document.getElementById('pan-left');
@@ -128,11 +65,12 @@
         const RESET_DISK_SIZE = 38;
         const ROTATE_LEFT_X = 18;
         const ROTATE_ROW_GAP = 8;
+        const CONTROL_BOTTOM = 18;
+
         const ZOOM_CONTROL_SIZE = 32;
         const ZOOM_LEFT = 18;
         const ZOOM_TOP = 18;
         const ZOOM_GAP = 6;
-        const CONTROL_BOTTOM = 18;
 
         const PAN_ARROW_SIZE = 38;
         const PAN_X_STEP = 48;
@@ -140,12 +78,15 @@
         const PAN_PAD_RIGHT = 18;
         const PAN_PAD_BOTTOM = 16;
 
+        const LEVEL_RIGHT = 18;
+        const LEVEL_TOP = 18;
+        const LEVEL_GAP = 6;
+
         const PAN_BUTTON_STEP = 0.34;
         const MAX_RENDER_PIXELS = 360000;
-        const ZOOM_WHEEL_THRESHOLD = 70;
+        const WHEEL_STEP_THRESHOLD = 70;
         const PINCH_STEP_RATIO_IN = 1.14;
         const PINCH_STEP_RATIO_OUT = 0.88;
-        const YAW_WHEEL_THRESHOLD = 70;
         const TOUCH_ROTATE_STEP = Math.PI / 8;
 
         let renderWidth = 512;
@@ -154,23 +95,20 @@
         let pendingPanX = 0;
         let pendingPanY = 0;
         let panFrame = 0;
+        let zoomWheelAccumulator = 0;
+        let yawWheelAccumulator = 0;
         const touchPointers = new Map();
         let pinchDistance = 0;
         let touchRotationAngle = 0;
         let touchRotationAccumulator = 0;
-        let touchRotationActive = false;
-        let zoomWheelAccumulator = 0;
-        let yawWheelAccumulator = 0;
+        let twoFingerGesture = false;
         const detailedZoomMode = new URLSearchParams(window.location.search).get('detailed') === '1';
 
         function chooseRenderSize(cssWidth, cssHeight) {
           const safeWidth = Math.max(160, Math.round(cssWidth));
           const safeHeight = Math.max(160, Math.round(cssHeight));
           const pixels = safeWidth * safeHeight;
-          const scale = pixels > MAX_RENDER_PIXELS
-            ? Math.sqrt(MAX_RENDER_PIXELS / pixels)
-            : 1;
-
+          const scale = pixels > MAX_RENDER_PIXELS ? Math.sqrt(MAX_RENDER_PIXELS / pixels) : 1;
           return {
             width: Math.max(160, Math.round(safeWidth * scale)),
             height: Math.max(160, Math.round(safeHeight * scale))
@@ -181,7 +119,6 @@
           const rect = viewport.getBoundingClientRect();
           const scaleX = rect.width / renderWidth;
           const scaleY = rect.height / renderHeight;
-
           let left = renderX * scaleX;
           let top = renderY * scaleY;
           let width = renderW * scaleX;
@@ -203,7 +140,6 @@
         }
 
         function positionControls() {
-          // Independent zoom stack in the top-left: +, 1x reset disk, -.
           const zoomX = ZOOM_LEFT + (RESET_DISK_SIZE - ZOOM_CONTROL_SIZE) * 0.5;
           const zoomResetX = ZOOM_LEFT;
           const zoomInTop = ZOOM_TOP;
@@ -213,19 +149,245 @@
           setHitbox(resetZoom, zoomResetX, zoomResetTop, RESET_DISK_SIZE, RESET_DISK_SIZE, 44);
           setHitbox(zoomOut, zoomX, zoomOutTop, ZOOM_CONTROL_SIZE, ZOOM_CONTROL_SIZE, 44);
 
-          // Yaw stays grouped at the bottom-left.
-          const yawRowTop = renderHeight - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
+          const levelX = renderWidth - LEVEL_RIGHT - PAN_ARROW_SIZE;
+          const levelResetX = levelX + (PAN_ARROW_SIZE - RESET_DISK_SIZE) * 0.5;
+          const levelUpTop = LEVEL_TOP;
+          const levelResetTop = levelUpTop + PAN_ARROW_SIZE + LEVEL_GAP;
+          const levelDownTop = levelResetTop + RESET_DISK_SIZE + LEVEL_GAP;
+          setHitbox(levelUp, levelX, levelUpTop, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+          setHitbox(resetLevel, levelResetX, levelResetTop, RESET_DISK_SIZE, RESET_DISK_SIZE, 44);
+          setHitbox(levelDown, levelX, levelDownTop, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+
+          const yawTop = renderHeight - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
           const counterClockwiseX = ROTATE_LEFT_X;
           const resetYawX = counterClockwiseX + ROTATE_ARROW_WIDTH + ROTATE_ROW_GAP;
           const clockwiseX = resetYawX + RESET_DISK_SIZE + ROTATE_ROW_GAP;
-          const resetYawTop = yawRowTop + (ROTATE_ARROW_HEIGHT - RESET_DISK_SIZE) * 0.5;
-          setHitbox(counterClockwise, counterClockwiseX, yawRowTop, ROTATE_ARROW_WIDTH, ROTATE_ARROW_HEIGHT, 44);
+          const resetYawTop = yawTop + (ROTATE_ARROW_HEIGHT - RESET_DISK_SIZE) * 0.5;
+          setHitbox(counterClockwise, counterClockwiseX, yawTop, ROTATE_ARROW_WIDTH, ROTATE_ARROW_HEIGHT, 44);
           setHitbox(resetYaw, resetYawX, resetYawTop, RESET_DISK_SIZE, RESET_DISK_SIZE, 44);
-          setHitbox(clockwise, clockwiseX, yawRowTop, ROTATE_ARROW_WIDTH, ROTATE_ARROW_HEIGHT, 44);
+          setHitbox(clockwise, clockwiseX, yawTop, ROTATE_ARROW_WIDTH, ROTATE_ARROW_HEIGHT, 44);
 
           const centreX = renderWidth - PAN_PAD_RIGHT - PAN_ARROW_SIZE - PAN_X_STEP;
           const centreY = renderHeight - PAN_PAD_BOTTOM - PAN_ARROW_SIZE - PAN_Y_STEP;
           setHitbox(panLeft, centreX - PAN_X_STEP, centreY, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
           setHitbox(resetCamera, centreX, centreY, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
           setHitbox(panRight, centreX + PAN_X_STEP, centreY, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
-          setHitbox(panU
+          setHitbox(panUp, centreX, centreY - PAN_Y_STEP, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+          setHitbox(panDown, centreX, centreY + PAN_Y_STEP, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+        }
+
+        function syncRendererSize() {
+          const rect = viewport.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return;
+          const size = chooseRenderSize(rect.width, rect.height);
+          renderWidth = size.width;
+          renderHeight = size.height;
+          positionControls();
+          Module._isoweb_resize(renderWidth, renderHeight);
+        }
+
+        function scheduleResize() {
+          if (resizeFrame) return;
+          resizeFrame = requestAnimationFrame(function () {
+            resizeFrame = 0;
+            syncRendererSize();
+          });
+        }
+
+        function pixelsToWorld(pixels) {
+          const rect = viewport.getBoundingClientRect();
+          if (rect.height <= 0) return 0;
+          const viewHeight = Number(window.isowebViewHeightWorld) || 6.15;
+          return pixels * (viewHeight / rect.height);
+        }
+
+        function queuePan(screenRight, screenDown) {
+          pendingPanX += screenRight;
+          pendingPanY += screenDown;
+          if (panFrame) return;
+          panFrame = requestAnimationFrame(function () {
+            const right = pendingPanX;
+            const down = pendingPanY;
+            pendingPanX = 0;
+            pendingPanY = 0;
+            panFrame = 0;
+            if (right !== 0 || down !== 0) Module._isoweb_pan(right, down);
+          });
+        }
+
+        function zoomStep(direction) {
+          if (direction > 0) Module._isoweb_zoom_in();
+          else if (direction < 0) Module._isoweb_zoom_out();
+        }
+
+        function yawStep(clockwiseDirection) {
+          if (clockwiseDirection) Module._isoweb_rotate_clockwise();
+          else Module._isoweb_rotate_counterclockwise();
+        }
+
+        zoomIn.addEventListener('click', function () { zoomStep(1); });
+        resetZoom.addEventListener('click', function () { Module._isoweb_reset_zoom(); });
+        zoomOut.addEventListener('click', function () { zoomStep(-1); });
+        levelUp.addEventListener('click', function () { Module._isoweb_level_up(); });
+        resetLevel.addEventListener('click', function () { Module._isoweb_reset_level(); });
+        levelDown.addEventListener('click', function () { Module._isoweb_level_down(); });
+        counterClockwise.addEventListener('click', function () { yawStep(false); });
+        resetYaw.addEventListener('click', function () { Module._isoweb_reset_yaw(); });
+        clockwise.addEventListener('click', function () { yawStep(true); });
+        panUp.addEventListener('click', function () { queuePan(0, PAN_BUTTON_STEP); });
+        panDown.addEventListener('click', function () { queuePan(0, -PAN_BUTTON_STEP); });
+        panLeft.addEventListener('click', function () { queuePan(-PAN_BUTTON_STEP, 0); });
+        panRight.addEventListener('click', function () { queuePan(PAN_BUTTON_STEP, 0); });
+        resetCamera.addEventListener('click', function () { Module._isoweb_reset_camera(); });
+
+        viewport.addEventListener('wheel', function (event) {
+          event.preventDefault();
+          const rect = viewport.getBoundingClientRect();
+          let delta = event.deltaY;
+          if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) delta *= 16;
+          else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) delta *= rect.height;
+
+          if (event.altKey) {
+            zoomWheelAccumulator += delta;
+            while (zoomWheelAccumulator <= -WHEEL_STEP_THRESHOLD) {
+              zoomStep(1);
+              zoomWheelAccumulator += WHEEL_STEP_THRESHOLD;
+            }
+            while (zoomWheelAccumulator >= WHEEL_STEP_THRESHOLD) {
+              zoomStep(-1);
+              zoomWheelAccumulator -= WHEEL_STEP_THRESHOLD;
+            }
+            return;
+          }
+
+          if (event.shiftKey) {
+            const shiftDelta = Math.abs(delta) > 0.01 ? delta : event.deltaX;
+            yawWheelAccumulator += shiftDelta;
+            while (yawWheelAccumulator >= WHEEL_STEP_THRESHOLD) {
+              yawStep(true);
+              yawWheelAccumulator -= WHEEL_STEP_THRESHOLD;
+            }
+            while (yawWheelAccumulator <= -WHEEL_STEP_THRESHOLD) {
+              yawStep(false);
+              yawWheelAccumulator += WHEEL_STEP_THRESHOLD;
+            }
+            return;
+          }
+
+          zoomWheelAccumulator = 0;
+          yawWheelAccumulator = 0;
+          const worldDelta = pixelsToWorld(delta) * 0.35;
+          if (event.ctrlKey) queuePan(worldDelta, 0);
+          else queuePan(0, worldDelta);
+        }, { passive: false });
+
+        function pointerPair() {
+          if (touchPointers.size < 2) return null;
+          const points = Array.from(touchPointers.values());
+          return [points[0], points[1]];
+        }
+
+        function pairDistance(pair) {
+          return Math.hypot(pair[0].x - pair[1].x, pair[0].y - pair[1].y);
+        }
+
+        function pairAngle(pair) {
+          return Math.atan2(pair[1].y - pair[0].y, pair[1].x - pair[0].x);
+        }
+
+        function normaliseAngle(angle) {
+          while (angle > Math.PI) angle -= Math.PI * 2;
+          while (angle < -Math.PI) angle += Math.PI * 2;
+          return angle;
+        }
+
+        function initialiseTwoFingerGesture() {
+          const pair = pointerPair();
+          if (!pair) return;
+          twoFingerGesture = true;
+          pinchDistance = pairDistance(pair);
+          touchRotationAngle = pairAngle(pair);
+          touchRotationAccumulator = 0;
+        }
+
+        viewport.addEventListener('pointerdown', function (event) {
+          if (event.pointerType === 'mouse' || event.target.closest('button')) return;
+          touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+          viewport.setPointerCapture(event.pointerId);
+          if (touchPointers.size === 2) initialiseTwoFingerGesture();
+        });
+
+        viewport.addEventListener('pointermove', function (event) {
+          const previous = touchPointers.get(event.pointerId);
+          if (!previous) return;
+          const next = { x: event.clientX, y: event.clientY };
+          touchPointers.set(event.pointerId, next);
+
+          if (touchPointers.size >= 2) {
+            const pair = pointerPair();
+            if (!pair) return;
+            const distance = pairDistance(pair);
+            const angle = pairAngle(pair);
+
+            if (pinchDistance > 0) {
+              const ratio = distance / pinchDistance;
+              if (ratio >= PINCH_STEP_RATIO_IN) {
+                zoomStep(1);
+                pinchDistance = distance;
+              } else if (ratio <= PINCH_STEP_RATIO_OUT) {
+                zoomStep(-1);
+                pinchDistance = distance;
+              }
+            } else {
+              pinchDistance = distance;
+            }
+
+            const angleDelta = normaliseAngle(angle - touchRotationAngle);
+            touchRotationAngle = angle;
+            touchRotationAccumulator += angleDelta;
+            while (touchRotationAccumulator >= TOUCH_ROTATE_STEP) {
+              yawStep(true);
+              touchRotationAccumulator -= TOUCH_ROTATE_STEP;
+            }
+            while (touchRotationAccumulator <= -TOUCH_ROTATE_STEP) {
+              yawStep(false);
+              touchRotationAccumulator += TOUCH_ROTATE_STEP;
+            }
+            return;
+          }
+
+          if (twoFingerGesture) return;
+          const dx = next.x - previous.x;
+          const dy = next.y - previous.y;
+          queuePan(-pixelsToWorld(dx), -pixelsToWorld(dy));
+        });
+
+        function endPointer(event) {
+          if (!touchPointers.has(event.pointerId)) return;
+          touchPointers.delete(event.pointerId);
+          if (touchPointers.size >= 2) {
+            initialiseTwoFingerGesture();
+          } else if (touchPointers.size === 0) {
+            twoFingerGesture = false;
+            pinchDistance = 0;
+            touchRotationAccumulator = 0;
+          }
+        }
+
+        viewport.addEventListener('pointerup', endPointer);
+        viewport.addEventListener('pointercancel', endPointer);
+        window.addEventListener('resize', scheduleResize);
+        window.addEventListener('orientationchange', scheduleResize);
+        if (window.visualViewport) window.visualViewport.addEventListener('resize', scheduleResize);
+
+        const observer = new ResizeObserver(scheduleResize);
+        observer.observe(viewport);
+
+        Module._isoweb_set_detailed_mode(detailedZoomMode ? 1 : 0);
+        syncRendererSize();
+      }
+    };
+  </script>
+  <script src="./assets/isoweb.js"></script>
+</body>
+</html>

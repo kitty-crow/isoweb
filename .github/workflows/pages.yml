@@ -30,7 +30,9 @@ jobs:
 
       - name: Install Pages template dependencies
         working-directory: vendor/pages
-        run: bun install --frozen-lockfile
+        run: |
+          npm pkg set devDependencies.playwright=1.62.1
+          bun install
 
       - name: Check Pages configuration
         run: bun run check
