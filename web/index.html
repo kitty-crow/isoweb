@@ -33,15 +33,39 @@
         disabled
       ></button>
 
-      <button id="pan-up" class="control-hitbox" type="button" aria-label="Pan camera up" disabled></button>
-      <button id="pan-down" class="control-hitbox" type="button" aria-label="Pan camera down" disabled></button>
-      <button id="pan-left" class="control-hitbox" type="button" aria-label="Pan camera left" disabled></button>
-      <button id="pan-right" class="control-hitbox" type="button" aria-label="Pan camera right" disabled></button>
+      <button
+        id="pan-up"
+        class="control-hitbox"
+        type="button"
+        aria-label="Pan camera up along the projected Y axis"
+        disabled
+      ></button>
+      <button
+        id="pan-down"
+        class="control-hitbox"
+        type="button"
+        aria-label="Pan camera down along the projected Y axis"
+        disabled
+      ></button>
+      <button
+        id="pan-left"
+        class="control-hitbox"
+        type="button"
+        aria-label="Pan camera left along the horizontal X axis"
+        disabled
+      ></button>
+      <button
+        id="pan-right"
+        class="control-hitbox"
+        type="button"
+        aria-label="Pan camera right along the horizontal X axis"
+        disabled
+      ></button>
       <button
         id="reset-camera"
         class="control-hitbox"
         type="button"
-        aria-label="Reset camera to the default position and viewpoint"
+        aria-label="Reset camera X and Y position to centre"
         disabled
       ></button>
     </div>
@@ -75,7 +99,8 @@
         const CONTROL_BOTTOM = 18;
 
         const PAN_ARROW_SIZE = 38;
-        const PAN_PAD_STEP = 40;
+        const PAN_X_STEP = 48;
+        const PAN_Y_STEP = 36;
         const PAN_PAD_RIGHT = 18;
         const PAN_PAD_BOTTOM = 16;
 
@@ -154,15 +179,51 @@
             44
           );
 
-          const padSpan = PAN_ARROW_SIZE + PAN_PAD_STEP * 2;
-          const padLeft = renderWidth - PAN_PAD_RIGHT - padSpan;
-          const padTop = renderHeight - PAN_PAD_BOTTOM - padSpan;
+          // Reset disk is the origin of the visual X/Y axis control.
+          // X is horizontal, while Y is the diagonal isometric ground axis.
+          const centreX = renderWidth - PAN_PAD_RIGHT - PAN_ARROW_SIZE - PAN_X_STEP;
+          const centreY = renderHeight - PAN_PAD_BOTTOM - PAN_ARROW_SIZE - PAN_Y_STEP;
 
-          setHitbox(panUp, padLeft + PAN_PAD_STEP, padTop, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
-          setHitbox(panLeft, padLeft, padTop + PAN_PAD_STEP, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
-          setHitbox(resetCamera, padLeft + PAN_PAD_STEP, padTop + PAN_PAD_STEP, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
-          setHitbox(panRight, padLeft + PAN_PAD_STEP * 2, padTop + PAN_PAD_STEP, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
-          setHitbox(panDown, padLeft + PAN_PAD_STEP, padTop + PAN_PAD_STEP * 2, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+          setHitbox(
+            panLeft,
+            centreX - PAN_X_STEP,
+            centreY,
+            PAN_ARROW_SIZE,
+            PAN_ARROW_SIZE,
+            44
+          );
+          setHitbox(
+            resetCamera,
+            centreX,
+            centreY,
+            PAN_ARROW_SIZE,
+            PAN_ARROW_SIZE,
+            44
+          );
+          setHitbox(
+            panRight,
+            centreX + PAN_X_STEP,
+            centreY,
+            PAN_ARROW_SIZE,
+            PAN_ARROW_SIZE,
+            44
+          );
+          setHitbox(
+            panUp,
+            centreX + PAN_Y_STEP,
+            centreY - PAN_Y_STEP,
+            PAN_ARROW_SIZE,
+            PAN_ARROW_SIZE,
+            44
+          );
+          setHitbox(
+            panDown,
+            centreX - PAN_Y_STEP,
+            centreY + PAN_Y_STEP,
+            PAN_ARROW_SIZE,
+            PAN_ARROW_SIZE,
+            44
+          );
         }
 
         function syncRendererSize() {
@@ -220,8 +281,8 @@
           Module._isoweb_rotate_clockwise();
         });
 
-        // D-pad describes camera movement, so its Y direction is intentionally
-        // opposite to wheel scrolling.
+        // These calls are intentionally unchanged. Only the visual layout of
+        // the Y pair is diagonal. D-pad Y remains opposite to wheel scrolling.
         panUp.addEventListener('click', function () {
           queuePan(0, PAN_BUTTON_STEP);
         });
