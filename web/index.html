@@ -9,7 +9,7 @@
 </head>
 <body>
   <main class="scene" aria-label="Interactive isometric ray-traced scene">
-    <div class="viewport">
+    <div id="viewport" class="viewport">
       <canvas
         id="canvas"
         width="512"
@@ -20,16 +20,45 @@
 
       <button
         id="rotate-counterclockwise"
-        class="rotation-hitbox rotation-hitbox--left"
+        class="control-hitbox rotation-hitbox rotation-hitbox--counterclockwise"
         type="button"
         aria-label="Rotate camera 90 degrees counter-clockwise around the Z axis"
         disabled
       ></button>
       <button
         id="rotate-clockwise"
-        class="rotation-hitbox rotation-hitbox--right"
+        class="control-hitbox rotation-hitbox rotation-hitbox--clockwise"
         type="button"
         aria-label="Rotate camera 90 degrees clockwise around the Z axis"
+        disabled
+      ></button>
+
+      <button
+        id="pan-up"
+        class="control-hitbox pan-hitbox pan-hitbox--up"
+        type="button"
+        aria-label="Pan camera up across the X/Y ground plane"
+        disabled
+      ></button>
+      <button
+        id="pan-down"
+        class="control-hitbox pan-hitbox pan-hitbox--down"
+        type="button"
+        aria-label="Pan camera down across the X/Y ground plane"
+        disabled
+      ></button>
+      <button
+        id="pan-left"
+        class="control-hitbox pan-hitbox pan-hitbox--left"
+        type="button"
+        aria-label="Pan camera left across the X/Y ground plane"
+        disabled
+      ></button>
+      <button
+        id="pan-right"
+        class="control-hitbox pan-hitbox pan-hitbox--right"
+        type="button"
+        aria-label="Pan camera right across the X/Y ground plane"
         disabled
       ></button>
     </div>
@@ -46,33 +75,122 @@
   <script>
     var Module = {
       onRuntimeInitialized: function () {
+        const viewport = document.getElementById('viewport');
+        const controls = Array.from(document.querySelectorAll('.control-hitbox'));
         const counterClockwise = document.getElementById('rotate-counterclockwise');
         const clockwise = document.getElementById('rotate-clockwise');
-        let rotating = false;
+        const panUp = document.getElementById('pan-up');
+        const panDown = document.getElementById('pan-down');
+        const panLeft = document.getElementById('pan-left');
+        const panRight = document.getElementById('pan-right');
+
+        const PAN_BUTTON_STEP = 0.34;
+        const VIEW_HEIGHT_WORLD = 6.15;
+        let pendingPanX = 0;
+        let pendingPanY = 0;
+        let panFrame = 0;
+        let pointerId = null;
+        let pointerX = 0;
+        let pointerY = 0;
 
         Module._isoweb_render();
-        counterClockwise.disabled = false;
-        clockwise.disabled = false;
+        controls.forEach(function (control) {
+          control.disabled = false;
+        });
 
-        function rotate(callback) {
-          if (rotating) return;
-          rotating = true;
-          counterClockwise.disabled = true;
-          clockwise.disabled = true;
-          requestAnimationFrame(function () {
-            callback();
-            counterClockwise.disabled = false;
-            clockwise.disabled = false;
-            rotating = false;
+        function queuePan(screenRight, screenDown) {
+          pendingPanX += screenRight;
+          pendingPanY += screenDown;
+          if (panFrame) return;
+
+          panFrame = requestAnimationFrame(function () {
+            const x = pendingPanX;
+            const y = pendingPanY;
+            pendingPanX = 0;
+            pendingPanY = 0;
+            panFrame = 0;
+            if (x !== 0 || y !== 0) {
+              Module._isoweb_pan(x, y);
+            }
           });
         }
 
+        function pixelsToWorld(pixels) {
+          const rect = viewport.getBoundingClientRect();
+          if (rect.height <= 0) return 0;
+          return pixels * (VIEW_HEIGHT_WORLD / rect.height);
+        }
+
         counterClockwise.addEventListener('click', function () {
-          rotate(Module._isoweb_rotate_counterclockwise);
+          Module._isoweb_rotate_counterclockwise();
         });
+
         clockwise.addEventListener('click', function () {
-          rotate(Module._isoweb_rotate_clockwise);
+          Module._isoweb_rotate_clockwise();
         });
+
+        panUp.addEventListener('click', function () {
+          queuePan(0, -PAN_BUTTON_STEP);
+        });
+
+        panDown.addEventListener('click', function () {
+          queuePan(0, PAN_BUTTON_STEP);
+        });
+
+        panLeft.addEventListener('click', function () {
+          queuePan(-PAN_BUTTON_STEP, 0);
+        });
+
+        panRight.addEventListener('click', function () {
+          queuePan(PAN_BUTTON_STEP, 0);
+        });
+
+        viewport.addEventListener('wheel', function (event) {
+          event.preventDefault();
+
+          const rect = viewport.getBoundingClientRect();
+          let delta = event.deltaY;
+          if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+            delta *= 16;
+          } else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+            delta *= rect.height;
+          }
+
+          const worldDelta = pixelsToWorld(delta) * 0.35;
+          if (event.ctrlKey) {
+            queuePan(worldDelta, 0);
+          } else {
+            queuePan(0, worldDelta);
+          }
+        }, { passive: false });
+
+        viewport.addEventListener('pointerdown', function (event) {
+          if (event.pointerType === 'mouse' || event.target.closest('button')) return;
+          pointerId = event.pointerId;
+          pointerX = event.clientX;
+          pointerY = event.clientY;
+          viewport.setPointerCapture(pointerId);
+        });
+
+        viewport.addEventListener('pointermove', function (event) {
+          if (event.pointerId !== pointerId) return;
+
+          const dx = event.clientX - pointerX;
+          const dy = event.clientY - pointerY;
+          pointerX = event.clientX;
+          pointerY = event.clientY;
+
+          // Touch dragging behaves like dragging a map: the scene follows the finger.
+          queuePan(-pixelsToWorld(dx), -pixelsToWorld(dy));
+        });
+
+        function endPointer(event) {
+          if (event.pointerId !== pointerId) return;
+          pointerId = null;
+        }
+
+        viewport.addEventListener('pointerup', endPointer);
+        viewport.addEventListener('pointercancel', endPointer);
       }
     };
   </script>

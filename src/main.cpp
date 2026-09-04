@@ -11,13 +11,24 @@ namespace {
 
 constexpr int FRAME_WIDTH = 512;
 constexpr int FRAME_HEIGHT = 288;
-constexpr int ARROW_WIDTH = 56;
-constexpr int ARROW_HEIGHT = 44;
-constexpr int ARROW_MARGIN_X = 18;
-constexpr int ARROW_MARGIN_Y = 18;
+
+constexpr int ROTATE_ARROW_WIDTH = 56;
+constexpr int ROTATE_ARROW_HEIGHT = 44;
+constexpr int ROTATE_LEFT_X = 18;
+constexpr int ROTATE_GAP = 10;
+constexpr int CONTROL_BOTTOM = 18;
+
+constexpr int PAN_ARROW_SIZE = 38;
+constexpr int PAN_PAD_STEP = 40;
+constexpr int PAN_PAD_RIGHT = 18;
+constexpr int PAN_PAD_BOTTOM = 16;
+
 constexpr float EPSILON = 0.0015f;
 constexpr float FAR_DISTANCE = 1000.0f;
 constexpr float PI = 3.14159265358979323846f;
+constexpr float GROUND_LIMIT = 4.40f;
+constexpr float PAN_EDGE_INSET = 1.15f;
+constexpr float PAN_LIMIT = GROUND_LIMIT - PAN_EDGE_INSET;
 
 struct Vec3 {
     float x;
@@ -89,15 +100,40 @@ struct Hit {
     Hit() : found(false), t(FAR_DISTANCE), point(), normal(), surface(Surface::None) {}
 };
 
-// Z is the world-up axis. The scene never rotates; only the camera does.
+// Z is world-up. The world, objects and light never rotate or pan.
+// Only the camera focus moves in X/Y and yaws in quarter turns around Z.
 const Vec3 CUBE_MIN(-1.85f, -0.15f, 0.0f);
 const Vec3 CUBE_MAX(-0.25f, 1.45f, 1.55f);
 const Vec3 SPHERE_CENTRE(1.05f, -0.25f, 0.90f);
 constexpr float SPHERE_RADIUS = 0.90f;
-constexpr float GROUND_LIMIT = 4.40f;
 const Vec3 LIGHT_POSITION(-3.60f, -4.20f, 6.50f);
+const Vec3 BASE_FOCUS(0.0f, 0.15f, 0.55f);
 
 int cameraQuarterTurns = 0;
+float cameraPanX = 0.0f;
+float cameraPanY = 0.0f;
+
+Vec3 cameraForward() {
+    return rotateQuarterAroundZ(normalise(Vec3(1.0f, 1.0f, -1.0f)), cameraQuarterTurns);
+}
+
+Vec3 cameraGroundRight() {
+    return normalise(cross(cameraForward(), Vec3(0.0f, 0.0f, 1.0f)));
+}
+
+Vec3 cameraGroundDown() {
+    const Vec3 forward = cameraForward();
+    return normalise(Vec3(forward.x, forward.y, 0.0f));
+}
+
+void panCameraOnGround(float screenRight, float screenDown) {
+    const Vec3 groundRight = cameraGroundRight();
+    const Vec3 groundDown = cameraGroundDown();
+    const Vec3 delta = groundRight * screenRight + groundDown * screenDown;
+
+    cameraPanX = std::max(-PAN_LIMIT, std::min(PAN_LIMIT, cameraPanX + delta.x));
+    cameraPanY = std::max(-PAN_LIMIT, std::min(PAN_LIMIT, cameraPanY + delta.y));
+}
 
 bool intersectSphere(const Ray& ray, float tMin, float tMax, Hit& hit) {
     const Vec3 oc = ray.origin - SPHERE_CENTRE;
@@ -266,8 +302,7 @@ Vec3 backgroundColour(float normalisedY) {
 }
 
 Vec3 traceSample(float pixelX, float pixelY) {
-    const Vec3 baseForward = normalise(Vec3(1.0f, 1.0f, -1.0f));
-    const Vec3 forward = rotateQuarterAroundZ(baseForward, cameraQuarterTurns);
+    const Vec3 forward = cameraForward();
     const Vec3 worldUp(0.0f, 0.0f, 1.0f);
     const Vec3 right = normalise(cross(forward, worldUp));
     const Vec3 up = normalise(cross(right, forward));
@@ -278,7 +313,7 @@ Vec3 traceSample(float pixelX, float pixelY) {
     const float screenX = ((pixelX / static_cast<float>(FRAME_WIDTH)) - 0.5f) * viewWidth;
     const float screenY = (0.5f - (pixelY / static_cast<float>(FRAME_HEIGHT))) * viewHeight;
 
-    const Vec3 focus(0.0f, 0.15f, 0.55f);
+    const Vec3 focus = BASE_FOCUS + Vec3(cameraPanX, cameraPanY, 0.0f);
     const Vec3 rayOrigin = focus - forward * 9.0f + right * screenX + up * screenY;
     const Ray ray{rayOrigin, forward};
     const Hit hit = traceClosest(ray, EPSILON, FAR_DISTANCE);
@@ -347,30 +382,74 @@ float clockwiseArrowDistance(float px, float py) {
     return minimum;
 }
 
+float directionalArrowDistance(float px, float py, float dx, float dy) {
+    const float cx = PAN_ARROW_SIZE * 0.5f;
+    const float cy = PAN_ARROW_SIZE * 0.5f;
+    const float pxNormal = -dy;
+    const float pyNormal = dx;
+
+    const float tailX = cx - dx * 10.0f;
+    const float tailY = cy - dy * 10.0f;
+    const float neckX = cx + dx * 5.0f;
+    const float neckY = cy + dy * 5.0f;
+    const float tipX = cx + dx * 13.0f;
+    const float tipY = cy + dy * 13.0f;
+
+    float minimum = distanceToSegment(px, py, tailX, tailY, neckX, neckY);
+    minimum = std::min(
+        minimum,
+        distanceToSegment(px, py, tipX, tipY, neckX + pxNormal * 6.0f, neckY + pyNormal * 6.0f)
+    );
+    minimum = std::min(
+        minimum,
+        distanceToSegment(px, py, tipX, tipY, neckX - pxNormal * 6.0f, neckY - pyNormal * 6.0f)
+    );
+    return minimum;
+}
+
 dsr::OrderedImageRgbaU8 frame;
 dsr::OrderedImageRgbaU8 clockwiseArrowSprite;
 dsr::OrderedImageRgbaU8 counterClockwiseArrowSprite;
+dsr::OrderedImageRgbaU8 panUpSprite;
+dsr::OrderedImageRgbaU8 panDownSprite;
+dsr::OrderedImageRgbaU8 panLeftSprite;
+dsr::OrderedImageRgbaU8 panRightSprite;
 std::vector<std::uint8_t> rgba;
 
-void buildArrowSprite(dsr::OrderedImageRgbaU8& sprite, bool mirrorHorizontally) {
-    sprite = dsr::image_create_RgbaU8(ARROW_WIDTH, ARROW_HEIGHT, true);
+void writeSpritePixel(dsr::OrderedImageRgbaU8& sprite, int x, int y, float distance) {
+    const float outerCoverage = std::max(0.0f, std::min(1.0f, 3.6f - distance));
+    if (outerCoverage <= 0.0f) return;
+
+    const float coreCoverage = std::max(0.0f, std::min(1.0f, 2.25f - distance));
+    const int alpha = static_cast<int>(outerCoverage * 235.0f + 0.5f);
+    const int shade = static_cast<int>(72.0f + coreCoverage * 178.0f + 0.5f);
+    dsr::image_writePixel(sprite, x, y, dsr::ColorRgbaI32(shade, shade, shade, alpha));
+}
+
+void buildRotateArrowSprite(dsr::OrderedImageRgbaU8& sprite, bool mirrorHorizontally) {
+    sprite = dsr::image_create_RgbaU8(ROTATE_ARROW_WIDTH, ROTATE_ARROW_HEIGHT, true);
     dsr::image_fill(sprite, dsr::ColorRgbaI32(0, 0, 0, 0));
 
-    for (int y = 0; y < ARROW_HEIGHT; ++y) {
-        for (int x = 0; x < ARROW_WIDTH; ++x) {
+    for (int y = 0; y < ROTATE_ARROW_HEIGHT; ++y) {
+        for (int x = 0; x < ROTATE_ARROW_WIDTH; ++x) {
             const float sampleX = mirrorHorizontally
-                ? static_cast<float>(ARROW_WIDTH - 1 - x) + 0.5f
+                ? static_cast<float>(ROTATE_ARROW_WIDTH - 1 - x) + 0.5f
                 : static_cast<float>(x) + 0.5f;
             const float sampleY = static_cast<float>(y) + 0.5f;
-            const float distance = clockwiseArrowDistance(sampleX, sampleY);
+            writeSpritePixel(sprite, x, y, clockwiseArrowDistance(sampleX, sampleY));
+        }
+    }
+}
 
-            const float outerCoverage = std::max(0.0f, std::min(1.0f, 3.6f - distance));
-            if (outerCoverage <= 0.0f) continue;
+void buildPanArrowSprite(dsr::OrderedImageRgbaU8& sprite, float dx, float dy) {
+    sprite = dsr::image_create_RgbaU8(PAN_ARROW_SIZE, PAN_ARROW_SIZE, true);
+    dsr::image_fill(sprite, dsr::ColorRgbaI32(0, 0, 0, 0));
 
-            const float coreCoverage = std::max(0.0f, std::min(1.0f, 2.25f - distance));
-            const int alpha = static_cast<int>(outerCoverage * 235.0f + 0.5f);
-            const int shade = static_cast<int>(72.0f + coreCoverage * 178.0f + 0.5f);
-            dsr::image_writePixel(sprite, x, y, dsr::ColorRgbaI32(shade, shade, shade, alpha));
+    for (int y = 0; y < PAN_ARROW_SIZE; ++y) {
+        for (int x = 0; x < PAN_ARROW_SIZE; ++x) {
+            const float sampleX = static_cast<float>(x) + 0.5f;
+            const float sampleY = static_cast<float>(y) + 0.5f;
+            writeSpritePixel(sprite, x, y, directionalArrowDistance(sampleX, sampleY, dx, dy));
         }
     }
 }
@@ -380,14 +459,38 @@ void ensureFrame() {
         frame = dsr::image_create_RgbaU8(FRAME_WIDTH, FRAME_HEIGHT, false);
     }
     if (!dsr::image_exists(clockwiseArrowSprite)) {
-        buildArrowSprite(clockwiseArrowSprite, false);
+        buildRotateArrowSprite(clockwiseArrowSprite, false);
     }
     if (!dsr::image_exists(counterClockwiseArrowSprite)) {
-        buildArrowSprite(counterClockwiseArrowSprite, true);
+        buildRotateArrowSprite(counterClockwiseArrowSprite, true);
+    }
+    if (!dsr::image_exists(panUpSprite)) {
+        buildPanArrowSprite(panUpSprite, 0.0f, -1.0f);
+        buildPanArrowSprite(panDownSprite, 0.0f, 1.0f);
+        buildPanArrowSprite(panLeftSprite, -1.0f, 0.0f);
+        buildPanArrowSprite(panRightSprite, 1.0f, 0.0f);
     }
     if (rgba.size() != static_cast<std::size_t>(FRAME_WIDTH * FRAME_HEIGHT * 4)) {
         rgba.resize(static_cast<std::size_t>(FRAME_WIDTH * FRAME_HEIGHT * 4));
     }
+}
+
+void renderScreenSpaceControls() {
+    const int rotateTop = FRAME_HEIGHT - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
+    const int counterClockwiseX = ROTATE_LEFT_X;
+    const int clockwiseX = ROTATE_LEFT_X + ROTATE_ARROW_WIDTH + ROTATE_GAP;
+
+    dsr::draw_alphaFilter(frame, counterClockwiseArrowSprite, counterClockwiseX, rotateTop);
+    dsr::draw_alphaFilter(frame, clockwiseArrowSprite, clockwiseX, rotateTop);
+
+    const int padSpan = PAN_ARROW_SIZE + PAN_PAD_STEP * 2;
+    const int padLeft = FRAME_WIDTH - PAN_PAD_RIGHT - padSpan;
+    const int padTop = FRAME_HEIGHT - PAN_PAD_BOTTOM - padSpan;
+
+    dsr::draw_alphaFilter(frame, panUpSprite, padLeft + PAN_PAD_STEP, padTop);
+    dsr::draw_alphaFilter(frame, panLeftSprite, padLeft, padTop + PAN_PAD_STEP);
+    dsr::draw_alphaFilter(frame, panRightSprite, padLeft + PAN_PAD_STEP * 2, padTop + PAN_PAD_STEP);
+    dsr::draw_alphaFilter(frame, panDownSprite, padLeft + PAN_PAD_STEP, padTop + PAN_PAD_STEP * 2);
 }
 
 void renderScene() {
@@ -399,7 +502,10 @@ void renderScene() {
             Vec3 colour;
             for (int sy = 0; sy < 2; ++sy) {
                 for (int sx = 0; sx < 2; ++sx) {
-                    colour = colour + traceSample(static_cast<float>(x) + offsets[sx], static_cast<float>(y) + offsets[sy]);
+                    colour = colour + traceSample(
+                        static_cast<float>(x) + offsets[sx],
+                        static_cast<float>(y) + offsets[sy]
+                    );
                 }
             }
             colour = colour * 0.25f;
@@ -413,10 +519,8 @@ void renderScene() {
         }
     }
 
-    // Screen-space UI is still rendered by DFPSR. The DOM only supplies invisible hitboxes.
-    const int arrowTop = FRAME_HEIGHT - ARROW_MARGIN_Y - ARROW_HEIGHT;
-    dsr::draw_alphaFilter(frame, counterClockwiseArrowSprite, ARROW_MARGIN_X, arrowTop);
-    dsr::draw_alphaFilter(frame, clockwiseArrowSprite, FRAME_WIDTH - ARROW_MARGIN_X - ARROW_WIDTH, arrowTop);
+    // Visible controls are engine-rendered sprites. DOM controls are transparent hitboxes only.
+    renderScreenSpaceControls();
 
     for (int y = 0; y < FRAME_HEIGHT; ++y) {
         for (int x = 0; x < FRAME_WIDTH; ++x) {
@@ -437,6 +541,8 @@ void presentScene() {
         const width = $1;
         const height = $2;
         const quarterTurns = $3;
+        const panX = $4;
+        const panY = $5;
         const canvas = document.getElementById('canvas');
         if (!canvas) return;
 
@@ -450,9 +556,13 @@ void presentScene() {
         document.documentElement.classList.add('wasm-ready');
         const loading = document.getElementById('loading');
         if (loading) loading.hidden = true;
+
         const status = document.getElementById('view-status');
-        if (status) status.textContent = `Camera view ${quarterTurns * 90} degrees around Z`;
-    }, pointer, FRAME_WIDTH, FRAME_HEIGHT, cameraQuarterTurns);
+        if (status) {
+            status.textContent =
+                `Camera ${quarterTurns * 90} degrees around Z, pan X ${panX.toFixed(2)}, Y ${panY.toFixed(2)}`;
+        }
+    }, pointer, FRAME_WIDTH, FRAME_HEIGHT, cameraQuarterTurns, cameraPanX, cameraPanY);
 }
 
 void redraw() {
@@ -473,5 +583,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_rotate_clockwise() {
 
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_rotate_counterclockwise() {
     cameraQuarterTurns = (cameraQuarterTurns + 3) & 3;
+    redraw();
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_pan(float screenRight, float screenDown) {
+    panCameraOnGround(screenRight, screenDown);
     redraw();
 }

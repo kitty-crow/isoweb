@@ -26,6 +26,9 @@ body {
   max-width: 100%;
   max-height: 100dvh;
   aspect-ratio: 16 / 9;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 #canvas {
@@ -36,20 +39,16 @@ body {
   background: #0f1720;
   opacity: 0;
   transition: opacity 160ms ease-out;
+  pointer-events: none;
 }
 
 .wasm-ready #canvas {
   opacity: 1;
 }
 
-.rotation-hitbox {
+.control-hitbox {
   position: absolute;
   z-index: 3;
-  bottom: 6.25%;
-  width: 10.9375%;
-  height: 15.2778%;
-  min-width: 44px;
-  min-height: 44px;
   padding: 0;
   border: 0;
   border-radius: 0.65rem;
@@ -59,28 +58,62 @@ body {
   cursor: pointer;
 }
 
-.rotation-hitbox--left {
-  left: 3.515625%;
-}
-
-.rotation-hitbox--right {
-  right: 3.515625%;
-}
-
-.rotation-hitbox:disabled {
+.control-hitbox:disabled {
   cursor: default;
 }
 
-.rotation-hitbox:focus-visible {
+.control-hitbox:focus-visible {
   outline: 2px solid rgb(255 255 255 / 92%);
   outline-offset: 2px;
+}
+
+.rotation-hitbox {
+  bottom: 6.25%;
+  width: 10.9375%;
+  height: 15.2778%;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.rotation-hitbox--counterclockwise {
+  left: 3.515625%;
+}
+
+.rotation-hitbox--clockwise {
+  left: 16.40625%;
+}
+
+.pan-hitbox {
+  width: 7.421875%;
+  height: 13.1944%;
+  min-width: 34px;
+  min-height: 34px;
+}
+
+.pan-hitbox--up {
+  left: 81.25%;
+  top: 53.4722%;
+}
+
+.pan-hitbox--left {
+  left: 73.4375%;
+  top: 67.3611%;
+}
+
+.pan-hitbox--right {
+  left: 89.0625%;
+  top: 67.3611%;
+}
+
+.pan-hitbox--down {
+  left: 81.25%;
+  top: 81.25%;
 }
 
 .loading,
 .badge {
   position: absolute;
   z-index: 4;
-  left: max(0.75rem, env(safe-area-inset-left));
   padding: 0.48rem 0.7rem;
   border: 1px solid rgb(255 255 255 / 14%);
   border-radius: 0.5rem;
@@ -92,6 +125,7 @@ body {
 
 .loading {
   top: max(0.75rem, env(safe-area-inset-top));
+  left: max(0.75rem, env(safe-area-inset-left));
 }
 
 .loading[hidden] {
@@ -99,7 +133,8 @@ body {
 }
 
 .badge {
-  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  top: max(0.75rem, env(safe-area-inset-top));
+  right: max(0.75rem, env(safe-area-inset-right));
   display: flex;
   gap: 0.65rem;
   align-items: baseline;
