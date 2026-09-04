@@ -1,5 +1,6 @@
 html,
 body {
+  width: 100%;
   min-width: 100%;
   min-height: 100%;
   margin: 0;
@@ -12,20 +13,17 @@ body {
 
 .scene {
   position: relative;
-  display: grid;
   width: 100%;
-  min-height: 100dvh;
-  place-items: center;
+  height: 100dvh;
   overflow: clip;
   background: #0f1720;
 }
 
 .viewport {
-  position: relative;
-  width: min(100vw, calc(100dvh * 16 / 9));
-  max-width: 100%;
-  max-height: 100dvh;
-  aspect-ratio: 16 / 9;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -35,7 +33,6 @@ body {
   display: block;
   width: 100%;
   height: 100%;
-  aspect-ratio: 16 / 9;
   background: #0f1720;
   opacity: 0;
   transition: opacity 160ms ease-out;
@@ -49,9 +46,11 @@ body {
 .control-hitbox {
   position: absolute;
   z-index: 3;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0;
   border: 0;
-  border-radius: 0.65rem;
+  border-radius: 999px;
   background: transparent;
   appearance: none;
   touch-action: manipulation;
@@ -65,49 +64,6 @@ body {
 .control-hitbox:focus-visible {
   outline: 2px solid rgb(255 255 255 / 92%);
   outline-offset: 2px;
-}
-
-.rotation-hitbox {
-  bottom: 6.25%;
-  width: 10.9375%;
-  height: 15.2778%;
-  min-width: 44px;
-  min-height: 44px;
-}
-
-.rotation-hitbox--counterclockwise {
-  left: 3.515625%;
-}
-
-.rotation-hitbox--clockwise {
-  left: 16.40625%;
-}
-
-.pan-hitbox {
-  width: 7.421875%;
-  height: 13.1944%;
-  min-width: 34px;
-  min-height: 34px;
-}
-
-.pan-hitbox--up {
-  left: 81.25%;
-  top: 53.4722%;
-}
-
-.pan-hitbox--left {
-  left: 73.4375%;
-  top: 67.3611%;
-}
-
-.pan-hitbox--right {
-  left: 89.0625%;
-  top: 67.3611%;
-}
-
-.pan-hitbox--down {
-  left: 81.25%;
-  top: 81.25%;
 }
 
 .loading,

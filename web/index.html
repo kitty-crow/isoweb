@@ -20,45 +20,28 @@
 
       <button
         id="rotate-counterclockwise"
-        class="control-hitbox rotation-hitbox rotation-hitbox--counterclockwise"
+        class="control-hitbox"
         type="button"
         aria-label="Rotate camera 90 degrees counter-clockwise around the Z axis"
         disabled
       ></button>
       <button
         id="rotate-clockwise"
-        class="control-hitbox rotation-hitbox rotation-hitbox--clockwise"
+        class="control-hitbox"
         type="button"
         aria-label="Rotate camera 90 degrees clockwise around the Z axis"
         disabled
       ></button>
 
+      <button id="pan-up" class="control-hitbox" type="button" aria-label="Pan camera up" disabled></button>
+      <button id="pan-down" class="control-hitbox" type="button" aria-label="Pan camera down" disabled></button>
+      <button id="pan-left" class="control-hitbox" type="button" aria-label="Pan camera left" disabled></button>
+      <button id="pan-right" class="control-hitbox" type="button" aria-label="Pan camera right" disabled></button>
       <button
-        id="pan-up"
-        class="control-hitbox pan-hitbox pan-hitbox--up"
+        id="reset-camera"
+        class="control-hitbox"
         type="button"
-        aria-label="Pan camera up across the X/Y ground plane"
-        disabled
-      ></button>
-      <button
-        id="pan-down"
-        class="control-hitbox pan-hitbox pan-hitbox--down"
-        type="button"
-        aria-label="Pan camera down across the X/Y ground plane"
-        disabled
-      ></button>
-      <button
-        id="pan-left"
-        class="control-hitbox pan-hitbox pan-hitbox--left"
-        type="button"
-        aria-label="Pan camera left across the X/Y ground plane"
-        disabled
-      ></button>
-      <button
-        id="pan-right"
-        class="control-hitbox pan-hitbox pan-hitbox--right"
-        type="button"
-        aria-label="Pan camera right across the X/Y ground plane"
+        aria-label="Reset camera to the default position and viewpoint"
         disabled
       ></button>
     </div>
@@ -83,9 +66,27 @@
         const panDown = document.getElementById('pan-down');
         const panLeft = document.getElementById('pan-left');
         const panRight = document.getElementById('pan-right');
+        const resetCamera = document.getElementById('reset-camera');
+
+        const ROTATE_ARROW_WIDTH = 56;
+        const ROTATE_ARROW_HEIGHT = 44;
+        const ROTATE_LEFT_X = 18;
+        const ROTATE_GAP = 10;
+        const CONTROL_BOTTOM = 18;
+
+        const PAN_ARROW_SIZE = 38;
+        const PAN_PAD_STEP = 40;
+        const PAN_PAD_RIGHT = 18;
+        const PAN_PAD_BOTTOM = 16;
 
         const PAN_BUTTON_STEP = 0.34;
-        const VIEW_HEIGHT_WORLD = 6.15;
+        const BASE_VIEW_HEIGHT = 6.15;
+        const MIN_VIEW_WIDTH = 5.50;
+        const MAX_RENDER_PIXELS = 360000;
+
+        let renderWidth = 512;
+        let renderHeight = 288;
+        let resizeFrame = 0;
         let pendingPanX = 0;
         let pendingPanY = 0;
         let panFrame = 0;
@@ -93,10 +94,106 @@
         let pointerX = 0;
         let pointerY = 0;
 
-        Module._isoweb_render();
-        controls.forEach(function (control) {
-          control.disabled = false;
-        });
+        function chooseRenderSize(cssWidth, cssHeight) {
+          const safeWidth = Math.max(160, Math.round(cssWidth));
+          const safeHeight = Math.max(160, Math.round(cssHeight));
+          const pixels = safeWidth * safeHeight;
+          const scale = pixels > MAX_RENDER_PIXELS
+            ? Math.sqrt(MAX_RENDER_PIXELS / pixels)
+            : 1;
+
+          return {
+            width: Math.max(160, Math.round(safeWidth * scale)),
+            height: Math.max(160, Math.round(safeHeight * scale))
+          };
+        }
+
+        function setHitbox(control, renderX, renderY, renderW, renderH, minCssSize) {
+          const rect = viewport.getBoundingClientRect();
+          const scaleX = rect.width / renderWidth;
+          const scaleY = rect.height / renderHeight;
+
+          let left = renderX * scaleX;
+          let top = renderY * scaleY;
+          let width = renderW * scaleX;
+          let height = renderH * scaleY;
+
+          if (width < minCssSize) {
+            left -= (minCssSize - width) * 0.5;
+            width = minCssSize;
+          }
+          if (height < minCssSize) {
+            top -= (minCssSize - height) * 0.5;
+            height = minCssSize;
+          }
+
+          control.style.left = left + 'px';
+          control.style.top = top + 'px';
+          control.style.width = width + 'px';
+          control.style.height = height + 'px';
+        }
+
+        function positionControls() {
+          const rotateTop = renderHeight - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
+          const clockwiseX = ROTATE_LEFT_X + ROTATE_ARROW_WIDTH + ROTATE_GAP;
+
+          setHitbox(
+            counterClockwise,
+            ROTATE_LEFT_X,
+            rotateTop,
+            ROTATE_ARROW_WIDTH,
+            ROTATE_ARROW_HEIGHT,
+            44
+          );
+          setHitbox(
+            clockwise,
+            clockwiseX,
+            rotateTop,
+            ROTATE_ARROW_WIDTH,
+            ROTATE_ARROW_HEIGHT,
+            44
+          );
+
+          const padSpan = PAN_ARROW_SIZE + PAN_PAD_STEP * 2;
+          const padLeft = renderWidth - PAN_PAD_RIGHT - padSpan;
+          const padTop = renderHeight - PAN_PAD_BOTTOM - padSpan;
+
+          setHitbox(panUp, padLeft + PAN_PAD_STEP, padTop, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+          setHitbox(panLeft, padLeft, padTop + PAN_PAD_STEP, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+          setHitbox(resetCamera, padLeft + PAN_PAD_STEP, padTop + PAN_PAD_STEP, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+          setHitbox(panRight, padLeft + PAN_PAD_STEP * 2, padTop + PAN_PAD_STEP, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+          setHitbox(panDown, padLeft + PAN_PAD_STEP, padTop + PAN_PAD_STEP * 2, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+        }
+
+        function syncRendererSize() {
+          const rect = viewport.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return;
+
+          const size = chooseRenderSize(rect.width, rect.height);
+          renderWidth = size.width;
+          renderHeight = size.height;
+          positionControls();
+          Module._isoweb_resize(renderWidth, renderHeight);
+        }
+
+        function scheduleResize() {
+          if (resizeFrame) return;
+          resizeFrame = requestAnimationFrame(function () {
+            resizeFrame = 0;
+            syncRendererSize();
+          });
+        }
+
+        function viewHeightWorld() {
+          const aspect = renderWidth / renderHeight;
+          return Math.max(BASE_VIEW_HEIGHT, MIN_VIEW_WIDTH / aspect);
+        }
+
+        function pixelsToWorld(pixels) {
+          const rect = viewport.getBoundingClientRect();
+          if (rect.height <= 0) return 0;
+          return pixels * (viewHeightWorld() / rect.height);
+        }
 
         function queuePan(screenRight, screenDown) {
           pendingPanX += screenRight;
@@ -115,12 +212,6 @@
           });
         }
 
-        function pixelsToWorld(pixels) {
-          const rect = viewport.getBoundingClientRect();
-          if (rect.height <= 0) return 0;
-          return pixels * (VIEW_HEIGHT_WORLD / rect.height);
-        }
-
         counterClockwise.addEventListener('click', function () {
           Module._isoweb_rotate_counterclockwise();
         });
@@ -129,12 +220,14 @@
           Module._isoweb_rotate_clockwise();
         });
 
+        // D-pad describes camera movement, so its Y direction is intentionally
+        // opposite to wheel scrolling.
         panUp.addEventListener('click', function () {
-          queuePan(0, -PAN_BUTTON_STEP);
+          queuePan(0, PAN_BUTTON_STEP);
         });
 
         panDown.addEventListener('click', function () {
-          queuePan(0, PAN_BUTTON_STEP);
+          queuePan(0, -PAN_BUTTON_STEP);
         });
 
         panLeft.addEventListener('click', function () {
@@ -143,6 +236,10 @@
 
         panRight.addEventListener('click', function () {
           queuePan(PAN_BUTTON_STEP, 0);
+        });
+
+        resetCamera.addEventListener('click', function () {
+          Module._isoweb_reset_camera();
         });
 
         viewport.addEventListener('wheel', function (event) {
@@ -180,7 +277,7 @@
           pointerX = event.clientX;
           pointerY = event.clientY;
 
-          // Touch dragging behaves like dragging a map: the scene follows the finger.
+          // Touch acts like dragging a map: the rendered world follows the finger.
           queuePan(-pixelsToWorld(dx), -pixelsToWorld(dy));
         });
 
@@ -191,6 +288,20 @@
 
         viewport.addEventListener('pointerup', endPointer);
         viewport.addEventListener('pointercancel', endPointer);
+
+        window.addEventListener('resize', scheduleResize);
+        window.addEventListener('orientationchange', scheduleResize);
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', scheduleResize);
+        }
+
+        const observer = new ResizeObserver(scheduleResize);
+        observer.observe(viewport);
+
+        syncRendererSize();
+        controls.forEach(function (control) {
+          control.disabled = false;
+        });
       }
     };
   </script>

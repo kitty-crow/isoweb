@@ -9,8 +9,10 @@
 
 namespace {
 
-constexpr int FRAME_WIDTH = 512;
-constexpr int FRAME_HEIGHT = 288;
+int frameWidth = 512;
+int frameHeight = 288;
+int allocatedFrameWidth = 0;
+int allocatedFrameHeight = 0;
 
 constexpr int ROTATE_ARROW_WIDTH = 56;
 constexpr int ROTATE_ARROW_HEIGHT = 44;
@@ -29,6 +31,8 @@ constexpr float PI = 3.14159265358979323846f;
 constexpr float GROUND_LIMIT = 4.40f;
 constexpr float PAN_EDGE_INSET = 1.15f;
 constexpr float PAN_LIMIT = GROUND_LIMIT - PAN_EDGE_INSET;
+constexpr float BASE_VIEW_HEIGHT = 6.15f;
+constexpr float MIN_VIEW_WIDTH = 5.50f;
 
 struct Vec3 {
     float x;
@@ -100,8 +104,8 @@ struct Hit {
     Hit() : found(false), t(FAR_DISTANCE), point(), normal(), surface(Surface::None) {}
 };
 
-// Z is world-up. The world, objects and light never rotate or pan.
-// Only the camera focus moves in X/Y and yaws in quarter turns around Z.
+// Z is world-up. The world, objects and light stay fixed.
+// Camera state is only quarter-turn yaw around Z plus X/Y ground-plane panning.
 const Vec3 CUBE_MIN(-1.85f, -0.15f, 0.0f);
 const Vec3 CUBE_MAX(-0.25f, 1.45f, 1.55f);
 const Vec3 SPHERE_CENTRE(1.05f, -0.25f, 0.90f);
@@ -127,12 +131,17 @@ Vec3 cameraGroundDown() {
 }
 
 void panCameraOnGround(float screenRight, float screenDown) {
-    const Vec3 groundRight = cameraGroundRight();
-    const Vec3 groundDown = cameraGroundDown();
-    const Vec3 delta = groundRight * screenRight + groundDown * screenDown;
+    const Vec3 delta =
+        cameraGroundRight() * screenRight +
+        cameraGroundDown() * screenDown;
 
     cameraPanX = std::max(-PAN_LIMIT, std::min(PAN_LIMIT, cameraPanX + delta.x));
     cameraPanY = std::max(-PAN_LIMIT, std::min(PAN_LIMIT, cameraPanY + delta.y));
+}
+
+float viewHeightWorld() {
+    const float aspect = static_cast<float>(frameWidth) / static_cast<float>(frameHeight);
+    return std::max(BASE_VIEW_HEIGHT, MIN_VIEW_WIDTH / aspect);
 }
 
 bool intersectSphere(const Ray& ray, float tMin, float tMax, Hit& hit) {
@@ -307,11 +316,11 @@ Vec3 traceSample(float pixelX, float pixelY) {
     const Vec3 right = normalise(cross(forward, worldUp));
     const Vec3 up = normalise(cross(right, forward));
 
-    const float aspect = static_cast<float>(FRAME_WIDTH) / static_cast<float>(FRAME_HEIGHT);
-    const float viewHeight = 6.15f;
+    const float aspect = static_cast<float>(frameWidth) / static_cast<float>(frameHeight);
+    const float viewHeight = viewHeightWorld();
     const float viewWidth = viewHeight * aspect;
-    const float screenX = ((pixelX / static_cast<float>(FRAME_WIDTH)) - 0.5f) * viewWidth;
-    const float screenY = (0.5f - (pixelY / static_cast<float>(FRAME_HEIGHT))) * viewHeight;
+    const float screenX = ((pixelX / static_cast<float>(frameWidth)) - 0.5f) * viewWidth;
+    const float screenY = (0.5f - (pixelY / static_cast<float>(frameHeight))) * viewHeight;
 
     const Vec3 focus = BASE_FOCUS + Vec3(cameraPanX, cameraPanY, 0.0f);
     const Vec3 rayOrigin = focus - forward * 9.0f + right * screenX + up * screenY;
@@ -319,7 +328,7 @@ Vec3 traceSample(float pixelX, float pixelY) {
     const Hit hit = traceClosest(ray, EPSILON, FAR_DISTANCE);
 
     if (hit.found) return shade(hit);
-    return backgroundColour(pixelY / static_cast<float>(FRAME_HEIGHT));
+    return backgroundColour(pixelY / static_cast<float>(frameHeight));
 }
 
 std::uint8_t toByte(float value) {
@@ -377,8 +386,14 @@ float clockwiseArrowDistance(float px, float py) {
     const float baseX = tipX - directionX * 9.0f;
     const float baseY = tipY - directionY * 9.0f;
 
-    minimum = std::min(minimum, distanceToSegment(px, py, tipX, tipY, baseX + normalX * 5.5f, baseY + normalY * 5.5f));
-    minimum = std::min(minimum, distanceToSegment(px, py, tipX, tipY, baseX - normalX * 5.5f, baseY - normalY * 5.5f));
+    minimum = std::min(minimum, distanceToSegment(
+        px, py, tipX, tipY,
+        baseX + normalX * 5.5f, baseY + normalY * 5.5f
+    ));
+    minimum = std::min(minimum, distanceToSegment(
+        px, py, tipX, tipY,
+        baseX - normalX * 5.5f, baseY - normalY * 5.5f
+    ));
     return minimum;
 }
 
@@ -414,6 +429,7 @@ dsr::OrderedImageRgbaU8 panUpSprite;
 dsr::OrderedImageRgbaU8 panDownSprite;
 dsr::OrderedImageRgbaU8 panLeftSprite;
 dsr::OrderedImageRgbaU8 panRightSprite;
+dsr::OrderedImageRgbaU8 resetDiskSprite;
 std::vector<std::uint8_t> rgba;
 
 void writeSpritePixel(dsr::OrderedImageRgbaU8& sprite, int x, int y, float distance) {
@@ -454,29 +470,62 @@ void buildPanArrowSprite(dsr::OrderedImageRgbaU8& sprite, float dx, float dy) {
     }
 }
 
-void ensureFrame() {
-    if (!dsr::image_exists(frame)) {
-        frame = dsr::image_create_RgbaU8(FRAME_WIDTH, FRAME_HEIGHT, false);
+void buildResetDiskSprite() {
+    resetDiskSprite = dsr::image_create_RgbaU8(PAN_ARROW_SIZE, PAN_ARROW_SIZE, true);
+    dsr::image_fill(resetDiskSprite, dsr::ColorRgbaI32(0, 0, 0, 0));
+
+    const float centre = PAN_ARROW_SIZE * 0.5f;
+    for (int y = 0; y < PAN_ARROW_SIZE; ++y) {
+        for (int x = 0; x < PAN_ARROW_SIZE; ++x) {
+            const float dx = static_cast<float>(x) + 0.5f - centre;
+            const float dy = static_cast<float>(y) + 0.5f - centre;
+            const float radius = std::sqrt(dx * dx + dy * dy);
+
+            if (radius <= 12.5f) {
+                const float edge = std::max(0.0f, std::min(1.0f, 13.5f - radius));
+                const int shade = radius < 9.0f ? 198 : 232;
+                const int alpha = static_cast<int>(edge * 225.0f + 0.5f);
+                dsr::image_writePixel(
+                    resetDiskSprite,
+                    x,
+                    y,
+                    dsr::ColorRgbaI32(shade, shade, shade, alpha)
+                );
+            }
+        }
     }
+}
+
+void ensureFrame() {
+    if (!dsr::image_exists(frame) ||
+        allocatedFrameWidth != frameWidth ||
+        allocatedFrameHeight != frameHeight) {
+        frame = dsr::image_create_RgbaU8(frameWidth, frameHeight, false);
+        allocatedFrameWidth = frameWidth;
+        allocatedFrameHeight = frameHeight;
+    }
+
     if (!dsr::image_exists(clockwiseArrowSprite)) {
         buildRotateArrowSprite(clockwiseArrowSprite, false);
-    }
-    if (!dsr::image_exists(counterClockwiseArrowSprite)) {
         buildRotateArrowSprite(counterClockwiseArrowSprite, true);
     }
+
     if (!dsr::image_exists(panUpSprite)) {
         buildPanArrowSprite(panUpSprite, 0.0f, -1.0f);
         buildPanArrowSprite(panDownSprite, 0.0f, 1.0f);
         buildPanArrowSprite(panLeftSprite, -1.0f, 0.0f);
         buildPanArrowSprite(panRightSprite, 1.0f, 0.0f);
+        buildResetDiskSprite();
     }
-    if (rgba.size() != static_cast<std::size_t>(FRAME_WIDTH * FRAME_HEIGHT * 4)) {
-        rgba.resize(static_cast<std::size_t>(FRAME_WIDTH * FRAME_HEIGHT * 4));
-    }
+
+    const std::size_t required =
+        static_cast<std::size_t>(frameWidth) *
+        static_cast<std::size_t>(frameHeight) * 4;
+    if (rgba.size() != required) rgba.resize(required);
 }
 
 void renderScreenSpaceControls() {
-    const int rotateTop = FRAME_HEIGHT - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
+    const int rotateTop = frameHeight - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
     const int counterClockwiseX = ROTATE_LEFT_X;
     const int clockwiseX = ROTATE_LEFT_X + ROTATE_ARROW_WIDTH + ROTATE_GAP;
 
@@ -484,11 +533,12 @@ void renderScreenSpaceControls() {
     dsr::draw_alphaFilter(frame, clockwiseArrowSprite, clockwiseX, rotateTop);
 
     const int padSpan = PAN_ARROW_SIZE + PAN_PAD_STEP * 2;
-    const int padLeft = FRAME_WIDTH - PAN_PAD_RIGHT - padSpan;
-    const int padTop = FRAME_HEIGHT - PAN_PAD_BOTTOM - padSpan;
+    const int padLeft = frameWidth - PAN_PAD_RIGHT - padSpan;
+    const int padTop = frameHeight - PAN_PAD_BOTTOM - padSpan;
 
     dsr::draw_alphaFilter(frame, panUpSprite, padLeft + PAN_PAD_STEP, padTop);
     dsr::draw_alphaFilter(frame, panLeftSprite, padLeft, padTop + PAN_PAD_STEP);
+    dsr::draw_alphaFilter(frame, resetDiskSprite, padLeft + PAN_PAD_STEP, padTop + PAN_PAD_STEP);
     dsr::draw_alphaFilter(frame, panRightSprite, padLeft + PAN_PAD_STEP * 2, padTop + PAN_PAD_STEP);
     dsr::draw_alphaFilter(frame, panDownSprite, padLeft + PAN_PAD_STEP, padTop + PAN_PAD_STEP * 2);
 }
@@ -497,8 +547,8 @@ void renderScene() {
     ensureFrame();
 
     const float offsets[2] = {0.25f, 0.75f};
-    for (int y = 0; y < FRAME_HEIGHT; ++y) {
-        for (int x = 0; x < FRAME_WIDTH; ++x) {
+    for (int y = 0; y < frameHeight; ++y) {
+        for (int x = 0; x < frameWidth; ++x) {
             Vec3 colour;
             for (int sy = 0; sy < 2; ++sy) {
                 for (int sx = 0; sx < 2; ++sx) {
@@ -519,13 +569,14 @@ void renderScene() {
         }
     }
 
-    // Visible controls are engine-rendered sprites. DOM controls are transparent hitboxes only.
+    // Controls are engine-rendered sprites. DOM elements only supply hitboxes/accessibility.
     renderScreenSpaceControls();
 
-    for (int y = 0; y < FRAME_HEIGHT; ++y) {
-        for (int x = 0; x < FRAME_WIDTH; ++x) {
+    for (int y = 0; y < frameHeight; ++y) {
+        for (int x = 0; x < frameWidth; ++x) {
             const dsr::ColorRgbaI32 colour = dsr::image_readPixel_border(frame, x, y);
-            const std::size_t index = static_cast<std::size_t>((y * FRAME_WIDTH + x) * 4);
+            const std::size_t index =
+                static_cast<std::size_t>((y * frameWidth + x) * 4);
             rgba[index + 0] = static_cast<std::uint8_t>(colour.red);
             rgba[index + 1] = static_cast<std::uint8_t>(colour.green);
             rgba[index + 2] = static_cast<std::uint8_t>(colour.blue);
@@ -546,8 +597,9 @@ void presentScene() {
         const canvas = document.getElementById('canvas');
         if (!canvas) return;
 
-        canvas.width = width;
-        canvas.height = height;
+        if (canvas.width !== width) canvas.width = width;
+        if (canvas.height !== height) canvas.height = height;
+
         const context = canvas.getContext('2d', { alpha: false });
         const imageData = context.createImageData(width, height);
         imageData.data.set(HEAPU8.subarray(pointer, pointer + width * height * 4));
@@ -563,7 +615,7 @@ void presentScene() {
                 'Camera ' + (quarterTurns * 90) + ' degrees around Z; pan X ' +
                 panX.toFixed(2) + '; Y ' + panY.toFixed(2);
         }
-    }, pointer, FRAME_WIDTH, FRAME_HEIGHT, cameraQuarterTurns, cameraPanX, cameraPanY);
+    }, pointer, frameWidth, frameHeight, cameraQuarterTurns, cameraPanX, cameraPanY);
 }
 
 void redraw() {
@@ -574,6 +626,15 @@ void redraw() {
 } // namespace
 
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_render() {
+    redraw();
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_resize(int width, int height) {
+    const int newWidth = std::max(160, std::min(1600, width));
+    const int newHeight = std::max(160, std::min(1600, height));
+
+    frameWidth = newWidth;
+    frameHeight = newHeight;
     redraw();
 }
 
@@ -589,5 +650,12 @@ extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_rotate_counterclockwise() {
 
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_pan(float screenRight, float screenDown) {
     panCameraOnGround(screenRight, screenDown);
+    redraw();
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_reset_camera() {
+    cameraQuarterTurns = 0;
+    cameraPanX = 0.0f;
+    cameraPanY = 0.0f;
     redraw();
 }
