@@ -8,16 +8,34 @@
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <main class="scene" aria-label="Static isometric ray-traced scene">
-    <canvas
-      id="canvas"
-      width="512"
-      height="288"
-      role="img"
-      aria-label="A ray-traced isometric scene containing a blue cube and an orange sphere on a tiled ground plane, with physically derived lighting and cast shadows."
-    ></canvas>
+  <main class="scene" aria-label="Interactive isometric ray-traced scene">
+    <div class="viewport">
+      <canvas
+        id="canvas"
+        width="512"
+        height="288"
+        role="img"
+        aria-label="A ray-traced isometric scene containing a blue cube and an orange sphere on a tiled ground plane, with physically derived lighting and cast shadows."
+      ></canvas>
+
+      <button
+        id="rotate-counterclockwise"
+        class="rotation-hitbox rotation-hitbox--left"
+        type="button"
+        aria-label="Rotate camera 90 degrees counter-clockwise around the Z axis"
+        disabled
+      ></button>
+      <button
+        id="rotate-clockwise"
+        class="rotation-hitbox rotation-hitbox--right"
+        type="button"
+        aria-label="Rotate camera 90 degrees clockwise around the Z axis"
+        disabled
+      ></button>
+    </div>
 
     <div id="loading" class="loading" role="status" aria-live="polite">Rendering C++ / WASM…</div>
+    <div id="view-status" class="visually-hidden" role="status" aria-live="polite">Camera view 0 degrees around Z</div>
 
     <div class="badge" aria-hidden="true">
       <strong>isoweb</strong>
@@ -28,7 +46,33 @@
   <script>
     var Module = {
       onRuntimeInitialized: function () {
+        const counterClockwise = document.getElementById('rotate-counterclockwise');
+        const clockwise = document.getElementById('rotate-clockwise');
+        let rotating = false;
+
         Module._isoweb_render();
+        counterClockwise.disabled = false;
+        clockwise.disabled = false;
+
+        function rotate(callback) {
+          if (rotating) return;
+          rotating = true;
+          counterClockwise.disabled = true;
+          clockwise.disabled = true;
+          requestAnimationFrame(function () {
+            callback();
+            counterClockwise.disabled = false;
+            clockwise.disabled = false;
+            rotating = false;
+          });
+        }
+
+        counterClockwise.addEventListener('click', function () {
+          rotate(Module._isoweb_rotate_counterclockwise);
+        });
+        clockwise.addEventListener('click', function () {
+          rotate(Module._isoweb_rotate_clockwise);
+        });
       }
     };
   </script>

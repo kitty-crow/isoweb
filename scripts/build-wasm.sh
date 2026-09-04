@@ -18,5 +18,5 @@ em++ \
   --no-entry \
   -sALLOW_MEMORY_GROWTH=1 \
   -sENVIRONMENT=web \
-  -sEXPORTED_FUNCTIONS='["_isoweb_render"]' \
+  -sEXPORTED_FUNCTIONS='["_isoweb_render","_isoweb_rotate_clockwise","_isoweb_rotate_counterclockwise"]' \
   -o site/assets/isoweb.js

@@ -4,14 +4,20 @@
 #include <vector>
 
 #include <emscripten/emscripten.h>
+#include "DFPSR/api/drawAPI.h"
 #include "DFPSR/api/imageAPI.h"
 
 namespace {
 
 constexpr int FRAME_WIDTH = 512;
 constexpr int FRAME_HEIGHT = 288;
+constexpr int ARROW_WIDTH = 56;
+constexpr int ARROW_HEIGHT = 44;
+constexpr int ARROW_MARGIN_X = 18;
+constexpr int ARROW_MARGIN_Y = 18;
 constexpr float EPSILON = 0.0015f;
 constexpr float FAR_DISTANCE = 1000.0f;
+constexpr float PI = 3.14159265358979323846f;
 
 struct Vec3 {
     float x;
@@ -52,6 +58,15 @@ Vec3 normalise(const Vec3& value) {
     return magnitude > 0.0f ? value / magnitude : Vec3();
 }
 
+Vec3 rotateQuarterAroundZ(const Vec3& value, int clockwiseQuarterTurns) {
+    switch ((clockwiseQuarterTurns % 4 + 4) % 4) {
+        case 1: return Vec3(value.y, -value.x, value.z);
+        case 2: return Vec3(-value.x, -value.y, value.z);
+        case 3: return Vec3(-value.y, value.x, value.z);
+        default: return value;
+    }
+}
+
 struct Ray {
     Vec3 origin;
     Vec3 direction;
@@ -74,12 +89,15 @@ struct Hit {
     Hit() : found(false), t(FAR_DISTANCE), point(), normal(), surface(Surface::None) {}
 };
 
-const Vec3 CUBE_MIN(-1.85f, 0.0f, -0.15f);
-const Vec3 CUBE_MAX(-0.25f, 1.55f, 1.45f);
-const Vec3 SPHERE_CENTRE(1.05f, 0.90f, -0.25f);
+// Z is the world-up axis. The scene never rotates; only the camera does.
+const Vec3 CUBE_MIN(-1.85f, -0.15f, 0.0f);
+const Vec3 CUBE_MAX(-0.25f, 1.45f, 1.55f);
+const Vec3 SPHERE_CENTRE(1.05f, -0.25f, 0.90f);
 constexpr float SPHERE_RADIUS = 0.90f;
 constexpr float GROUND_LIMIT = 4.40f;
-const Vec3 LIGHT_POSITION(-3.60f, 6.50f, -4.20f);
+const Vec3 LIGHT_POSITION(-3.60f, -4.20f, 6.50f);
+
+int cameraQuarterTurns = 0;
 
 bool intersectSphere(const Ray& ray, float tMin, float tMax, Hit& hit) {
     const Vec3 oc = ray.origin - SPHERE_CENTRE;
@@ -153,17 +171,17 @@ bool intersectCube(const Ray& ray, float tMin, float tMax, Hit& hit) {
 }
 
 bool intersectGround(const Ray& ray, float tMin, float tMax, Hit& hit) {
-    if (std::fabs(ray.direction.y) < 1.0e-7f) return false;
-    const float t = -ray.origin.y / ray.direction.y;
+    if (std::fabs(ray.direction.z) < 1.0e-7f) return false;
+    const float t = -ray.origin.z / ray.direction.z;
     if (t < tMin || t > tMax) return false;
 
     const Vec3 point = ray.origin + ray.direction * t;
-    if (std::fabs(point.x) > GROUND_LIMIT || std::fabs(point.z) > GROUND_LIMIT) return false;
+    if (std::fabs(point.x) > GROUND_LIMIT || std::fabs(point.y) > GROUND_LIMIT) return false;
 
     hit.found = true;
     hit.t = t;
     hit.point = point;
-    hit.normal = Vec3(0.0f, 1.0f, 0.0f);
+    hit.normal = Vec3(0.0f, 0.0f, 1.0f);
     hit.surface = Surface::Ground;
     return true;
 }
@@ -209,8 +227,8 @@ Vec3 materialColour(const Hit& hit) {
     }
 
     const int tileX = static_cast<int>(std::floor(hit.point.x + 20.0f));
-    const int tileZ = static_cast<int>(std::floor(hit.point.z + 20.0f));
-    const bool alternate = ((tileX + tileZ) & 1) != 0;
+    const int tileY = static_cast<int>(std::floor(hit.point.y + 20.0f));
+    const bool alternate = ((tileX + tileY) & 1) != 0;
     const float base = alternate ? 0.63f : 0.69f;
     return Vec3(base * 0.90f, base * 0.96f, base);
 }
@@ -229,8 +247,8 @@ Vec3 shade(const Hit& hit) {
 
     if (hit.surface == Surface::Ground) {
         const float edgeX = std::fabs(hit.point.x - std::round(hit.point.x));
-        const float edgeZ = std::fabs(hit.point.z - std::round(hit.point.z));
-        if (std::min(edgeX, edgeZ) < 0.022f) colour = colour * 0.78f;
+        const float edgeY = std::fabs(hit.point.y - std::round(hit.point.y));
+        if (std::min(edgeX, edgeY) < 0.022f) colour = colour * 0.78f;
     }
 
     return Vec3(
@@ -248,8 +266,10 @@ Vec3 backgroundColour(float normalisedY) {
 }
 
 Vec3 traceSample(float pixelX, float pixelY) {
-    const Vec3 forward = normalise(Vec3(1.0f, -1.0f, 1.0f));
-    const Vec3 right = normalise(cross(forward, Vec3(0.0f, 1.0f, 0.0f)));
+    const Vec3 baseForward = normalise(Vec3(1.0f, 1.0f, -1.0f));
+    const Vec3 forward = rotateQuarterAroundZ(baseForward, cameraQuarterTurns);
+    const Vec3 worldUp(0.0f, 0.0f, 1.0f);
+    const Vec3 right = normalise(cross(forward, worldUp));
     const Vec3 up = normalise(cross(right, forward));
 
     const float aspect = static_cast<float>(FRAME_WIDTH) / static_cast<float>(FRAME_HEIGHT);
@@ -258,7 +278,7 @@ Vec3 traceSample(float pixelX, float pixelY) {
     const float screenX = ((pixelX / static_cast<float>(FRAME_WIDTH)) - 0.5f) * viewWidth;
     const float screenY = (0.5f - (pixelY / static_cast<float>(FRAME_HEIGHT))) * viewHeight;
 
-    const Vec3 focus(0.0f, 0.55f, 0.15f);
+    const Vec3 focus(0.0f, 0.15f, 0.55f);
     const Vec3 rayOrigin = focus - forward * 9.0f + right * screenX + up * screenY;
     const Ray ray{rayOrigin, forward};
     const Hit hit = traceClosest(ray, EPSILON, FAR_DISTANCE);
@@ -273,12 +293,97 @@ std::uint8_t toByte(float value) {
     return static_cast<std::uint8_t>(value * 255.0f + 0.5f);
 }
 
+float distanceToSegment(float px, float py, float ax, float ay, float bx, float by) {
+    const float abx = bx - ax;
+    const float aby = by - ay;
+    const float apx = px - ax;
+    const float apy = py - ay;
+    const float denominator = abx * abx + aby * aby;
+    const float t = denominator > 0.0f
+        ? std::max(0.0f, std::min(1.0f, (apx * abx + apy * aby) / denominator))
+        : 0.0f;
+    const float dx = px - (ax + abx * t);
+    const float dy = py - (ay + aby * t);
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+float clockwiseArrowDistance(float px, float py) {
+    constexpr int ARC_SEGMENTS = 28;
+    const float cx = 27.5f;
+    const float cy = 25.0f;
+    const float radiusX = 19.0f;
+    const float radiusY = 12.0f;
+    const float startAngle = PI * 0.89f;
+    const float endAngle = PI * 0.10f;
+
+    float minimum = 1000.0f;
+    float previousX = cx + radiusX * std::cos(startAngle);
+    float previousY = cy - radiusY * std::sin(startAngle);
+
+    for (int index = 1; index <= ARC_SEGMENTS; ++index) {
+        const float amount = static_cast<float>(index) / static_cast<float>(ARC_SEGMENTS);
+        const float angle = startAngle + (endAngle - startAngle) * amount;
+        const float nextX = cx + radiusX * std::cos(angle);
+        const float nextY = cy - radiusY * std::sin(angle);
+        minimum = std::min(minimum, distanceToSegment(px, py, previousX, previousY, nextX, nextY));
+        previousX = nextX;
+        previousY = nextY;
+    }
+
+    const float tipX = previousX;
+    const float tipY = previousY;
+    const float tangentX = std::sin(endAngle) * radiusX;
+    const float tangentY = std::cos(endAngle) * radiusY;
+    const float tangentLength = std::sqrt(tangentX * tangentX + tangentY * tangentY);
+    const float directionX = tangentX / tangentLength;
+    const float directionY = tangentY / tangentLength;
+    const float normalX = -directionY;
+    const float normalY = directionX;
+    const float baseX = tipX - directionX * 9.0f;
+    const float baseY = tipY - directionY * 9.0f;
+
+    minimum = std::min(minimum, distanceToSegment(px, py, tipX, tipY, baseX + normalX * 5.5f, baseY + normalY * 5.5f));
+    minimum = std::min(minimum, distanceToSegment(px, py, tipX, tipY, baseX - normalX * 5.5f, baseY - normalY * 5.5f));
+    return minimum;
+}
+
 dsr::OrderedImageRgbaU8 frame;
+dsr::OrderedImageRgbaU8 clockwiseArrowSprite;
+dsr::OrderedImageRgbaU8 counterClockwiseArrowSprite;
 std::vector<std::uint8_t> rgba;
+
+void buildArrowSprite(dsr::OrderedImageRgbaU8& sprite, bool mirrorHorizontally) {
+    sprite = dsr::image_create_RgbaU8(ARROW_WIDTH, ARROW_HEIGHT, true);
+    dsr::image_fill(sprite, dsr::ColorRgbaI32(0, 0, 0, 0));
+
+    for (int y = 0; y < ARROW_HEIGHT; ++y) {
+        for (int x = 0; x < ARROW_WIDTH; ++x) {
+            const float sampleX = mirrorHorizontally
+                ? static_cast<float>(ARROW_WIDTH - 1 - x) + 0.5f
+                : static_cast<float>(x) + 0.5f;
+            const float sampleY = static_cast<float>(y) + 0.5f;
+            const float distance = clockwiseArrowDistance(sampleX, sampleY);
+
+            const float outerCoverage = std::max(0.0f, std::min(1.0f, 3.6f - distance));
+            if (outerCoverage <= 0.0f) continue;
+
+            const float coreCoverage = std::max(0.0f, std::min(1.0f, 2.25f - distance));
+            const int alpha = static_cast<int>(outerCoverage * 235.0f + 0.5f);
+            const int shade = static_cast<int>(72.0f + coreCoverage * 178.0f + 0.5f);
+            dsr::image_writePixel(sprite, x, y, dsr::ColorRgbaI32(shade, shade, shade, alpha));
+        }
+    }
+}
 
 void ensureFrame() {
     if (!dsr::image_exists(frame)) {
         frame = dsr::image_create_RgbaU8(FRAME_WIDTH, FRAME_HEIGHT, false);
+    }
+    if (!dsr::image_exists(clockwiseArrowSprite)) {
+        buildArrowSprite(clockwiseArrowSprite, false);
+    }
+    if (!dsr::image_exists(counterClockwiseArrowSprite)) {
+        buildArrowSprite(counterClockwiseArrowSprite, true);
     }
     if (rgba.size() != static_cast<std::size_t>(FRAME_WIDTH * FRAME_HEIGHT * 4)) {
         rgba.resize(static_cast<std::size_t>(FRAME_WIDTH * FRAME_HEIGHT * 4));
@@ -308,6 +413,11 @@ void renderScene() {
         }
     }
 
+    // Screen-space UI is still rendered by DFPSR. The DOM only supplies invisible hitboxes.
+    const int arrowTop = FRAME_HEIGHT - ARROW_MARGIN_Y - ARROW_HEIGHT;
+    dsr::draw_alphaFilter(frame, counterClockwiseArrowSprite, ARROW_MARGIN_X, arrowTop);
+    dsr::draw_alphaFilter(frame, clockwiseArrowSprite, FRAME_WIDTH - ARROW_MARGIN_X - ARROW_WIDTH, arrowTop);
+
     for (int y = 0; y < FRAME_HEIGHT; ++y) {
         for (int x = 0; x < FRAME_WIDTH; ++x) {
             const dsr::ColorRgbaI32 colour = dsr::image_readPixel_border(frame, x, y);
@@ -326,6 +436,7 @@ void presentScene() {
         const pointer = $0;
         const width = $1;
         const height = $2;
+        const quarterTurns = $3;
         const canvas = document.getElementById('canvas');
         if (!canvas) return;
 
@@ -339,12 +450,28 @@ void presentScene() {
         document.documentElement.classList.add('wasm-ready');
         const loading = document.getElementById('loading');
         if (loading) loading.hidden = true;
-    }, pointer, FRAME_WIDTH, FRAME_HEIGHT);
+        const status = document.getElementById('view-status');
+        if (status) status.textContent = `Camera view ${quarterTurns * 90} degrees around Z`;
+    }, pointer, FRAME_WIDTH, FRAME_HEIGHT, cameraQuarterTurns);
+}
+
+void redraw() {
+    renderScene();
+    presentScene();
 }
 
 } // namespace
 
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_render() {
-    renderScene();
-    presentScene();
+    redraw();
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_rotate_clockwise() {
+    cameraQuarterTurns = (cameraQuarterTurns + 1) & 3;
+    redraw();
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_rotate_counterclockwise() {
+    cameraQuarterTurns = (cameraQuarterTurns + 3) & 3;
+    redraw();
 }

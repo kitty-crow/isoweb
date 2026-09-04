@@ -4,6 +4,8 @@ A small browser rendering experiment built as C++ compiled with Emscripten to We
 
 The current scene is intentionally tiny: a cube, a sphere, a bounded ground plane and a background. The scene is rendered by a CPU ray tracer into a DFPSR RGBA image. Lighting and shadows are geometric, not painted overlays: every visible surface uses its real normal for Lambert shading and casts a shadow ray towards the point light to determine occlusion.
 
+The world uses Z-up coordinates. Two curved rotation-arrow sprites are rendered by DFPSR as screen-space UI. Matching transparent DOM buttons only provide pointer/keyboard accessibility. Activating either control moves the same camera between four fixed isometric viewpoints at 0, 90, 180 and 270 degrees around the Z axis; the scene geometry and light remain fixed in world space.
+
 ## Dependencies
 
 Both dependencies are vendored as pinned git submodules:
