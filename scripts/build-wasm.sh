@@ -18,5 +18,5 @@ em++ \
   --no-entry \
   -sALLOW_MEMORY_GROWTH=1 \
   -sENVIRONMENT=web \
-  -sEXPORTED_FUNCTIONS='["_isoweb_render","_isoweb_resize","_isoweb_rotate_clockwise","_isoweb_rotate_counterclockwise","_isoweb_pan","_isoweb_reset_camera"]' \
+  -sEXPORTED_FUNCTIONS='["_isoweb_render","_isoweb_resize","_isoweb_rotate_clockwise","_isoweb_rotate_counterclockwise","_isoweb_reset_yaw","_isoweb_zoom_in","_isoweb_zoom_out","_isoweb_reset_zoom","_isoweb_set_detailed_mode","_isoweb_pan","_isoweb_reset_camera"]' \
   -o site/assets/isoweb.js
