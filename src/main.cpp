@@ -21,13 +21,15 @@ constexpr int ROTATE_GAP = 10;
 constexpr int CONTROL_BOTTOM = 18;
 
 constexpr int PAN_ARROW_SIZE = 38;
-constexpr int PAN_PAD_STEP = 40;
+constexpr int PAN_X_STEP = 48;
+constexpr int PAN_Y_STEP = 36;
 constexpr int PAN_PAD_RIGHT = 18;
 constexpr int PAN_PAD_BOTTOM = 16;
 
 constexpr float EPSILON = 0.0015f;
 constexpr float FAR_DISTANCE = 1000.0f;
 constexpr float PI = 3.14159265358979323846f;
+constexpr float INV_SQRT_TWO = 0.70710678118654752440f;
 constexpr float GROUND_LIMIT = 4.40f;
 constexpr float PAN_EDGE_INSET = 1.15f;
 constexpr float PAN_LIMIT = GROUND_LIMIT - PAN_EDGE_INSET;
@@ -42,10 +44,21 @@ struct Vec3 {
     Vec3() : x(0.0f), y(0.0f), z(0.0f) {}
     Vec3(float x, float y, float z) : x(x), y(y), z(z) {}
 
-    Vec3 operator+(const Vec3& other) const { return Vec3(x + other.x, y + other.y, z + other.z); }
-    Vec3 operator-(const Vec3& other) const { return Vec3(x - other.x, y - other.y, z - other.z); }
-    Vec3 operator*(float scale) const { return Vec3(x * scale, y * scale, z * scale); }
-    Vec3 operator/(float scale) const { return Vec3(x / scale, y / scale, z / scale); }
+    Vec3 operator+(const Vec3& other) const {
+        return Vec3(x + other.x, y + other.y, z + other.z);
+    }
+
+    Vec3 operator-(const Vec3& other) const {
+        return Vec3(x - other.x, y - other.y, z - other.z);
+    }
+
+    Vec3 operator*(float scale) const {
+        return Vec3(x * scale, y * scale, z * scale);
+    }
+
+    Vec3 operator/(float scale) const {
+        return Vec3(x / scale, y / scale, z / scale);
+    }
 };
 
 Vec3 operator*(float scale, const Vec3& value) {
@@ -101,7 +114,12 @@ struct Hit {
     Vec3 normal;
     Surface surface;
 
-    Hit() : found(false), t(FAR_DISTANCE), point(), normal(), surface(Surface::None) {}
+    Hit()
+        : found(false),
+          t(FAR_DISTANCE),
+          point(),
+          normal(),
+          surface(Surface::None) {}
 };
 
 // Z is world-up. The world, objects and light stay fixed.
@@ -118,7 +136,10 @@ float cameraPanX = 0.0f;
 float cameraPanY = 0.0f;
 
 Vec3 cameraForward() {
-    return rotateQuarterAroundZ(normalise(Vec3(1.0f, 1.0f, -1.0f)), cameraQuarterTurns);
+    return rotateQuarterAroundZ(
+        normalise(Vec3(1.0f, 1.0f, -1.0f)),
+        cameraQuarterTurns
+    );
 }
 
 Vec3 cameraGroundRight() {
@@ -135,12 +156,20 @@ void panCameraOnGround(float screenRight, float screenDown) {
         cameraGroundRight() * screenRight +
         cameraGroundDown() * screenDown;
 
-    cameraPanX = std::max(-PAN_LIMIT, std::min(PAN_LIMIT, cameraPanX + delta.x));
-    cameraPanY = std::max(-PAN_LIMIT, std::min(PAN_LIMIT, cameraPanY + delta.y));
+    cameraPanX = std::max(
+        -PAN_LIMIT,
+        std::min(PAN_LIMIT, cameraPanX + delta.x)
+    );
+    cameraPanY = std::max(
+        -PAN_LIMIT,
+        std::min(PAN_LIMIT, cameraPanY + delta.y)
+    );
 }
 
 float viewHeightWorld() {
-    const float aspect = static_cast<float>(frameWidth) / static_cast<float>(frameHeight);
+    const float aspect =
+        static_cast<float>(frameWidth) /
+        static_cast<float>(frameHeight);
     return std::max(BASE_VIEW_HEIGHT, MIN_VIEW_WIDTH / aspect);
 }
 
@@ -150,10 +179,12 @@ bool intersectSphere(const Ray& ray, float tMin, float tMax, Hit& hit) {
     const float halfB = dot(oc, ray.direction);
     const float c = dot(oc, oc) - SPHERE_RADIUS * SPHERE_RADIUS;
     const float discriminant = halfB * halfB - a * c;
+
     if (discriminant < 0.0f) return false;
 
     const float rootPart = std::sqrt(discriminant);
     float root = (-halfB - rootPart) / a;
+
     if (root < tMin || root > tMax) {
         root = (-halfB + rootPart) / a;
         if (root < tMin || root > tMax) return false;
@@ -171,20 +202,39 @@ bool intersectCube(const Ray& ray, float tMin, float tMax, Hit& hit) {
     float nearT = tMin;
     float farT = tMax;
 
-    const float origins[3] = {ray.origin.x, ray.origin.y, ray.origin.z};
-    const float directions[3] = {ray.direction.x, ray.direction.y, ray.direction.z};
-    const float mins[3] = {CUBE_MIN.x, CUBE_MIN.y, CUBE_MIN.z};
-    const float maxs[3] = {CUBE_MAX.x, CUBE_MAX.y, CUBE_MAX.z};
+    const float origins[3] = {
+        ray.origin.x,
+        ray.origin.y,
+        ray.origin.z
+    };
+    const float directions[3] = {
+        ray.direction.x,
+        ray.direction.y,
+        ray.direction.z
+    };
+    const float mins[3] = {
+        CUBE_MIN.x,
+        CUBE_MIN.y,
+        CUBE_MIN.z
+    };
+    const float maxs[3] = {
+        CUBE_MAX.x,
+        CUBE_MAX.y,
+        CUBE_MAX.z
+    };
 
     for (int axis = 0; axis < 3; ++axis) {
         if (std::fabs(directions[axis]) < 1.0e-7f) {
-            if (origins[axis] < mins[axis] || origins[axis] > maxs[axis]) return false;
+            if (origins[axis] < mins[axis] || origins[axis] > maxs[axis]) {
+                return false;
+            }
             continue;
         }
 
         const float invD = 1.0f / directions[axis];
         float t0 = (mins[axis] - origins[axis]) * invD;
         float t1 = (maxs[axis] - origins[axis]) * invD;
+
         if (t0 > t1) std::swap(t0, t1);
         nearT = std::max(nearT, t0);
         farT = std::min(farT, t1);
@@ -207,21 +257,41 @@ bool intersectCube(const Ray& ray, float tMin, float tMax, Hit& hit) {
 
     float closest = dxMin;
     hit.normal = Vec3(-1.0f, 0.0f, 0.0f);
-    if (dxMax < closest) { closest = dxMax; hit.normal = Vec3(1.0f, 0.0f, 0.0f); }
-    if (dyMin < closest) { closest = dyMin; hit.normal = Vec3(0.0f, -1.0f, 0.0f); }
-    if (dyMax < closest) { closest = dyMax; hit.normal = Vec3(0.0f, 1.0f, 0.0f); }
-    if (dzMin < closest) { closest = dzMin; hit.normal = Vec3(0.0f, 0.0f, -1.0f); }
-    if (dzMax < closest) { hit.normal = Vec3(0.0f, 0.0f, 1.0f); }
+
+    if (dxMax < closest) {
+        closest = dxMax;
+        hit.normal = Vec3(1.0f, 0.0f, 0.0f);
+    }
+    if (dyMin < closest) {
+        closest = dyMin;
+        hit.normal = Vec3(0.0f, -1.0f, 0.0f);
+    }
+    if (dyMax < closest) {
+        closest = dyMax;
+        hit.normal = Vec3(0.0f, 1.0f, 0.0f);
+    }
+    if (dzMin < closest) {
+        closest = dzMin;
+        hit.normal = Vec3(0.0f, 0.0f, -1.0f);
+    }
+    if (dzMax < closest) {
+        hit.normal = Vec3(0.0f, 0.0f, 1.0f);
+    }
+
     return true;
 }
 
 bool intersectGround(const Ray& ray, float tMin, float tMax, Hit& hit) {
     if (std::fabs(ray.direction.z) < 1.0e-7f) return false;
+
     const float t = -ray.origin.z / ray.direction.z;
     if (t < tMin || t > tMax) return false;
 
     const Vec3 point = ray.origin + ray.direction * t;
-    if (std::fabs(point.x) > GROUND_LIMIT || std::fabs(point.y) > GROUND_LIMIT) return false;
+    if (std::fabs(point.x) > GROUND_LIMIT ||
+        std::fabs(point.y) > GROUND_LIMIT) {
+        return false;
+    }
 
     hit.found = true;
     hit.t = t;
@@ -258,8 +328,15 @@ bool isOccluded(const Vec3& point, const Vec3& normal) {
     const Vec3 toLight = LIGHT_POSITION - point;
     const float lightDistance = length(toLight);
     const Vec3 lightDirection = toLight / lightDistance;
-    const Ray shadowRay{point + normal * EPSILON, lightDirection};
-    const Hit blocker = traceClosest(shadowRay, EPSILON, lightDistance - EPSILON);
+    const Ray shadowRay{
+        point + normal * EPSILON,
+        lightDirection
+    };
+    const Hit blocker = traceClosest(
+        shadowRay,
+        EPSILON,
+        lightDistance - EPSILON
+    );
     return blocker.found;
 }
 
@@ -267,12 +344,17 @@ Vec3 materialColour(const Hit& hit) {
     if (hit.surface == Surface::Cube) {
         return Vec3(0.18f, 0.48f, 0.88f);
     }
+
     if (hit.surface == Surface::Sphere) {
         return Vec3(0.95f, 0.43f, 0.12f);
     }
 
-    const int tileX = static_cast<int>(std::floor(hit.point.x + 20.0f));
-    const int tileY = static_cast<int>(std::floor(hit.point.y + 20.0f));
+    const int tileX = static_cast<int>(
+        std::floor(hit.point.x + 20.0f)
+    );
+    const int tileY = static_cast<int>(
+        std::floor(hit.point.y + 20.0f)
+    );
     const bool alternate = ((tileX + tileY) & 1) != 0;
     const float base = alternate ? 0.63f : 0.69f;
     return Vec3(base * 0.90f, base * 0.96f, base);
@@ -283,17 +365,30 @@ Vec3 shade(const Hit& hit) {
     const Vec3 toLight = LIGHT_POSITION - hit.point;
     const float distanceToLight = length(toLight);
     const Vec3 lightDirection = toLight / distanceToLight;
-    const float diffuse = std::max(0.0f, dot(hit.normal, lightDirection));
-    const float attenuation = 1.0f / (1.0f + 0.018f * distanceToLight * distanceToLight);
-    const float visibility = isOccluded(hit.point, hit.normal) ? 0.0f : 1.0f;
-    const float brightness = 0.19f + visibility * diffuse * attenuation * 1.18f;
+    const float diffuse = std::max(
+        0.0f,
+        dot(hit.normal, lightDirection)
+    );
+    const float attenuation =
+        1.0f /
+        (1.0f + 0.018f * distanceToLight * distanceToLight);
+    const float visibility =
+        isOccluded(hit.point, hit.normal) ? 0.0f : 1.0f;
+    const float brightness =
+        0.19f + visibility * diffuse * attenuation * 1.18f;
 
     Vec3 colour = base * brightness;
 
     if (hit.surface == Surface::Ground) {
-        const float edgeX = std::fabs(hit.point.x - std::round(hit.point.x));
-        const float edgeY = std::fabs(hit.point.y - std::round(hit.point.y));
-        if (std::min(edgeX, edgeY) < 0.022f) colour = colour * 0.78f;
+        const float edgeX = std::fabs(
+            hit.point.x - std::round(hit.point.x)
+        );
+        const float edgeY = std::fabs(
+            hit.point.y - std::round(hit.point.y)
+        );
+        if (std::min(edgeX, edgeY) < 0.022f) {
+            colour = colour * 0.78f;
+        }
     }
 
     return Vec3(
@@ -304,7 +399,10 @@ Vec3 shade(const Hit& hit) {
 }
 
 Vec3 backgroundColour(float normalisedY) {
-    const float t = std::max(0.0f, std::min(1.0f, normalisedY));
+    const float t = std::max(
+        0.0f,
+        std::min(1.0f, normalisedY)
+    );
     const Vec3 top(0.075f, 0.12f, 0.18f);
     const Vec3 bottom(0.20f, 0.28f, 0.34f);
     return top * (1.0f - t) + bottom * t;
@@ -316,19 +414,29 @@ Vec3 traceSample(float pixelX, float pixelY) {
     const Vec3 right = normalise(cross(forward, worldUp));
     const Vec3 up = normalise(cross(right, forward));
 
-    const float aspect = static_cast<float>(frameWidth) / static_cast<float>(frameHeight);
+    const float aspect =
+        static_cast<float>(frameWidth) /
+        static_cast<float>(frameHeight);
     const float viewHeight = viewHeightWorld();
     const float viewWidth = viewHeight * aspect;
-    const float screenX = ((pixelX / static_cast<float>(frameWidth)) - 0.5f) * viewWidth;
-    const float screenY = (0.5f - (pixelY / static_cast<float>(frameHeight))) * viewHeight;
+    const float screenX =
+        ((pixelX / static_cast<float>(frameWidth)) - 0.5f) *
+        viewWidth;
+    const float screenY =
+        (0.5f - (pixelY / static_cast<float>(frameHeight))) *
+        viewHeight;
 
-    const Vec3 focus = BASE_FOCUS + Vec3(cameraPanX, cameraPanY, 0.0f);
-    const Vec3 rayOrigin = focus - forward * 9.0f + right * screenX + up * screenY;
+    const Vec3 focus =
+        BASE_FOCUS + Vec3(cameraPanX, cameraPanY, 0.0f);
+    const Vec3 rayOrigin =
+        focus - forward * 9.0f + right * screenX + up * screenY;
     const Ray ray{rayOrigin, forward};
     const Hit hit = traceClosest(ray, EPSILON, FAR_DISTANCE);
 
     if (hit.found) return shade(hit);
-    return backgroundColour(pixelY / static_cast<float>(frameHeight));
+    return backgroundColour(
+        pixelY / static_cast<float>(frameHeight)
+    );
 }
 
 std::uint8_t toByte(float value) {
@@ -337,14 +445,27 @@ std::uint8_t toByte(float value) {
     return static_cast<std::uint8_t>(value * 255.0f + 0.5f);
 }
 
-float distanceToSegment(float px, float py, float ax, float ay, float bx, float by) {
+float distanceToSegment(
+    float px,
+    float py,
+    float ax,
+    float ay,
+    float bx,
+    float by
+) {
     const float abx = bx - ax;
     const float aby = by - ay;
     const float apx = px - ax;
     const float apy = py - ay;
     const float denominator = abx * abx + aby * aby;
     const float t = denominator > 0.0f
-        ? std::max(0.0f, std::min(1.0f, (apx * abx + apy * aby) / denominator))
+        ? std::max(
+            0.0f,
+            std::min(
+                1.0f,
+                (apx * abx + apy * aby) / denominator
+            )
+        )
         : 0.0f;
     const float dx = px - (ax + abx * t);
     const float dy = py - (ay + aby * t);
@@ -365,11 +486,25 @@ float clockwiseArrowDistance(float px, float py) {
     float previousY = cy - radiusY * std::sin(startAngle);
 
     for (int index = 1; index <= ARC_SEGMENTS; ++index) {
-        const float amount = static_cast<float>(index) / static_cast<float>(ARC_SEGMENTS);
-        const float angle = startAngle + (endAngle - startAngle) * amount;
+        const float amount =
+            static_cast<float>(index) /
+            static_cast<float>(ARC_SEGMENTS);
+        const float angle =
+            startAngle + (endAngle - startAngle) * amount;
         const float nextX = cx + radiusX * std::cos(angle);
         const float nextY = cy - radiusY * std::sin(angle);
-        minimum = std::min(minimum, distanceToSegment(px, py, previousX, previousY, nextX, nextY));
+
+        minimum = std::min(
+            minimum,
+            distanceToSegment(
+                px,
+                py,
+                previousX,
+                previousY,
+                nextX,
+                nextY
+            )
+        );
         previousX = nextX;
         previousY = nextY;
     }
@@ -378,7 +513,9 @@ float clockwiseArrowDistance(float px, float py) {
     const float tipY = previousY;
     const float tangentX = std::sin(endAngle) * radiusX;
     const float tangentY = std::cos(endAngle) * radiusY;
-    const float tangentLength = std::sqrt(tangentX * tangentX + tangentY * tangentY);
+    const float tangentLength = std::sqrt(
+        tangentX * tangentX + tangentY * tangentY
+    );
     const float directionX = tangentX / tangentLength;
     const float directionY = tangentY / tangentLength;
     const float normalX = -directionY;
@@ -386,22 +523,42 @@ float clockwiseArrowDistance(float px, float py) {
     const float baseX = tipX - directionX * 9.0f;
     const float baseY = tipY - directionY * 9.0f;
 
-    minimum = std::min(minimum, distanceToSegment(
-        px, py, tipX, tipY,
-        baseX + normalX * 5.5f, baseY + normalY * 5.5f
-    ));
-    minimum = std::min(minimum, distanceToSegment(
-        px, py, tipX, tipY,
-        baseX - normalX * 5.5f, baseY - normalY * 5.5f
-    ));
+    minimum = std::min(
+        minimum,
+        distanceToSegment(
+            px,
+            py,
+            tipX,
+            tipY,
+            baseX + normalX * 5.5f,
+            baseY + normalY * 5.5f
+        )
+    );
+    minimum = std::min(
+        minimum,
+        distanceToSegment(
+            px,
+            py,
+            tipX,
+            tipY,
+            baseX - normalX * 5.5f,
+            baseY - normalY * 5.5f
+        )
+    );
+
     return minimum;
 }
 
-float directionalArrowDistance(float px, float py, float dx, float dy) {
+float directionalArrowDistance(
+    float px,
+    float py,
+    float dx,
+    float dy
+) {
     const float cx = PAN_ARROW_SIZE * 0.5f;
     const float cy = PAN_ARROW_SIZE * 0.5f;
-    const float pxNormal = -dy;
-    const float pyNormal = dx;
+    const float perpendicularX = -dy;
+    const float perpendicularY = dx;
 
     const float tailX = cx - dx * 10.0f;
     const float tailY = cy - dy * 10.0f;
@@ -410,15 +567,37 @@ float directionalArrowDistance(float px, float py, float dx, float dy) {
     const float tipX = cx + dx * 13.0f;
     const float tipY = cy + dy * 13.0f;
 
-    float minimum = distanceToSegment(px, py, tailX, tailY, neckX, neckY);
-    minimum = std::min(
-        minimum,
-        distanceToSegment(px, py, tipX, tipY, neckX + pxNormal * 6.0f, neckY + pyNormal * 6.0f)
+    float minimum = distanceToSegment(
+        px,
+        py,
+        tailX,
+        tailY,
+        neckX,
+        neckY
     );
     minimum = std::min(
         minimum,
-        distanceToSegment(px, py, tipX, tipY, neckX - pxNormal * 6.0f, neckY - pyNormal * 6.0f)
+        distanceToSegment(
+            px,
+            py,
+            tipX,
+            tipY,
+            neckX + perpendicularX * 6.0f,
+            neckY + perpendicularY * 6.0f
+        )
     );
+    minimum = std::min(
+        minimum,
+        distanceToSegment(
+            px,
+            py,
+            tipX,
+            tipY,
+            neckX - perpendicularX * 6.0f,
+            neckY - perpendicularY * 6.0f
+        )
+    );
+
     return minimum;
 }
 
@@ -432,18 +611,46 @@ dsr::OrderedImageRgbaU8 panRightSprite;
 dsr::OrderedImageRgbaU8 resetDiskSprite;
 std::vector<std::uint8_t> rgba;
 
-void writeSpritePixel(dsr::OrderedImageRgbaU8& sprite, int x, int y, float distance) {
-    const float outerCoverage = std::max(0.0f, std::min(1.0f, 3.6f - distance));
+void writeSpritePixel(
+    dsr::OrderedImageRgbaU8& sprite,
+    int x,
+    int y,
+    float distance
+) {
+    const float outerCoverage = std::max(
+        0.0f,
+        std::min(1.0f, 3.6f - distance)
+    );
     if (outerCoverage <= 0.0f) return;
 
-    const float coreCoverage = std::max(0.0f, std::min(1.0f, 2.25f - distance));
-    const int alpha = static_cast<int>(outerCoverage * 235.0f + 0.5f);
-    const int shade = static_cast<int>(72.0f + coreCoverage * 178.0f + 0.5f);
-    dsr::image_writePixel(sprite, x, y, dsr::ColorRgbaI32(shade, shade, shade, alpha));
+    const float coreCoverage = std::max(
+        0.0f,
+        std::min(1.0f, 2.25f - distance)
+    );
+    const int alpha = static_cast<int>(
+        outerCoverage * 235.0f + 0.5f
+    );
+    const int shade = static_cast<int>(
+        72.0f + coreCoverage * 178.0f + 0.5f
+    );
+
+    dsr::image_writePixel(
+        sprite,
+        x,
+        y,
+        dsr::ColorRgbaI32(shade, shade, shade, alpha)
+    );
 }
 
-void buildRotateArrowSprite(dsr::OrderedImageRgbaU8& sprite, bool mirrorHorizontally) {
-    sprite = dsr::image_create_RgbaU8(ROTATE_ARROW_WIDTH, ROTATE_ARROW_HEIGHT, true);
+void buildRotateArrowSprite(
+    dsr::OrderedImageRgbaU8& sprite,
+    bool mirrorHorizontally
+) {
+    sprite = dsr::image_create_RgbaU8(
+        ROTATE_ARROW_WIDTH,
+        ROTATE_ARROW_HEIGHT,
+        true
+    );
     dsr::image_fill(sprite, dsr::ColorRgbaI32(0, 0, 0, 0));
 
     for (int y = 0; y < ROTATE_ARROW_HEIGHT; ++y) {
@@ -452,44 +659,90 @@ void buildRotateArrowSprite(dsr::OrderedImageRgbaU8& sprite, bool mirrorHorizont
                 ? static_cast<float>(ROTATE_ARROW_WIDTH - 1 - x) + 0.5f
                 : static_cast<float>(x) + 0.5f;
             const float sampleY = static_cast<float>(y) + 0.5f;
-            writeSpritePixel(sprite, x, y, clockwiseArrowDistance(sampleX, sampleY));
+
+            writeSpritePixel(
+                sprite,
+                x,
+                y,
+                clockwiseArrowDistance(sampleX, sampleY)
+            );
         }
     }
 }
 
-void buildPanArrowSprite(dsr::OrderedImageRgbaU8& sprite, float dx, float dy) {
-    sprite = dsr::image_create_RgbaU8(PAN_ARROW_SIZE, PAN_ARROW_SIZE, true);
+void buildPanArrowSprite(
+    dsr::OrderedImageRgbaU8& sprite,
+    float dx,
+    float dy
+) {
+    sprite = dsr::image_create_RgbaU8(
+        PAN_ARROW_SIZE,
+        PAN_ARROW_SIZE,
+        true
+    );
     dsr::image_fill(sprite, dsr::ColorRgbaI32(0, 0, 0, 0));
 
     for (int y = 0; y < PAN_ARROW_SIZE; ++y) {
         for (int x = 0; x < PAN_ARROW_SIZE; ++x) {
             const float sampleX = static_cast<float>(x) + 0.5f;
             const float sampleY = static_cast<float>(y) + 0.5f;
-            writeSpritePixel(sprite, x, y, directionalArrowDistance(sampleX, sampleY, dx, dy));
+
+            writeSpritePixel(
+                sprite,
+                x,
+                y,
+                directionalArrowDistance(
+                    sampleX,
+                    sampleY,
+                    dx,
+                    dy
+                )
+            );
         }
     }
 }
 
 void buildResetDiskSprite() {
-    resetDiskSprite = dsr::image_create_RgbaU8(PAN_ARROW_SIZE, PAN_ARROW_SIZE, true);
-    dsr::image_fill(resetDiskSprite, dsr::ColorRgbaI32(0, 0, 0, 0));
+    resetDiskSprite = dsr::image_create_RgbaU8(
+        PAN_ARROW_SIZE,
+        PAN_ARROW_SIZE,
+        true
+    );
+    dsr::image_fill(
+        resetDiskSprite,
+        dsr::ColorRgbaI32(0, 0, 0, 0)
+    );
 
     const float centre = PAN_ARROW_SIZE * 0.5f;
+
     for (int y = 0; y < PAN_ARROW_SIZE; ++y) {
         for (int x = 0; x < PAN_ARROW_SIZE; ++x) {
-            const float dx = static_cast<float>(x) + 0.5f - centre;
-            const float dy = static_cast<float>(y) + 0.5f - centre;
+            const float dx =
+                static_cast<float>(x) + 0.5f - centre;
+            const float dy =
+                static_cast<float>(y) + 0.5f - centre;
             const float radius = std::sqrt(dx * dx + dy * dy);
 
             if (radius <= 12.5f) {
-                const float edge = std::max(0.0f, std::min(1.0f, 13.5f - radius));
+                const float edge = std::max(
+                    0.0f,
+                    std::min(1.0f, 13.5f - radius)
+                );
                 const int shade = radius < 9.0f ? 198 : 232;
-                const int alpha = static_cast<int>(edge * 225.0f + 0.5f);
+                const int alpha = static_cast<int>(
+                    edge * 225.0f + 0.5f
+                );
+
                 dsr::image_writePixel(
                     resetDiskSprite,
                     x,
                     y,
-                    dsr::ColorRgbaI32(shade, shade, shade, alpha)
+                    dsr::ColorRgbaI32(
+                        shade,
+                        shade,
+                        shade,
+                        alpha
+                    )
                 );
             }
         }
@@ -500,7 +753,11 @@ void ensureFrame() {
     if (!dsr::image_exists(frame) ||
         allocatedFrameWidth != frameWidth ||
         allocatedFrameHeight != frameHeight) {
-        frame = dsr::image_create_RgbaU8(frameWidth, frameHeight, false);
+        frame = dsr::image_create_RgbaU8(
+            frameWidth,
+            frameHeight,
+            false
+        );
         allocatedFrameWidth = frameWidth;
         allocatedFrameHeight = frameHeight;
     }
@@ -511,8 +768,18 @@ void ensureFrame() {
     }
 
     if (!dsr::image_exists(panUpSprite)) {
-        buildPanArrowSprite(panUpSprite, 0.0f, -1.0f);
-        buildPanArrowSprite(panDownSprite, 0.0f, 1.0f);
+        // X is visualised horizontally. Y follows the diagonal projected
+        // isometric ground axis. There is deliberately no Z panning control.
+        buildPanArrowSprite(
+            panUpSprite,
+            INV_SQRT_TWO,
+            -INV_SQRT_TWO
+        );
+        buildPanArrowSprite(
+            panDownSprite,
+            -INV_SQRT_TWO,
+            INV_SQRT_TWO
+        );
         buildPanArrowSprite(panLeftSprite, -1.0f, 0.0f);
         buildPanArrowSprite(panRightSprite, 1.0f, 0.0f);
         buildResetDiskSprite();
@@ -521,35 +788,78 @@ void ensureFrame() {
     const std::size_t required =
         static_cast<std::size_t>(frameWidth) *
         static_cast<std::size_t>(frameHeight) * 4;
+
     if (rgba.size() != required) rgba.resize(required);
 }
 
 void renderScreenSpaceControls() {
-    const int rotateTop = frameHeight - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
+    const int rotateTop =
+        frameHeight - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
     const int counterClockwiseX = ROTATE_LEFT_X;
-    const int clockwiseX = ROTATE_LEFT_X + ROTATE_ARROW_WIDTH + ROTATE_GAP;
+    const int clockwiseX =
+        ROTATE_LEFT_X + ROTATE_ARROW_WIDTH + ROTATE_GAP;
 
-    dsr::draw_alphaFilter(frame, counterClockwiseArrowSprite, counterClockwiseX, rotateTop);
-    dsr::draw_alphaFilter(frame, clockwiseArrowSprite, clockwiseX, rotateTop);
+    dsr::draw_alphaFilter(
+        frame,
+        counterClockwiseArrowSprite,
+        counterClockwiseX,
+        rotateTop
+    );
+    dsr::draw_alphaFilter(
+        frame,
+        clockwiseArrowSprite,
+        clockwiseX,
+        rotateTop
+    );
 
-    const int padSpan = PAN_ARROW_SIZE + PAN_PAD_STEP * 2;
-    const int padLeft = frameWidth - PAN_PAD_RIGHT - padSpan;
-    const int padTop = frameHeight - PAN_PAD_BOTTOM - padSpan;
+    // The reset disk is the origin of the visual pan-axis control.
+    // X stays horizontal; the Y pair is placed on a diagonal through it.
+    const int centreX =
+        frameWidth - PAN_PAD_RIGHT - PAN_ARROW_SIZE - PAN_X_STEP;
+    const int centreY =
+        frameHeight - PAN_PAD_BOTTOM - PAN_ARROW_SIZE - PAN_Y_STEP;
 
-    dsr::draw_alphaFilter(frame, panUpSprite, padLeft + PAN_PAD_STEP, padTop);
-    dsr::draw_alphaFilter(frame, panLeftSprite, padLeft, padTop + PAN_PAD_STEP);
-    dsr::draw_alphaFilter(frame, resetDiskSprite, padLeft + PAN_PAD_STEP, padTop + PAN_PAD_STEP);
-    dsr::draw_alphaFilter(frame, panRightSprite, padLeft + PAN_PAD_STEP * 2, padTop + PAN_PAD_STEP);
-    dsr::draw_alphaFilter(frame, panDownSprite, padLeft + PAN_PAD_STEP, padTop + PAN_PAD_STEP * 2);
+    dsr::draw_alphaFilter(
+        frame,
+        panLeftSprite,
+        centreX - PAN_X_STEP,
+        centreY
+    );
+    dsr::draw_alphaFilter(
+        frame,
+        resetDiskSprite,
+        centreX,
+        centreY
+    );
+    dsr::draw_alphaFilter(
+        frame,
+        panRightSprite,
+        centreX + PAN_X_STEP,
+        centreY
+    );
+    dsr::draw_alphaFilter(
+        frame,
+        panUpSprite,
+        centreX + PAN_Y_STEP,
+        centreY - PAN_Y_STEP
+    );
+    dsr::draw_alphaFilter(
+        frame,
+        panDownSprite,
+        centreX - PAN_Y_STEP,
+        centreY + PAN_Y_STEP
+    );
 }
 
 void renderScene() {
     ensureFrame();
 
     const float offsets[2] = {0.25f, 0.75f};
+
     for (int y = 0; y < frameHeight; ++y) {
         for (int x = 0; x < frameWidth; ++x) {
             Vec3 colour;
+
             for (int sy = 0; sy < 2; ++sy) {
                 for (int sx = 0; sx < 2; ++sx) {
                     colour = colour + traceSample(
@@ -558,25 +868,34 @@ void renderScene() {
                     );
                 }
             }
+
             colour = colour * 0.25f;
 
             dsr::image_writePixel(
                 frame,
                 x,
                 y,
-                dsr::ColorRgbaI32(toByte(colour.x), toByte(colour.y), toByte(colour.z), 255)
+                dsr::ColorRgbaI32(
+                    toByte(colour.x),
+                    toByte(colour.y),
+                    toByte(colour.z),
+                    255
+                )
             );
         }
     }
 
-    // Controls are engine-rendered sprites. DOM elements only supply hitboxes/accessibility.
+    // Controls are engine-rendered sprites. DOM elements only supply
+    // hitboxes and accessibility semantics.
     renderScreenSpaceControls();
 
     for (int y = 0; y < frameHeight; ++y) {
         for (int x = 0; x < frameWidth; ++x) {
-            const dsr::ColorRgbaI32 colour = dsr::image_readPixel_border(frame, x, y);
+            const dsr::ColorRgbaI32 colour =
+                dsr::image_readPixel_border(frame, x, y);
             const std::size_t index =
                 static_cast<std::size_t>((y * frameWidth + x) * 4);
+
             rgba[index + 0] = static_cast<std::uint8_t>(colour.red);
             rgba[index + 1] = static_cast<std::uint8_t>(colour.green);
             rgba[index + 2] = static_cast<std::uint8_t>(colour.blue);
@@ -586,7 +905,9 @@ void renderScene() {
 }
 
 void presentScene() {
-    const std::uintptr_t pointer = reinterpret_cast<std::uintptr_t>(rgba.data());
+    const std::uintptr_t pointer =
+        reinterpret_cast<std::uintptr_t>(rgba.data());
+
     EM_ASM({
         const pointer = $0;
         const width = $1;
@@ -602,7 +923,12 @@ void presentScene() {
 
         const context = canvas.getContext('2d', { alpha: false });
         const imageData = context.createImageData(width, height);
-        imageData.data.set(HEAPU8.subarray(pointer, pointer + width * height * 4));
+        imageData.data.set(
+            HEAPU8.subarray(
+                pointer,
+                pointer + width * height * 4
+            )
+        );
         context.putImageData(imageData, 0, 0);
 
         document.documentElement.classList.add('wasm-ready');
@@ -612,8 +938,10 @@ void presentScene() {
         const status = document.getElementById('view-status');
         if (status) {
             status.textContent =
-                'Camera ' + (quarterTurns * 90) + ' degrees around Z; pan X ' +
-                panX.toFixed(2) + '; Y ' + panY.toFixed(2);
+                'Camera ' + (quarterTurns * 90) +
+                ' degrees around Z; pan X ' +
+                panX.toFixed(2) +
+                '; Y ' + panY.toFixed(2);
         }
     }, pointer, frameWidth, frameHeight, cameraQuarterTurns, cameraPanX, cameraPanY);
 }
@@ -629,12 +957,12 @@ extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_render() {
     redraw();
 }
 
-extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_resize(int width, int height) {
-    const int newWidth = std::max(160, std::min(1600, width));
-    const int newHeight = std::max(160, std::min(1600, height));
-
-    frameWidth = newWidth;
-    frameHeight = newHeight;
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_resize(
+    int width,
+    int height
+) {
+    frameWidth = std::max(160, std::min(1600, width));
+    frameHeight = std::max(160, std::min(1600, height));
     redraw();
 }
 
@@ -648,13 +976,17 @@ extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_rotate_counterclockwise() {
     redraw();
 }
 
-extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_pan(float screenRight, float screenDown) {
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_pan(
+    float screenRight,
+    float screenDown
+) {
     panCameraOnGround(screenRight, screenDown);
     redraw();
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_reset_camera() {
-    cameraQuarterTurns = 0;
+    // The centre disk recentres translation only. The selected Z yaw is
+    // deliberately preserved.
     cameraPanX = 0.0f;
     cameraPanY = 0.0f;
     redraw();
