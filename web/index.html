@@ -19,40 +19,17 @@
       ></canvas>
 
       <button id="zoom-in" class="control-hitbox" type="button" aria-label="Zoom in" disabled></button>
-      <button
-        id="rotate-counterclockwise"
-        class="control-hitbox"
-        type="button"
-        aria-label="Rotate camera 45 degrees counter-clockwise around the Z axis"
-        disabled
-      ></button>
-      <button
-        id="reset-yaw"
-        class="control-hitbox"
-        type="button"
-        aria-label="Reset camera yaw to 0 degrees"
-        disabled
-      ></button>
-      <button
-        id="rotate-clockwise"
-        class="control-hitbox"
-        type="button"
-        aria-label="Rotate camera 45 degrees clockwise around the Z axis"
-        disabled
-      ></button>
+      <button id="reset-zoom" class="control-hitbox" type="button" aria-label="Reset zoom to 1x" disabled></button>
+      <button id="rotate-counterclockwise" class="control-hitbox" type="button" aria-label="Rotate camera 45 degrees counter-clockwise around the Z axis" disabled></button>
+      <button id="reset-yaw" class="control-hitbox" type="button" aria-label="Reset camera yaw to 0 degrees" disabled></button>
+      <button id="rotate-clockwise" class="control-hitbox" type="button" aria-label="Rotate camera 45 degrees clockwise around the Z axis" disabled></button>
       <button id="zoom-out" class="control-hitbox" type="button" aria-label="Zoom out" disabled></button>
 
       <button id="pan-up" class="control-hitbox" type="button" aria-label="Pan camera up along the projected Y axis" disabled></button>
       <button id="pan-down" class="control-hitbox" type="button" aria-label="Pan camera down along the projected Y axis" disabled></button>
       <button id="pan-left" class="control-hitbox" type="button" aria-label="Pan camera left along the horizontal X axis" disabled></button>
       <button id="pan-right" class="control-hitbox" type="button" aria-label="Pan camera right along the horizontal X axis" disabled></button>
-      <button
-        id="reset-camera"
-        class="control-hitbox"
-        type="button"
-        aria-label="Reset camera X and Y position to centre"
-        disabled
-      ></button>
+      <button id="reset-camera" class="control-hitbox" type="button" aria-label="Reset camera X and Y position to centre" disabled></button>
     </div>
 
     <div id="loading" class="loading" role="status" aria-live="polite">Rendering C++ / WASM…</div>
@@ -68,8 +45,8 @@
     var Module = {
       onRuntimeInitialized: function () {
         const viewport = document.getElementById('viewport');
-        const controls = Array.from(document.querySelectorAll('.control-hitbox'));
         const zoomIn = document.getElementById('zoom-in');
+        const resetZoom = document.getElementById('reset-zoom');
         const counterClockwise = document.getElementById('rotate-counterclockwise');
         const resetYaw = document.getElementById('reset-yaw');
         const clockwise = document.getElementById('rotate-clockwise');
@@ -86,7 +63,9 @@
         const ROTATE_LEFT_X = 18;
         const ROTATE_ROW_GAP = 8;
         const ZOOM_CONTROL_SIZE = 32;
-        const LEFT_CONTROL_GAP = 8;
+        const ZOOM_LEFT = 18;
+        const ZOOM_TOP = 18;
+        const ZOOM_GAP = 6;
         const CONTROL_BOTTOM = 18;
 
         const PAN_ARROW_SIZE = 38;
@@ -96,14 +75,10 @@
         const PAN_PAD_BOTTOM = 16;
 
         const PAN_BUTTON_STEP = 0.34;
-        const BASE_VIEW_HEIGHT = 6.15;
-        const MIN_VIEW_WIDTH = 5.50;
         const MAX_RENDER_PIXELS = 360000;
-        const ZOOM_FACTORS = [0.125, 0.25, 0.5, 1.0, 2.0, 4.0];
-        const REGULAR_ZOOM_MIN_INDEX = 2;
-        const REGULAR_ZOOM_MAX_INDEX = 4;
-        const DETAILED_ZOOM_MIN_INDEX = 0;
-        const DETAILED_ZOOM_MAX_INDEX = 5;
+        const ZOOM_WHEEL_THRESHOLD = 70;
+        const PINCH_STEP_RATIO_IN = 1.14;
+        const PINCH_STEP_RATIO_OUT = 0.88;
 
         let renderWidth = 512;
         let renderHeight = 288;
@@ -111,28 +86,16 @@
         let pendingPanX = 0;
         let pendingPanY = 0;
         let panFrame = 0;
-        let pointerId = null;
-        let pointerX = 0;
-        let pointerY = 0;
-        let detailedZoomMode = new URLSearchParams(window.location.search).get('detailed') === '1';
-        let zoomPresetIndex = 3;
-
-        function minimumZoomPresetIndex() {
-          return detailedZoomMode ? DETAILED_ZOOM_MIN_INDEX : REGULAR_ZOOM_MIN_INDEX;
-        }
-
-        function maximumZoomPresetIndex() {
-          return detailedZoomMode ? DETAILED_ZOOM_MAX_INDEX : REGULAR_ZOOM_MAX_INDEX;
-        }
+        const touchPointers = new Map();
+        let pinchDistance = 0;
+        let zoomWheelAccumulator = 0;
+        const detailedZoomMode = new URLSearchParams(window.location.search).get('detailed') === '1';
 
         function chooseRenderSize(cssWidth, cssHeight) {
           const safeWidth = Math.max(160, Math.round(cssWidth));
           const safeHeight = Math.max(160, Math.round(cssHeight));
           const pixels = safeWidth * safeHeight;
-          const scale = pixels > MAX_RENDER_PIXELS
-            ? Math.sqrt(MAX_RENDER_PIXELS / pixels)
-            : 1;
-
+          const scale = pixels > MAX_RENDER_PIXELS ? Math.sqrt(MAX_RENDER_PIXELS / pixels) : 1;
           return {
             width: Math.max(160, Math.round(safeWidth * scale)),
             height: Math.max(160, Math.round(safeHeight * scale))
@@ -164,26 +127,23 @@
         }
 
         function positionControls() {
-          const yawGroupWidth =
-            ROTATE_ARROW_WIDTH + ROTATE_ROW_GAP + RESET_DISK_SIZE +
-            ROTATE_ROW_GAP + ROTATE_ARROW_WIDTH;
-          const yawRowHeight = Math.max(ROTATE_ARROW_HEIGHT, RESET_DISK_SIZE);
-          const zoomOutTop = renderHeight - CONTROL_BOTTOM - ZOOM_CONTROL_SIZE;
-          const yawRowTop = zoomOutTop - LEFT_CONTROL_GAP - yawRowHeight;
-          const zoomInTop = yawRowTop - LEFT_CONTROL_GAP - ZOOM_CONTROL_SIZE;
+          const zoomX = ZOOM_LEFT + (RESET_DISK_SIZE - ZOOM_CONTROL_SIZE) * 0.5;
+          const zoomResetX = ZOOM_LEFT;
+          const zoomInTop = ZOOM_TOP;
+          const zoomResetTop = zoomInTop + ZOOM_CONTROL_SIZE + ZOOM_GAP;
+          const zoomOutTop = zoomResetTop + RESET_DISK_SIZE + ZOOM_GAP;
+          setHitbox(zoomIn, zoomX, zoomInTop, ZOOM_CONTROL_SIZE, ZOOM_CONTROL_SIZE, 44);
+          setHitbox(resetZoom, zoomResetX, zoomResetTop, RESET_DISK_SIZE, RESET_DISK_SIZE, 44);
+          setHitbox(zoomOut, zoomX, zoomOutTop, ZOOM_CONTROL_SIZE, ZOOM_CONTROL_SIZE, 44);
 
+          const yawRowTop = renderHeight - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
           const counterClockwiseX = ROTATE_LEFT_X;
           const resetYawX = counterClockwiseX + ROTATE_ARROW_WIDTH + ROTATE_ROW_GAP;
           const clockwiseX = resetYawX + RESET_DISK_SIZE + ROTATE_ROW_GAP;
-          const arrowTop = yawRowTop + (yawRowHeight - ROTATE_ARROW_HEIGHT) * 0.5;
-          const resetYawTop = yawRowTop + (yawRowHeight - RESET_DISK_SIZE) * 0.5;
-          const zoomX = ROTATE_LEFT_X + (yawGroupWidth - ZOOM_CONTROL_SIZE) * 0.5;
-
-          setHitbox(zoomIn, zoomX, zoomInTop, ZOOM_CONTROL_SIZE, ZOOM_CONTROL_SIZE, 44);
-          setHitbox(counterClockwise, counterClockwiseX, arrowTop, ROTATE_ARROW_WIDTH, ROTATE_ARROW_HEIGHT, 44);
+          const resetYawTop = yawRowTop + (ROTATE_ARROW_HEIGHT - RESET_DISK_SIZE) * 0.5;
+          setHitbox(counterClockwise, counterClockwiseX, yawRowTop, ROTATE_ARROW_WIDTH, ROTATE_ARROW_HEIGHT, 44);
           setHitbox(resetYaw, resetYawX, resetYawTop, RESET_DISK_SIZE, RESET_DISK_SIZE, 44);
-          setHitbox(clockwise, clockwiseX, arrowTop, ROTATE_ARROW_WIDTH, ROTATE_ARROW_HEIGHT, 44);
-          setHitbox(zoomOut, zoomX, zoomOutTop, ZOOM_CONTROL_SIZE, ZOOM_CONTROL_SIZE, 44);
+          setHitbox(clockwise, clockwiseX, yawRowTop, ROTATE_ARROW_WIDTH, ROTATE_ARROW_HEIGHT, 44);
 
           const centreX = renderWidth - PAN_PAD_RIGHT - PAN_ARROW_SIZE - PAN_X_STEP;
           const centreY = renderHeight - PAN_PAD_BOTTOM - PAN_ARROW_SIZE - PAN_Y_STEP;
@@ -212,25 +172,22 @@
           });
         }
 
-        function viewHeightWorld() {
-          const aspect = renderWidth / renderHeight;
-          if (zoomPresetIndex === 0) {
-            return Math.max(11.5, 18.0 / aspect);
-          }
-          return Math.max(BASE_VIEW_HEIGHT, MIN_VIEW_WIDTH / aspect) / ZOOM_FACTORS[zoomPresetIndex];
-        }
-
         function pixelsToWorld(pixels) {
           const rect = viewport.getBoundingClientRect();
           if (rect.height <= 0) return 0;
-          return pixels * (viewHeightWorld() / rect.height);
+          const viewHeight = Number(window.isowebViewHeightWorld) || 6.15;
+          return pixels * (viewHeight / rect.height);
+        }
+
+        function zoomStep(direction) {
+          if (direction > 0) Module._isoweb_zoom_in();
+          else if (direction < 0) Module._isoweb_zoom_out();
         }
 
         function queuePan(screenRight, screenDown) {
           pendingPanX += screenRight;
           pendingPanY += screenDown;
           if (panFrame) return;
-
           panFrame = requestAnimationFrame(function () {
             const x = pendingPanX;
             const y = pendingPanY;
@@ -241,31 +198,12 @@
           });
         }
 
-        function clampZoomIndex(index) {
-          return Math.max(minimumZoomPresetIndex(), Math.min(maximumZoomPresetIndex(), index));
-        }
-
-        zoomIn.addEventListener('click', function () {
-          zoomPresetIndex = clampZoomIndex(zoomPresetIndex + 1);
-          Module._isoweb_zoom_in();
-        });
-
-        counterClockwise.addEventListener('click', function () {
-          Module._isoweb_rotate_counterclockwise();
-        });
-
-        resetYaw.addEventListener('click', function () {
-          Module._isoweb_reset_yaw();
-        });
-
-        clockwise.addEventListener('click', function () {
-          Module._isoweb_rotate_clockwise();
-        });
-
-        zoomOut.addEventListener('click', function () {
-          zoomPresetIndex = clampZoomIndex(zoomPresetIndex - 1);
-          Module._isoweb_zoom_out();
-        });
+        zoomIn.addEventListener('click', function () { zoomStep(1); });
+        resetZoom.addEventListener('click', function () { Module._isoweb_reset_zoom(); });
+        counterClockwise.addEventListener('click', function () { Module._isoweb_rotate_counterclockwise(); });
+        resetYaw.addEventListener('click', function () { Module._isoweb_reset_yaw(); });
+        clockwise.addEventListener('click', function () { Module._isoweb_rotate_clockwise(); });
+        zoomOut.addEventListener('click', function () { zoomStep(-1); });
 
         panUp.addEventListener('click', function () { queuePan(0, PAN_BUTTON_STEP); });
         panDown.addEventListener('click', function () { queuePan(0, -PAN_BUTTON_STEP); });
@@ -279,31 +217,73 @@
           let delta = event.deltaY;
           if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) delta *= 16;
           else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) delta *= rect.height;
+
+          if (event.altKey) {
+            zoomWheelAccumulator += delta;
+            while (zoomWheelAccumulator <= -ZOOM_WHEEL_THRESHOLD) {
+              zoomStep(1);
+              zoomWheelAccumulator += ZOOM_WHEEL_THRESHOLD;
+            }
+            while (zoomWheelAccumulator >= ZOOM_WHEEL_THRESHOLD) {
+              zoomStep(-1);
+              zoomWheelAccumulator -= ZOOM_WHEEL_THRESHOLD;
+            }
+            return;
+          }
+
+          zoomWheelAccumulator = 0;
           const worldDelta = pixelsToWorld(delta) * 0.35;
           if (event.ctrlKey) queuePan(worldDelta, 0);
           else queuePan(0, worldDelta);
         }, { passive: false });
 
+        function currentPinchDistance() {
+          if (touchPointers.size < 2) return 0;
+          const points = Array.from(touchPointers.values());
+          const dx = points[0].x - points[1].x;
+          const dy = points[0].y - points[1].y;
+          return Math.hypot(dx, dy);
+        }
+
         viewport.addEventListener('pointerdown', function (event) {
           if (event.pointerType === 'mouse' || event.target.closest('button')) return;
-          pointerId = event.pointerId;
-          pointerX = event.clientX;
-          pointerY = event.clientY;
-          viewport.setPointerCapture(pointerId);
+          touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+          viewport.setPointerCapture(event.pointerId);
+          pinchDistance = touchPointers.size >= 2 ? currentPinchDistance() : 0;
         });
 
         viewport.addEventListener('pointermove', function (event) {
-          if (event.pointerId !== pointerId) return;
-          const dx = event.clientX - pointerX;
-          const dy = event.clientY - pointerY;
-          pointerX = event.clientX;
-          pointerY = event.clientY;
+          const previous = touchPointers.get(event.pointerId);
+          if (!previous) return;
+          const next = { x: event.clientX, y: event.clientY };
+          touchPointers.set(event.pointerId, next);
+
+          if (touchPointers.size >= 2) {
+            const distance = currentPinchDistance();
+            if (pinchDistance <= 0) {
+              pinchDistance = distance;
+              return;
+            }
+            const ratio = distance / pinchDistance;
+            if (ratio >= PINCH_STEP_RATIO_IN) {
+              zoomStep(1);
+              pinchDistance = distance;
+            } else if (ratio <= PINCH_STEP_RATIO_OUT) {
+              zoomStep(-1);
+              pinchDistance = distance;
+            }
+            return;
+          }
+
+          const dx = next.x - previous.x;
+          const dy = next.y - previous.y;
           queuePan(-pixelsToWorld(dx), -pixelsToWorld(dy));
         });
 
         function endPointer(event) {
-          if (event.pointerId !== pointerId) return;
-          pointerId = null;
+          if (!touchPointers.has(event.pointerId)) return;
+          touchPointers.delete(event.pointerId);
+          pinchDistance = touchPointers.size >= 2 ? currentPinchDistance() : 0;
         }
 
         viewport.addEventListener('pointerup', endPointer);
@@ -317,7 +297,13 @@
 
         Module._isoweb_set_detailed_mode(detailedZoomMode ? 1 : 0);
         syncRendererSize();
-        controls.forEach(function (control) { control.disabled = false; });
+        [zoomIn, resetZoom, zoomOut, counterClockwise, resetYaw, clockwise].forEach(function (control) {
+          control.disabled = false;
+        });
+        const panEnabled = window.isowebCameraCanPan !== false;
+        [panUp, panDown, panLeft, panRight, resetCamera].forEach(function (control) {
+          control.disabled = !panEnabled;
+        });
       }
     };
   </script>
