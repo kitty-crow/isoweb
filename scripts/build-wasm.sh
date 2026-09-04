@@ -6,7 +6,7 @@ mkdir -p site/assets
 mapfile -t DFPSR_SOURCES < <(find vendor/dfpsr/Source/DFPSR -type f -name '*.cpp' -print | sort)
 
 em++ \
-  src/main.cpp \
+  src/engine.cpp \
   "${DFPSR_SOURCES[@]}" \
   vendor/dfpsr/Source/windowManagers/NoWindow.cpp \
   vendor/dfpsr/Source/soundManagers/NoSound.cpp \
