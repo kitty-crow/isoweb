@@ -476,8 +476,8 @@ void ensureFrame() {
         buildRotateArrowSprite(counterClockwiseArrowSprite, true);
     }
     if (!dsr::image_exists(panUpSprite)) {
-        buildPanArrowSprite(panUpSprite, INV_SQRT_TWO, -INV_SQRT_TWO);
-        buildPanArrowSprite(panDownSprite, -INV_SQRT_TWO, INV_SQRT_TWO);
+        buildPanArrowSprite(panUpSprite, 0.0f, -1.0f);
+        buildPanArrowSprite(panDownSprite, 0.0f, 1.0f);
         buildPanArrowSprite(panLeftSprite, -1.0f, 0.0f);
         buildPanArrowSprite(panRightSprite, 1.0f, 0.0f);
     }
@@ -514,8 +514,8 @@ void renderScreenSpaceControls() {
     dsr::draw_alphaFilter(frame, panLeftSprite, centreX - PAN_X_STEP, centreY);
     dsr::draw_alphaFilter(frame, resetDiskSprite, centreX, centreY);
     dsr::draw_alphaFilter(frame, panRightSprite, centreX + PAN_X_STEP, centreY);
-    dsr::draw_alphaFilter(frame, panUpSprite, centreX + PAN_Y_STEP, centreY - PAN_Y_STEP);
-    dsr::draw_alphaFilter(frame, panDownSprite, centreX - PAN_Y_STEP, centreY + PAN_Y_STEP);
+    dsr::draw_alphaFilter(frame, panUpSprite, centreX, centreY - PAN_Y_STEP);
+    dsr::draw_alphaFilter(frame, panDownSprite, centreX, centreY + PAN_Y_STEP);
 }
 
 void renderScene() {
