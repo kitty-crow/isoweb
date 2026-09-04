@@ -1,0 +1,10 @@
+{
+  "name": "isoweb",
+  "private": true,
+  "scripts": {
+    "check": "bun vendor/pages/src/cli.ts check pages.config.ts",
+    "build": "bun vendor/pages/src/cli.ts build pages.config.ts",
+    "build:wasm": "bash scripts/build-wasm.sh",
+    "audit:mobile": "bun vendor/pages/src/cli.ts audit-mobile site"
+  }
+}

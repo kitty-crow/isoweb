@@ -1,0 +1,6 @@
+[submodule "vendor/pages"]
+	path = vendor/pages
+	url = https://github.com/kitty-crow/github-pages-template.git
+[submodule "vendor/dfpsr"]
+	path = vendor/dfpsr
+	url = https://github.com/Dawoodoz/DFPSR.git

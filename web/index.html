@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#0f1720">
+  <title>isoweb · DFPSR WebAssembly</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="scene" aria-label="Static isometric ray-traced scene">
+    <canvas
+      id="canvas"
+      width="512"
+      height="288"
+      role="img"
+      aria-label="A ray-traced isometric scene containing a blue cube and an orange sphere on a tiled ground plane, with physically derived lighting and cast shadows."
+    ></canvas>
+
+    <div id="loading" class="loading" role="status" aria-live="polite">Rendering C++ / WASM…</div>
+
+    <div class="badge" aria-hidden="true">
+      <strong>isoweb</strong>
+      <span>DFPSR · C++ · WASM · ray cast</span>
+    </div>
+  </main>
+
+  <script>
+    var Module = {
+      onRuntimeInitialized: function () {
+        Module._isoweb_render();
+      }
+    };
+  </script>
+  <script src="./assets/isoweb.js"></script>
+</body>
+</html>

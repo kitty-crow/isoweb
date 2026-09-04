@@ -1,0 +1,87 @@
+html,
+body {
+  min-width: 100%;
+  min-height: 100%;
+  margin: 0;
+  background: #0f1720;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+.scene {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 100dvh;
+  place-items: center;
+  overflow: clip;
+  background: #0f1720;
+}
+
+#canvas {
+  display: block;
+  width: min(100vw, calc(100dvh * 16 / 9));
+  height: auto;
+  max-width: 100%;
+  max-height: 100dvh;
+  aspect-ratio: 16 / 9;
+  background: #0f1720;
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+
+.wasm-ready #canvas {
+  opacity: 1;
+}
+
+.loading,
+.badge {
+  position: absolute;
+  z-index: 2;
+  left: max(0.75rem, env(safe-area-inset-left));
+  padding: 0.48rem 0.7rem;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 0.5rem;
+  background: rgb(8 13 19 / 76%);
+  color: rgb(255 255 255 / 86%);
+  font: 600 0.72rem/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  backdrop-filter: blur(8px);
+}
+
+.loading {
+  top: max(0.75rem, env(safe-area-inset-top));
+}
+
+.loading[hidden] {
+  display: none;
+}
+
+.badge {
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  display: flex;
+  gap: 0.65rem;
+  align-items: baseline;
+}
+
+.badge strong {
+  color: white;
+}
+
+.badge span {
+  color: rgb(255 255 255 / 58%);
+  font-weight: 500;
+}
+
+@media (max-width: 420px) {
+  .badge span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #canvas {
+    transition: none;
+  }
+}
