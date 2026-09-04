@@ -1,12 +1,14 @@
 // Render scheduler for isoweb.
 //
 // The scene/intersection/control implementation remains in main.cpp. This
-// translation unit includes it with its old public entry points renamed so we
-// can choose between two presentation paths:
+// translation unit keeps the normal renderer API but replaces the old
+// multi-level sample path with a strictly single-active-level renderer and
+// chooses between two presentation modes:
 //   * immediate full-frame rendering for ordinary camera interaction;
 //   * incremental rendering with an engine-drawn progress sprite for initial
 //     load and expensive view swaps such as Z-level changes (and later t).
 
+#define traceSample traceSampleLegacy
 #define isoweb_render isoweb_render_legacy
 #define isoweb_resize isoweb_resize_legacy
 #define isoweb_rotate_clockwise isoweb_rotate_clockwise_legacy
@@ -22,6 +24,7 @@
 #define isoweb_level_down isoweb_level_down_legacy
 #define isoweb_reset_level isoweb_reset_level_legacy
 #include "main.cpp"
+#undef traceSample
 #undef isoweb_render
 #undef isoweb_resize
 #undef isoweb_rotate_clockwise
@@ -44,8 +47,9 @@ constexpr int PROGRESS_TOP = 18;
 constexpr int PROGRESS_MIN_WIDTH = 96;
 constexpr int PROGRESS_MAX_WIDTH = 220;
 
-// Level definitions are lightweight world metadata. Only one LevelView is
-// materialised into the live renderer at a time.
+// These are lightweight definitions only. The live `levels` vector keeps the
+// same number of slots so the existing state-aware Z controls still work, but
+// only the selected slot contains renderable scene data.
 const std::vector<LevelView> levelDefinitions = levels;
 
 bool initialLoadComplete = false;
@@ -73,6 +77,17 @@ void materialiseActiveLevel() {
     }
 }
 
+// This is the renderer's real sample path. It deliberately traces exactly one
+// Z level. There is no ghost pass and no access to any lower or upper level.
+Vec3 traceSample(float pixelX, float pixelY) {
+    const Ray ray = cameraRay(pixelX, pixelY);
+    const LevelView& activeLevel = levels[static_cast<std::size_t>(selectedLevel)];
+    const Hit activeHit = traceClosest(activeLevel, ray, EPSILON, FAR_DISTANCE);
+    return activeHit.found
+        ? shade(activeLevel, activeHit)
+        : backgroundColour(pixelY / static_cast<float>(frameHeight));
+}
+
 void writeRgbaPixel(int x, int y, const Vec3& colour) {
     const std::size_t index = static_cast<std::size_t>((y * frameWidth + x) * 4);
     rgba[index] = toByte(colour.x);
@@ -98,13 +113,6 @@ void fillRenderSurface() {
     }
 }
 
-int rowsPerChunk() {
-    // This path is deliberately reserved for loads/view swaps, not normal
-    // camera motion. Keep chunks short enough for mobile Safari to repaint the
-    // C++ progress sprite between them.
-    return std::max(1, std::min(8, 1500 / std::max(frameWidth, 1)));
-}
-
 void renderRows(int startRow, int endRow) {
     const float offsets[2] = {0.25f, 0.75f};
 
@@ -113,8 +121,6 @@ void renderRows(int startRow, int endRow) {
             Vec3 colour;
             for (int sy = 0; sy < 2; ++sy) {
                 for (int sx = 0; sx < 2; ++sx) {
-                    // main.cpp's normal trace path renders exactly the selected
-                    // active level. No lower-level ghost pass exists here.
                     colour = colour + traceSample(x + offsets[sx], y + offsets[sy]);
                 }
             }
@@ -128,6 +134,61 @@ void renderRows(int startRow, int endRow) {
             writeRgbaPixel(x, y, colour);
         }
     }
+}
+
+void syncRgbaRegion(int left, int top, int width, int height) {
+    const int x0 = std::max(0, left);
+    const int y0 = std::max(0, top);
+    const int x1 = std::min(frameWidth, left + width);
+    const int y1 = std::min(frameHeight, top + height);
+
+    for (int y = y0; y < y1; ++y) {
+        for (int x = x0; x < x1; ++x) {
+            const dsr::ColorRgbaI32 colour = dsr::image_readPixel_border(frame, x, y);
+            const std::size_t index = static_cast<std::size_t>((y * frameWidth + x) * 4);
+            rgba[index] = static_cast<std::uint8_t>(colour.red);
+            rgba[index + 1] = static_cast<std::uint8_t>(colour.green);
+            rgba[index + 2] = static_cast<std::uint8_t>(colour.blue);
+            rgba[index + 3] = 255;
+        }
+    }
+}
+
+void syncControlRegions() {
+    // Zoom, top-left.
+    const int zoomHeight =
+        ZOOM_CONTROL_SIZE + ZOOM_GAP + RESET_DISK_SIZE + ZOOM_GAP + ZOOM_CONTROL_SIZE;
+    syncRgbaRegion(ZOOM_LEFT, ZOOM_TOP, RESET_DISK_SIZE, zoomHeight);
+
+    // Z level, top-right.
+    const int levelX = frameWidth - LEVEL_RIGHT - PAN_ARROW_SIZE;
+    const int levelHeight =
+        PAN_ARROW_SIZE + LEVEL_GAP + RESET_DISK_SIZE + LEVEL_GAP + PAN_ARROW_SIZE;
+    syncRgbaRegion(levelX, LEVEL_TOP, PAN_ARROW_SIZE, levelHeight);
+
+    // Yaw, bottom-left.
+    const int yawTop = frameHeight - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
+    const int yawWidth =
+        ROTATE_ARROW_WIDTH + ROTATE_ROW_GAP + RESET_DISK_SIZE +
+        ROTATE_ROW_GAP + ROTATE_ARROW_WIDTH;
+    syncRgbaRegion(ROTATE_LEFT_X, yawTop, yawWidth, ROTATE_ARROW_HEIGHT);
+
+    // X/Y pan pad, bottom-right.
+    const int centreX = frameWidth - PAN_PAD_RIGHT - PAN_ARROW_SIZE - PAN_X_STEP;
+    const int centreY = frameHeight - PAN_PAD_BOTTOM - PAN_ARROW_SIZE - PAN_Y_STEP;
+    syncRgbaRegion(
+        centreX - PAN_X_STEP,
+        centreY - PAN_Y_STEP,
+        PAN_X_STEP * 2 + PAN_ARROW_SIZE,
+        PAN_Y_STEP * 2 + PAN_ARROW_SIZE
+    );
+}
+
+void renderFullFrame() {
+    ensureFrame();
+    renderRows(0, frameHeight);
+    renderControls();
+    syncControlRegions();
 }
 
 struct ProgressRect {
@@ -307,25 +368,16 @@ void presentPartialRows(int startRow, int rowCount, float progress) {
     restoreProgressSprite(rect);
 }
 
-void syncRgbaFromFrame() {
-    for (int y = 0; y < frameHeight; ++y) {
-        for (int x = 0; x < frameWidth; ++x) {
-            const dsr::ColorRgbaI32 colour = dsr::image_readPixel_border(frame, x, y);
-            const std::size_t index = static_cast<std::size_t>((y * frameWidth + x) * 4);
-            rgba[index] = static_cast<std::uint8_t>(colour.red);
-            rgba[index + 1] = static_cast<std::uint8_t>(colour.green);
-            rgba[index + 2] = static_cast<std::uint8_t>(colour.blue);
-            rgba[index + 3] = 255;
-        }
-    }
+int rowsPerChunk() {
+    // One active level is cheap enough for larger chunks. This keeps progress
+    // responsive without scheduling hundreds of tiny callbacks on mobile.
+    return std::max(2, std::min(16, 6000 / std::max(frameWidth, 1)));
 }
 
 void fastRender() {
-    // Cancel any pending incremental pass. A scheduled callback may still run,
-    // but it will observe renderActive == false and return immediately.
     renderActive = false;
     materialiseActiveLevel();
-    renderScene();
+    renderFullFrame();
     presentScene();
     initialLoadComplete = true;
 }
@@ -345,7 +397,8 @@ void beginProgressRender() {
     nextRenderRow = 0;
     renderActive = true;
 
-    // Progress is calculated and drawn entirely by the C++ renderer.
+    // The browser only presents pixels. Progress calculation and drawing live
+    // entirely in C++.
     presentPartialRows(0, frameHeight, 0.0f);
     scheduleRenderTick();
 }
@@ -369,10 +422,11 @@ void renderTick(void*) {
         return;
     }
 
-    // Camera controls are rendered into the finished engine framebuffer, just
-    // as they are on the immediate path.
+    // Completion is intentionally small: render the sprites, synchronise only
+    // their tiny rectangles, then replace the progress framebuffer with the
+    // finished frame. There is no second full-frame readback here.
     renderControls();
-    syncRgbaFromFrame();
+    syncControlRegions();
     renderActive = false;
     initialLoadComplete = true;
     presentScene();
