@@ -18,49 +18,34 @@
         aria-label="A ray-traced isometric scene containing a blue cube and an orange sphere on a tiled ground plane, with physically derived lighting and cast shadows."
       ></canvas>
 
+      <button id="zoom-in" class="control-hitbox" type="button" aria-label="Zoom in" disabled></button>
       <button
         id="rotate-counterclockwise"
         class="control-hitbox"
         type="button"
-        aria-label="Rotate camera 90 degrees counter-clockwise around the Z axis"
+        aria-label="Rotate camera 45 degrees counter-clockwise around the Z axis"
+        disabled
+      ></button>
+      <button
+        id="reset-yaw"
+        class="control-hitbox"
+        type="button"
+        aria-label="Reset camera yaw to 0 degrees"
         disabled
       ></button>
       <button
         id="rotate-clockwise"
         class="control-hitbox"
         type="button"
-        aria-label="Rotate camera 90 degrees clockwise around the Z axis"
+        aria-label="Rotate camera 45 degrees clockwise around the Z axis"
         disabled
       ></button>
+      <button id="zoom-out" class="control-hitbox" type="button" aria-label="Zoom out" disabled></button>
 
-      <button
-        id="pan-up"
-        class="control-hitbox"
-        type="button"
-        aria-label="Pan camera up along the projected Y axis"
-        disabled
-      ></button>
-      <button
-        id="pan-down"
-        class="control-hitbox"
-        type="button"
-        aria-label="Pan camera down along the projected Y axis"
-        disabled
-      ></button>
-      <button
-        id="pan-left"
-        class="control-hitbox"
-        type="button"
-        aria-label="Pan camera left along the horizontal X axis"
-        disabled
-      ></button>
-      <button
-        id="pan-right"
-        class="control-hitbox"
-        type="button"
-        aria-label="Pan camera right along the horizontal X axis"
-        disabled
-      ></button>
+      <button id="pan-up" class="control-hitbox" type="button" aria-label="Pan camera up along the projected Y axis" disabled></button>
+      <button id="pan-down" class="control-hitbox" type="button" aria-label="Pan camera down along the projected Y axis" disabled></button>
+      <button id="pan-left" class="control-hitbox" type="button" aria-label="Pan camera left along the horizontal X axis" disabled></button>
+      <button id="pan-right" class="control-hitbox" type="button" aria-label="Pan camera right along the horizontal X axis" disabled></button>
       <button
         id="reset-camera"
         class="control-hitbox"
@@ -84,8 +69,11 @@
       onRuntimeInitialized: function () {
         const viewport = document.getElementById('viewport');
         const controls = Array.from(document.querySelectorAll('.control-hitbox'));
+        const zoomIn = document.getElementById('zoom-in');
         const counterClockwise = document.getElementById('rotate-counterclockwise');
+        const resetYaw = document.getElementById('reset-yaw');
         const clockwise = document.getElementById('rotate-clockwise');
+        const zoomOut = document.getElementById('zoom-out');
         const panUp = document.getElementById('pan-up');
         const panDown = document.getElementById('pan-down');
         const panLeft = document.getElementById('pan-left');
@@ -94,8 +82,11 @@
 
         const ROTATE_ARROW_WIDTH = 56;
         const ROTATE_ARROW_HEIGHT = 44;
+        const RESET_DISK_SIZE = 38;
         const ROTATE_LEFT_X = 18;
-        const ROTATE_GAP = 10;
+        const ROTATE_ROW_GAP = 8;
+        const ZOOM_CONTROL_SIZE = 32;
+        const LEFT_CONTROL_GAP = 8;
         const CONTROL_BOTTOM = 18;
 
         const PAN_ARROW_SIZE = 38;
@@ -108,6 +99,11 @@
         const BASE_VIEW_HEIGHT = 6.15;
         const MIN_VIEW_WIDTH = 5.50;
         const MAX_RENDER_PIXELS = 360000;
+        const ZOOM_FACTORS = [0.125, 0.25, 0.5, 1.0, 2.0, 4.0];
+        const REGULAR_ZOOM_MIN_INDEX = 2;
+        const REGULAR_ZOOM_MAX_INDEX = 4;
+        const DETAILED_ZOOM_MIN_INDEX = 0;
+        const DETAILED_ZOOM_MAX_INDEX = 5;
 
         let renderWidth = 512;
         let renderHeight = 288;
@@ -118,6 +114,16 @@
         let pointerId = null;
         let pointerX = 0;
         let pointerY = 0;
+        let detailedZoomMode = new URLSearchParams(window.location.search).get('detailed') === '1';
+        let zoomPresetIndex = 3;
+
+        function minimumZoomPresetIndex() {
+          return detailedZoomMode ? DETAILED_ZOOM_MIN_INDEX : REGULAR_ZOOM_MIN_INDEX;
+        }
+
+        function maximumZoomPresetIndex() {
+          return detailedZoomMode ? DETAILED_ZOOM_MAX_INDEX : REGULAR_ZOOM_MAX_INDEX;
+        }
 
         function chooseRenderSize(cssWidth, cssHeight) {
           const safeWidth = Math.max(160, Math.round(cssWidth));
@@ -137,7 +143,6 @@
           const rect = viewport.getBoundingClientRect();
           const scaleX = rect.width / renderWidth;
           const scaleY = rect.height / renderHeight;
-
           let left = renderX * scaleX;
           let top = renderY * scaleY;
           let width = renderW * scaleX;
@@ -159,77 +164,39 @@
         }
 
         function positionControls() {
-          const rotateTop = renderHeight - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
-          const clockwiseX = ROTATE_LEFT_X + ROTATE_ARROW_WIDTH + ROTATE_GAP;
+          const yawGroupWidth =
+            ROTATE_ARROW_WIDTH + ROTATE_ROW_GAP + RESET_DISK_SIZE +
+            ROTATE_ROW_GAP + ROTATE_ARROW_WIDTH;
+          const yawRowHeight = Math.max(ROTATE_ARROW_HEIGHT, RESET_DISK_SIZE);
+          const zoomOutTop = renderHeight - CONTROL_BOTTOM - ZOOM_CONTROL_SIZE;
+          const yawRowTop = zoomOutTop - LEFT_CONTROL_GAP - yawRowHeight;
+          const zoomInTop = yawRowTop - LEFT_CONTROL_GAP - ZOOM_CONTROL_SIZE;
 
-          setHitbox(
-            counterClockwise,
-            ROTATE_LEFT_X,
-            rotateTop,
-            ROTATE_ARROW_WIDTH,
-            ROTATE_ARROW_HEIGHT,
-            44
-          );
-          setHitbox(
-            clockwise,
-            clockwiseX,
-            rotateTop,
-            ROTATE_ARROW_WIDTH,
-            ROTATE_ARROW_HEIGHT,
-            44
-          );
+          const counterClockwiseX = ROTATE_LEFT_X;
+          const resetYawX = counterClockwiseX + ROTATE_ARROW_WIDTH + ROTATE_ROW_GAP;
+          const clockwiseX = resetYawX + RESET_DISK_SIZE + ROTATE_ROW_GAP;
+          const arrowTop = yawRowTop + (yawRowHeight - ROTATE_ARROW_HEIGHT) * 0.5;
+          const resetYawTop = yawRowTop + (yawRowHeight - RESET_DISK_SIZE) * 0.5;
+          const zoomX = ROTATE_LEFT_X + (yawGroupWidth - ZOOM_CONTROL_SIZE) * 0.5;
 
-          // Reset disk is the origin of the visual X/Y axis control.
-          // X is horizontal, while Y is the diagonal isometric ground axis.
+          setHitbox(zoomIn, zoomX, zoomInTop, ZOOM_CONTROL_SIZE, ZOOM_CONTROL_SIZE, 44);
+          setHitbox(counterClockwise, counterClockwiseX, arrowTop, ROTATE_ARROW_WIDTH, ROTATE_ARROW_HEIGHT, 44);
+          setHitbox(resetYaw, resetYawX, resetYawTop, RESET_DISK_SIZE, RESET_DISK_SIZE, 44);
+          setHitbox(clockwise, clockwiseX, arrowTop, ROTATE_ARROW_WIDTH, ROTATE_ARROW_HEIGHT, 44);
+          setHitbox(zoomOut, zoomX, zoomOutTop, ZOOM_CONTROL_SIZE, ZOOM_CONTROL_SIZE, 44);
+
           const centreX = renderWidth - PAN_PAD_RIGHT - PAN_ARROW_SIZE - PAN_X_STEP;
           const centreY = renderHeight - PAN_PAD_BOTTOM - PAN_ARROW_SIZE - PAN_Y_STEP;
-
-          setHitbox(
-            panLeft,
-            centreX - PAN_X_STEP,
-            centreY,
-            PAN_ARROW_SIZE,
-            PAN_ARROW_SIZE,
-            44
-          );
-          setHitbox(
-            resetCamera,
-            centreX,
-            centreY,
-            PAN_ARROW_SIZE,
-            PAN_ARROW_SIZE,
-            44
-          );
-          setHitbox(
-            panRight,
-            centreX + PAN_X_STEP,
-            centreY,
-            PAN_ARROW_SIZE,
-            PAN_ARROW_SIZE,
-            44
-          );
-          setHitbox(
-            panUp,
-            centreX + PAN_Y_STEP,
-            centreY - PAN_Y_STEP,
-            PAN_ARROW_SIZE,
-            PAN_ARROW_SIZE,
-            44
-          );
-          setHitbox(
-            panDown,
-            centreX - PAN_Y_STEP,
-            centreY + PAN_Y_STEP,
-            PAN_ARROW_SIZE,
-            PAN_ARROW_SIZE,
-            44
-          );
+          setHitbox(panLeft, centreX - PAN_X_STEP, centreY, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+          setHitbox(resetCamera, centreX, centreY, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+          setHitbox(panRight, centreX + PAN_X_STEP, centreY, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+          setHitbox(panUp, centreX + PAN_Y_STEP, centreY - PAN_Y_STEP, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+          setHitbox(panDown, centreX - PAN_Y_STEP, centreY + PAN_Y_STEP, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
         }
 
         function syncRendererSize() {
           const rect = viewport.getBoundingClientRect();
           if (rect.width <= 0 || rect.height <= 0) return;
-
           const size = chooseRenderSize(rect.width, rect.height);
           renderWidth = size.width;
           renderHeight = size.height;
@@ -247,7 +214,10 @@
 
         function viewHeightWorld() {
           const aspect = renderWidth / renderHeight;
-          return Math.max(BASE_VIEW_HEIGHT, MIN_VIEW_WIDTH / aspect);
+          if (zoomPresetIndex === 0) {
+            return Math.max(11.5, 18.0 / aspect);
+          }
+          return Math.max(BASE_VIEW_HEIGHT, MIN_VIEW_WIDTH / aspect) / ZOOM_FACTORS[zoomPresetIndex];
         }
 
         function pixelsToWorld(pixels) {
@@ -267,59 +237,51 @@
             pendingPanX = 0;
             pendingPanY = 0;
             panFrame = 0;
-            if (x !== 0 || y !== 0) {
-              Module._isoweb_pan(x, y);
-            }
+            if (x !== 0 || y !== 0) Module._isoweb_pan(x, y);
           });
         }
 
+        function clampZoomIndex(index) {
+          return Math.max(minimumZoomPresetIndex(), Math.min(maximumZoomPresetIndex(), index));
+        }
+
+        zoomIn.addEventListener('click', function () {
+          zoomPresetIndex = clampZoomIndex(zoomPresetIndex + 1);
+          Module._isoweb_zoom_in();
+        });
+
         counterClockwise.addEventListener('click', function () {
           Module._isoweb_rotate_counterclockwise();
+        });
+
+        resetYaw.addEventListener('click', function () {
+          Module._isoweb_reset_yaw();
         });
 
         clockwise.addEventListener('click', function () {
           Module._isoweb_rotate_clockwise();
         });
 
-        // These calls are intentionally unchanged. Only the visual layout of
-        // the Y pair is diagonal. D-pad Y remains opposite to wheel scrolling.
-        panUp.addEventListener('click', function () {
-          queuePan(0, PAN_BUTTON_STEP);
+        zoomOut.addEventListener('click', function () {
+          zoomPresetIndex = clampZoomIndex(zoomPresetIndex - 1);
+          Module._isoweb_zoom_out();
         });
 
-        panDown.addEventListener('click', function () {
-          queuePan(0, -PAN_BUTTON_STEP);
-        });
-
-        panLeft.addEventListener('click', function () {
-          queuePan(-PAN_BUTTON_STEP, 0);
-        });
-
-        panRight.addEventListener('click', function () {
-          queuePan(PAN_BUTTON_STEP, 0);
-        });
-
-        resetCamera.addEventListener('click', function () {
-          Module._isoweb_reset_camera();
-        });
+        panUp.addEventListener('click', function () { queuePan(0, PAN_BUTTON_STEP); });
+        panDown.addEventListener('click', function () { queuePan(0, -PAN_BUTTON_STEP); });
+        panLeft.addEventListener('click', function () { queuePan(-PAN_BUTTON_STEP, 0); });
+        panRight.addEventListener('click', function () { queuePan(PAN_BUTTON_STEP, 0); });
+        resetCamera.addEventListener('click', function () { Module._isoweb_reset_camera(); });
 
         viewport.addEventListener('wheel', function (event) {
           event.preventDefault();
-
           const rect = viewport.getBoundingClientRect();
           let delta = event.deltaY;
-          if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
-            delta *= 16;
-          } else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
-            delta *= rect.height;
-          }
-
+          if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) delta *= 16;
+          else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) delta *= rect.height;
           const worldDelta = pixelsToWorld(delta) * 0.35;
-          if (event.ctrlKey) {
-            queuePan(worldDelta, 0);
-          } else {
-            queuePan(0, worldDelta);
-          }
+          if (event.ctrlKey) queuePan(worldDelta, 0);
+          else queuePan(0, worldDelta);
         }, { passive: false });
 
         viewport.addEventListener('pointerdown', function (event) {
@@ -332,13 +294,10 @@
 
         viewport.addEventListener('pointermove', function (event) {
           if (event.pointerId !== pointerId) return;
-
           const dx = event.clientX - pointerX;
           const dy = event.clientY - pointerY;
           pointerX = event.clientX;
           pointerY = event.clientY;
-
-          // Touch acts like dragging a map: the rendered world follows the finger.
           queuePan(-pixelsToWorld(dx), -pixelsToWorld(dy));
         });
 
@@ -349,20 +308,16 @@
 
         viewport.addEventListener('pointerup', endPointer);
         viewport.addEventListener('pointercancel', endPointer);
-
         window.addEventListener('resize', scheduleResize);
         window.addEventListener('orientationchange', scheduleResize);
-        if (window.visualViewport) {
-          window.visualViewport.addEventListener('resize', scheduleResize);
-        }
+        if (window.visualViewport) window.visualViewport.addEventListener('resize', scheduleResize);
 
         const observer = new ResizeObserver(scheduleResize);
         observer.observe(viewport);
 
+        Module._isoweb_set_detailed_mode(detailedZoomMode ? 1 : 0);
         syncRendererSize();
-        controls.forEach(function (control) {
-          control.disabled = false;
-        });
+        controls.forEach(function (control) { control.disabled = false; });
       }
     };
   </script>
