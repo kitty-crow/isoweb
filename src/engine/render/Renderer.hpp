@@ -23,6 +23,7 @@ public:
   const std::vector<std::uint8_t>& rgba() const { return rgba_; }
 
   bool canPan() const;
+  CameraControlState cameraControlState() const;
   float viewHeight() const;
   float wholeZoomScale() const;
 
