@@ -1,14 +1,23 @@
+#include <cmath>
 #include <iostream>
 #include <type_traits>
 
 #include "demo/DemoWorld.hpp"
+#include "engine/navigation/CharacterMovement.hpp"
+#include "engine/navigation/Pathfinder.hpp"
 #include "engine/world/Character.hpp"
 #include "engine/world/Object.hpp"
 #include "engine/world/WorldObject.hpp"
 
 using isoweb::engine::Character;
+using isoweb::engine::CharacterMovement;
+using isoweb::engine::EntityLocation;
 using isoweb::engine::HitBox;
+using isoweb::engine::NavigationPath;
 using isoweb::engine::Object;
+using isoweb::engine::ObjectRayHit;
+using isoweb::engine::Pathfinder;
+using isoweb::engine::Ray;
 using isoweb::engine::WorldObject;
 
 namespace {
@@ -25,12 +34,31 @@ Object localBox(float width, float depth, float height) {
   object.hitBox = box(
     -width * 0.5f,
     -depth * 0.5f,
-    -height * 0.5f,
+    0.0f,
     width * 0.5f,
     depth * 0.5f,
-    height * 0.5f
+    height
   );
   return object;
+}
+
+Character demoCharacter() {
+  Character character;
+  character.id = "walker";
+  character.location.worldId = "demo";
+  character.location.timelineId = "default";
+  character.location.levelId = "middle";
+  character.location.position = {0.0f, 2.15f, 0.0f};
+  character.forward = {0.0f, -1.0f, 0.0f};
+  character.hitBox = box(-0.26f, -0.19f, 0.0f, 0.26f, 0.19f, 1.45f);
+  character.movementSpeedMultiplier = 1.0f;
+  return character;
+}
+
+float horizontalDistance(const isoweb::engine::Vec3& a, const isoweb::engine::Vec3& b) {
+  const float dx = a.x - b.x;
+  const float dy = a.y - b.y;
+  return std::sqrt(dx * dx + dy * dy);
 }
 
 } // namespace
@@ -68,6 +96,11 @@ int main() {
   rotatedBox.forward = {1.0f, 0.0f, 0.0f};
   if (!longBox.overlaps(rotatedBox)) return 10;
 
+  ObjectRayHit rayHit;
+  const Ray ray{{0.0f, -2.0f, 0.5f}, {0.0f, 1.0f, 0.0f}};
+  if (!longBox.rayIntersection(ray, 0.001f, 10.0f, rayHit)) return 11;
+  if (!rayHit.found || rayHit.t <= 0.0f) return 12;
+
   Object ghost = localBox(1.0f, 1.0f, 1.0f);
   Object ward = localBox(1.0f, 1.0f, 1.0f);
   ghost.id = "ghost";
@@ -75,9 +108,9 @@ int main() {
   ghost.solid = false;
   ward.id = "ward";
   ward.solid = false;
-  if (ghost.blocks(ward) || ward.blocks(ghost)) return 11;
+  if (ghost.blocks(ward) || ward.blocks(ghost)) return 13;
   ward.mustCollideWith.push_back("spectral");
-  if (!ghost.blocks(ward) || !ward.blocks(ghost)) return 12;
+  if (!ghost.blocks(ward) || !ward.blocks(ghost)) return 14;
 
   Character character;
   character.id = "character";
@@ -88,8 +121,8 @@ int main() {
   character.forward = {0.7071067f, 0.7071067f, 0.0f};
   character.hitBox = box(-0.25f, -0.15f, 0.0f, 0.25f, 0.15f, 1.7f);
   character.movementSpeedMultiplier = 1.25f;
-  if (character.hasArtwork()) return 13;
-  if (character.npc || !character.controllable || !character.solid) return 14;
+  if (character.hasArtwork()) return 15;
+  if (character.npc || !character.controllable || !character.solid) return 16;
 
   character.sprites.still.front.resource = "front-still.webp";
   character.sprites.still.back.resource = "back-still.webp";
@@ -97,36 +130,69 @@ int main() {
   character.sprites.moving.front.resource = "front-moving.webp";
   character.sprites.moving.back.resource = "back-moving.webp";
   character.sprites.moving.left.resource = "left-moving.webp";
-  if (!character.hasArtwork() || !character.hasRequiredMovementArtwork()) return 15;
-  if (character.sprites.still.hasExplicitRight()) return 16;
+  if (!character.hasArtwork() || !character.hasRequiredMovementArtwork()) return 17;
+  if (character.sprites.still.hasExplicitRight()) return 18;
   character.sprites.still.right.resource = "right-still.webp";
-  if (!character.sprites.still.hasExplicitRight()) return 17;
+  if (!character.sprites.still.hasExplicitRight()) return 19;
   character.sprites.actions["wave"].front.resource = "wave-front.webp";
 
   isoweb::demo::DemoWorld world;
-  if (world.activeLevelIndex() != 1 || world.objects().size() != 2) return 18;
+  world.configureNavigationConnections();
+  if (world.activeLevelIndex() != 1 || world.objects().size() != 2) return 20;
+  if (world.activeLevelId() != "middle") return 21;
+  if (world.navigationConnections().size() != 2) return 22;
   for (const Object& object : world.objects()) {
-    if (!object.solid) return 19;
+    if (!object.solid) return 23;
   }
 
   Object middleCube;
+  middleCube.location.levelId = "middle";
   middleCube.hitBox = box(-1.10f, 0.60f, 0.10f, -1.00f, 0.70f, 0.20f);
   Object openFloor;
+  openFloor.location.levelId = "middle";
   openFloor.hitBox = box(3.50f, 3.50f, 0.10f, 3.60f, 3.60f, 0.20f);
-  if (!world.collidesWith(middleCube)) return 20;
-  if (world.collidesWith(openFloor)) return 21;
+  if (!world.collidesWith(middleCube)) return 24;
+  if (world.collidesWith(openFloor)) return 25;
 
-  if (!world.levelDown() || world.activeLevelIndex() != 0 || world.objects().size() != 2) return 22;
-  Object lowerCone;
-  lowerCone.hitBox = box(-1.35f, -0.85f, 0.10f, -1.25f, -0.75f, 0.20f);
-  if (!world.collidesWith(lowerCone)) return 23;
+  Pathfinder pathfinder;
+  Character walker = demoCharacter();
 
-  if (!world.levelUp() || !world.levelUp() || world.activeLevelIndex() != 2) return 24;
-  if (world.objects().size() != 2) return 25;
-  Object upperDodecahedron;
-  upperDodecahedron.hitBox = box(-1.40f, 0.90f, 0.10f, -1.30f, 1.00f, 0.20f);
-  if (!world.collidesWith(upperDodecahedron)) return 26;
+  EntityLocation blockedDestination = walker.location;
+  blockedDestination.position = {-1.05f, 0.65f, 0.0f};
+  const NavigationPath blockedPath = pathfinder.findPath(world, walker, blockedDestination);
+  if (blockedPath.empty()) return 26;
+  if (blockedPath.reachedRequestedDestination) return 27;
+  Character resolved = walker;
+  resolved.location = blockedPath.resolvedDestination;
+  if (world.collidesWith(resolved)) return 28;
 
-  std::cout << "Generic object, character, orientation, and collision smoke test passed.\n";
+  EntityLocation lowerDestination = walker.location;
+  lowerDestination.levelId = "lower";
+  lowerDestination.position = {0.0f, 0.0f, 0.0f};
+  const NavigationPath crossLevel = pathfinder.findPath(world, walker, lowerDestination);
+  if (crossLevel.empty() || !crossLevel.reachedRequestedDestination) return 29;
+  if (crossLevel.resolvedDestination.levelId != "lower") return 30;
+
+  bool sawElevatedConnectionPoint = false;
+  bool sawLowerLevel = false;
+  for (const EntityLocation& waypoint : crossLevel.waypoints) {
+    if (waypoint.position.z > 0.5f) sawElevatedConnectionPoint = true;
+    if (waypoint.levelId == "lower") sawLowerLevel = true;
+  }
+  if (!sawElevatedConnectionPoint || !sawLowerLevel) return 31;
+
+  CharacterMovement movement;
+  Character& runtimeWalker = world.addCharacter(walker);
+  if (!movement.setDestination(world, runtimeWalker, lowerDestination)) return 32;
+
+  for (int step = 0; step < 1200 && runtimeWalker.moving; ++step) {
+    movement.advance(world, runtimeWalker, 0.05f);
+  }
+  if (runtimeWalker.moving) return 33;
+  if (runtimeWalker.location.levelId != "lower") return 34;
+  if (horizontalDistance(runtimeWalker.location.position, lowerDestination.position) > 0.30f) return 35;
+  if (std::fabs(runtimeWalker.forward.x) < 1e-5f && std::fabs(runtimeWalker.forward.y) < 1e-5f) return 36;
+
+  std::cout << "Generic object, character, collision, navigation-link, and movement smoke test passed.\n";
   return 0;
 }
