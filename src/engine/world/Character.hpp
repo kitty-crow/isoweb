@@ -72,6 +72,11 @@ public:
   std::string activeAction;
   CharacterSpriteSet sprites;
 
+  // Client/game presentation state. It is intentionally independent from
+  // collision and can later be owned by a player/session selection policy.
+  bool selected = false;
+  Vec3 selectionTint = {0.18f, 0.48f, 1.0f};
+
   bool hasArtwork() const {
     return sprites.hasAnyArtwork();
   }
