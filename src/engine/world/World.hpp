@@ -18,6 +18,7 @@ public:
   virtual Vec3 sample(const Ray& ray, float backgroundY) const = 0;
   virtual const std::vector<Object>& objects() const = 0;
   virtual bool intersectsSolid(const HitBox& hitBox) const = 0;
+  virtual bool navigationAllows(const Object&) const { return true; }
 };
 
 class World : public IWorld {
@@ -37,6 +38,7 @@ public:
   std::vector<NavigationConnection>& navigationConnections() { return navigationConnections_; }
   bool intersectsSolid(const HitBox& hitBox) const override;
   bool collidesWith(const Object& candidate) const override;
+  bool navigationAllows(const Object& candidate) const override;
 
   std::size_t levelCount() const override { return levels_.size(); }
   std::size_t activeLevelIndex() const override { return activeLevelIndex_; }
