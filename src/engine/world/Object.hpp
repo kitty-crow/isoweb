@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "engine/math/Vec3.hpp"
+#include "engine/render/Ray.hpp"
 
 namespace isoweb {
 namespace engine {
@@ -54,6 +55,24 @@ struct HitBox {
       point.y >= minimum.y && point.y <= maximum.y &&
       point.z >= minimum.z && point.z <= maximum.z;
   }
+};
+
+enum class ObjectFace {
+  Front,
+  Back,
+  Left,
+  Right,
+  Top,
+  Bottom
+};
+
+struct ObjectRayHit {
+  bool found = false;
+  float t = 0.0f;
+  Vec3 point;
+  Vec3 localPoint;
+  Vec3 normal;
+  ObjectFace face = ObjectFace::Front;
 };
 
 class Object {
@@ -120,6 +139,106 @@ public:
   // solidity, and must-collide overrides all participate.
   bool blocks(const HitBox& other) const {
     return solid && hitBox.intersects(other);
+  }
+
+  // Intersects a world-space ray with this object's oriented local hitbox.
+  // This is useful for picking and for the no-artwork character fallback.
+  bool rayIntersection(
+    const Ray& ray,
+    float minimum,
+    float maximum,
+    ObjectRayHit& hit
+  ) const {
+    const Vec3 facing = horizontalForward(forward);
+    const Vec3 right(facing.y, -facing.x, 0.0f);
+    const Vec3 relativeOrigin = ray.origin - location.position;
+    const Vec3 localOrigin(
+      dot2(relativeOrigin, right),
+      dot2(relativeOrigin, facing),
+      relativeOrigin.z
+    );
+    const Vec3 localDirection(
+      dot2(ray.direction, right),
+      dot2(ray.direction, facing),
+      ray.direction.z
+    );
+
+    const float origin[3] = {localOrigin.x, localOrigin.y, localOrigin.z};
+    const float direction[3] = {localDirection.x, localDirection.y, localDirection.z};
+    const float boundsMinimum[3] = {hitBox.minimum.x, hitBox.minimum.y, hitBox.minimum.z};
+    const float boundsMaximum[3] = {hitBox.maximum.x, hitBox.maximum.y, hitBox.maximum.z};
+
+    float nearT = minimum;
+    float farT = maximum;
+    int nearAxis = -1;
+    float nearSign = 0.0f;
+    int farAxis = -1;
+    float farSign = 0.0f;
+
+    for (int axis = 0; axis < 3; ++axis) {
+      if (std::fabs(direction[axis]) < 1e-7f) {
+        if (origin[axis] < boundsMinimum[axis] || origin[axis] > boundsMaximum[axis]) {
+          return false;
+        }
+        continue;
+      }
+
+      const float inverse = 1.0f / direction[axis];
+      float t0 = (boundsMinimum[axis] - origin[axis]) * inverse;
+      float t1 = (boundsMaximum[axis] - origin[axis]) * inverse;
+      float sign0 = -1.0f;
+      float sign1 = 1.0f;
+
+      if (t0 > t1) {
+        std::swap(t0, t1);
+        std::swap(sign0, sign1);
+      }
+
+      if (t0 > nearT) {
+        nearT = t0;
+        nearAxis = axis;
+        nearSign = sign0;
+      }
+      if (t1 < farT) {
+        farT = t1;
+        farAxis = axis;
+        farSign = sign1;
+      }
+      if (farT < nearT) return false;
+    }
+
+    float t = nearT;
+    int axis = nearAxis;
+    float sign = nearSign;
+    if (axis < 0) {
+      t = farT;
+      axis = farAxis;
+      sign = farSign;
+    }
+    if (axis < 0 || t < minimum || t > maximum) return false;
+
+    const Vec3 localPoint = localOrigin + localDirection * t;
+    Vec3 localNormal;
+    if (axis == 0) localNormal = {sign, 0.0f, 0.0f};
+    else if (axis == 1) localNormal = {0.0f, sign, 0.0f};
+    else localNormal = {0.0f, 0.0f, sign};
+
+    hit.found = true;
+    hit.t = t;
+    hit.point = ray.origin + ray.direction * t;
+    hit.localPoint = localPoint;
+    hit.normal = right * localNormal.x +
+      facing * localNormal.y +
+      Vec3(0.0f, 0.0f, localNormal.z);
+
+    if (axis == 0) {
+      hit.face = sign > 0.0f ? ObjectFace::Right : ObjectFace::Left;
+    } else if (axis == 1) {
+      hit.face = sign > 0.0f ? ObjectFace::Front : ObjectFace::Back;
+    } else {
+      hit.face = sign > 0.0f ? ObjectFace::Top : ObjectFace::Bottom;
+    }
+    return true;
   }
 
 private:
