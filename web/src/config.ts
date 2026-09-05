@@ -26,7 +26,8 @@ export const INPUT = {
   pinchStepRatioIn: 1.14,
   pinchStepRatioOut: 0.88,
   yawWheelThreshold: 70,
-  touchRotateStep: Math.PI / 8
+  touchRotateStep: Math.PI / 8,
+  pointerTapSlop: 7
 } as const;
 
 export const BASE_VIEW_HEIGHT = 6.15;
