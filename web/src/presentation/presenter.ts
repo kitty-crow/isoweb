@@ -14,7 +14,16 @@ export function installPresenter(): void {
     detailed,
     canPan,
     viewHeight,
-    wholeZoomScale
+    wholeZoomScale,
+    canZoomIn,
+    canZoomOut,
+    canResetZoom,
+    canResetYaw,
+    canPanUp,
+    canPanDown,
+    canPanLeft,
+    canPanRight,
+    canResetPan
   ) => {
     const { canvas, loading, status, controls } = getAppElements();
 
@@ -32,11 +41,19 @@ export function installPresenter(): void {
     window.isowebCameraCanPan = canPan;
     window.isowebWholeZoomScale = wholeZoomScale;
 
-    controls.panUp.disabled = !canPan;
-    controls.panDown.disabled = !canPan;
-    controls.panLeft.disabled = !canPan;
-    controls.panRight.disabled = !canPan;
-    controls.resetCamera.disabled = !canPan;
+    controls.zoomIn.disabled = !canZoomIn;
+    controls.zoomOut.disabled = !canZoomOut;
+    controls.resetZoom.disabled = !canResetZoom;
+    controls.resetYaw.disabled = !canResetYaw;
+
+    controls.counterClockwise.disabled = false;
+    controls.clockwise.disabled = false;
+
+    controls.panUp.disabled = !canPanUp;
+    controls.panDown.disabled = !canPanDown;
+    controls.panLeft.disabled = !canPanLeft;
+    controls.panRight.disabled = !canPanRight;
+    controls.resetCamera.disabled = !canResetPan;
 
     document.documentElement.classList.add('wasm-ready');
     loading.hidden = true;
