@@ -15,6 +15,8 @@ public:
 
   virtual const WorldBounds& bounds() const = 0;
   virtual Vec3 sample(const Ray& ray, float backgroundY) const = 0;
+  virtual const std::vector<WorldObject>& objects() const = 0;
+  virtual bool intersectsSolid(const HitBox& hitBox) const = 0;
 };
 
 class World : public IWorld {
@@ -23,6 +25,8 @@ public:
 
   const WorldBounds& bounds() const override;
   Vec3 sample(const Ray& ray, float backgroundY) const override;
+  const std::vector<WorldObject>& objects() const override;
+  bool intersectsSolid(const HitBox& hitBox) const override;
 
   std::size_t levelCount() const override { return levels_.size(); }
   std::size_t activeLevelIndex() const override { return activeLevelIndex_; }
