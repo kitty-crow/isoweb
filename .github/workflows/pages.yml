@@ -49,9 +49,15 @@ jobs:
       - name: Build DFPSR WebAssembly renderer
         run: bun run build:wasm
 
-      - name: Install Chromium for mobile audit
+      - name: Check generated Emscripten bridge
+        run: bun run check:emscripten-bridge
+
+      - name: Install Chromium for browser checks
         working-directory: vendor/pages
         run: bunx playwright install --with-deps chromium
+
+      - name: Smoke-test WASM browser boot
+        run: bun run test:runtime
 
       - name: Audit mobile responsiveness
         run: bun run audit:mobile
