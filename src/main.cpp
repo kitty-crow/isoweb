@@ -25,9 +25,27 @@ struct Ray{Vec3 origin,direction;};
 enum class Surface{None,Ground,Cube,Sphere};
 struct Hit{bool found=false;float t=FAR_DISTANCE;Vec3 point,normal;Surface surface=Surface::None;};
 
-const Vec3 CUBE_MIN(-1.85f,-0.15f,0), CUBE_MAX(-0.25f,1.45f,1.55f);
-const Vec3 SPHERE_CENTRE(1.05f,-0.25f,0.90f), LIGHT_POSITION(-3.60f,-4.20f,6.50f), BASE_FOCUS(0,0.15f,0.55f);
-constexpr float SPHERE_RADIUS=0.90f;
+struct LevelDefinition {
+  Vec3 cubeMin;
+  Vec3 cubeMax;
+  Vec3 sphereCentre;
+  float sphereRadius;
+  Vec3 lightPosition;
+  Vec3 floorDark;
+  Vec3 floorLight;
+};
+
+const std::vector<LevelDefinition> levels = {{
+  {-1.85f,-0.15f,0.0f},
+  {-0.25f,1.45f,1.55f},
+  {1.05f,-0.25f,0.90f},
+  0.90f,
+  {-3.60f,-4.20f,6.50f},
+  {0.567f,0.6048f,0.630f},
+  {0.621f,0.6624f,0.690f}
+}};
+const Vec3 BASE_FOCUS(0,0.15f,0.55f);
+const LevelDefinition& activeLevel(){return levels.front();}
 int cameraYawStep=0, zoomPreset=3; float cameraPanX=0,cameraPanY=0; bool detailedZoomMode=false;
 
 float yawRadians(){return -cameraYawStep*PI*0.25f;}
@@ -38,12 +56,13 @@ bool wholeZoom(){return zoomPreset==0;}
 float zoomScale(){switch(zoomPreset){case 5:return 4;case 4:return 2;case 3:return 1;case 2:return .5f;case 1:return .25f;default:return .25f;}}
 
 float wholeViewHeight(float aspect){
+  const LevelDefinition& level=activeLevel();
   Vec3 f=cameraForward(),r=normalise(cross(f,{0,0,1})),u=normalise(cross(r,f));
   float minR=1e9f,maxR=-1e9f,minU=1e9f,maxU=-1e9f;
   auto add=[&](Vec3 p){Vec3 q=p-BASE_FOCUS;float pr=dot(q,r),pu=dot(q,u);minR=std::min(minR,pr);maxR=std::max(maxR,pr);minU=std::min(minU,pu);maxU=std::max(maxU,pu);};
   add({-GROUND_LIMIT,-GROUND_LIMIT,0});add({GROUND_LIMIT,-GROUND_LIMIT,0});add({-GROUND_LIMIT,GROUND_LIMIT,0});add({GROUND_LIMIT,GROUND_LIMIT,0});
-  for(int x=0;x<2;++x)for(int y=0;y<2;++y)for(int z=0;z<2;++z)add({x?CUBE_MAX.x:CUBE_MIN.x,y?CUBE_MAX.y:CUBE_MIN.y,z?CUBE_MAX.z:CUBE_MIN.z});
-  add(SPHERE_CENTRE+Vec3(SPHERE_RADIUS,0,0));add(SPHERE_CENTRE+Vec3(-SPHERE_RADIUS,0,0));add(SPHERE_CENTRE+Vec3(0,SPHERE_RADIUS,0));add(SPHERE_CENTRE+Vec3(0,-SPHERE_RADIUS,0));add(SPHERE_CENTRE+Vec3(0,0,SPHERE_RADIUS));add(SPHERE_CENTRE+Vec3(0,0,-SPHERE_RADIUS));
+  for(int x=0;x<2;++x)for(int y=0;y<2;++y)for(int z=0;z<2;++z)add({x?level.cubeMax.x:level.cubeMin.x,y?level.cubeMax.y:level.cubeMin.y,z?level.cubeMax.z:level.cubeMin.z});
+  add(level.sphereCentre+Vec3(level.sphereRadius,0,0));add(level.sphereCentre+Vec3(-level.sphereRadius,0,0));add(level.sphereCentre+Vec3(0,level.sphereRadius,0));add(level.sphereCentre+Vec3(0,-level.sphereRadius,0));add(level.sphereCentre+Vec3(0,0,level.sphereRadius));add(level.sphereCentre+Vec3(0,0,-level.sphereRadius));
   float halfW=std::max(std::fabs(minR),std::fabs(maxR)),halfH=std::max(std::fabs(minU),std::fabs(maxU));
   return std::max(halfH*2.04f,(halfW*2.04f)/aspect);
 }
@@ -58,13 +77,13 @@ int sequencePosition(){for(int p=0;p<sequenceLength();++p)if(presetAt(p)==zoomPr
 void stepZoom(int d){int p=std::max(0,std::min(sequenceLength()-1,sequencePosition()+d));zoomPreset=presetAt(p);}
 void pan(float right,float down){if(!canPan())return;Vec3 d=cameraGroundRight()*right+cameraGroundDown()*down;cameraPanX=std::max(-PAN_LIMIT,std::min(PAN_LIMIT,cameraPanX+d.x));cameraPanY=std::max(-PAN_LIMIT,std::min(PAN_LIMIT,cameraPanY+d.y));}
 
-bool intersectSphere(const Ray&r,float mn,float mx,Hit&h){Vec3 oc=r.origin-SPHERE_CENTRE;float a=dot(r.direction,r.direction),hb=dot(oc,r.direction),c=dot(oc,oc)-SPHERE_RADIUS*SPHERE_RADIUS,disc=hb*hb-a*c;if(disc<0)return false;float q=std::sqrt(disc),t=(-hb-q)/a;if(t<mn||t>mx){t=(-hb+q)/a;if(t<mn||t>mx)return false;}h.found=true;h.t=t;h.point=r.origin+r.direction*t;h.normal=normalise(h.point-SPHERE_CENTRE);h.surface=Surface::Sphere;return true;}
-bool intersectCube(const Ray&r,float mn,float mx,Hit&h){float nearT=mn,farT=mx,o[3]={r.origin.x,r.origin.y,r.origin.z},d[3]={r.direction.x,r.direction.y,r.direction.z},lo[3]={CUBE_MIN.x,CUBE_MIN.y,CUBE_MIN.z},hi[3]={CUBE_MAX.x,CUBE_MAX.y,CUBE_MAX.z};for(int a=0;a<3;++a){if(std::fabs(d[a])<1e-7f){if(o[a]<lo[a]||o[a]>hi[a])return false;continue;}float inv=1/d[a],t0=(lo[a]-o[a])*inv,t1=(hi[a]-o[a])*inv;if(t0>t1)std::swap(t0,t1);nearT=std::max(nearT,t0);farT=std::min(farT,t1);if(farT<nearT)return false;}h.found=true;h.t=nearT;h.point=r.origin+r.direction*nearT;h.surface=Surface::Cube;float best=std::fabs(h.point.x-CUBE_MIN.x);h.normal={-1,0,0};auto choose=[&](float q,Vec3 n){if(q<best){best=q;h.normal=n;}};choose(std::fabs(h.point.x-CUBE_MAX.x),{1,0,0});choose(std::fabs(h.point.y-CUBE_MIN.y),{0,-1,0});choose(std::fabs(h.point.y-CUBE_MAX.y),{0,1,0});choose(std::fabs(h.point.z-CUBE_MIN.z),{0,0,-1});choose(std::fabs(h.point.z-CUBE_MAX.z),{0,0,1});return true;}
+bool intersectSphere(const Ray&r,float mn,float mx,Hit&h){const auto&level=activeLevel();Vec3 oc=r.origin-level.sphereCentre;float a=dot(r.direction,r.direction),hb=dot(oc,r.direction),c=dot(oc,oc)-level.sphereRadius*level.sphereRadius,disc=hb*hb-a*c;if(disc<0)return false;float q=std::sqrt(disc),t=(-hb-q)/a;if(t<mn||t>mx){t=(-hb+q)/a;if(t<mn||t>mx)return false;}h.found=true;h.t=t;h.point=r.origin+r.direction*t;h.normal=normalise(h.point-level.sphereCentre);h.surface=Surface::Sphere;return true;}
+bool intersectCube(const Ray&r,float mn,float mx,Hit&h){const auto&level=activeLevel();float nearT=mn,farT=mx,o[3]={r.origin.x,r.origin.y,r.origin.z},d[3]={r.direction.x,r.direction.y,r.direction.z},lo[3]={level.cubeMin.x,level.cubeMin.y,level.cubeMin.z},hi[3]={level.cubeMax.x,level.cubeMax.y,level.cubeMax.z};for(int a=0;a<3;++a){if(std::fabs(d[a])<1e-7f){if(o[a]<lo[a]||o[a]>hi[a])return false;continue;}float inv=1/d[a],t0=(lo[a]-o[a])*inv,t1=(hi[a]-o[a])*inv;if(t0>t1)std::swap(t0,t1);nearT=std::max(nearT,t0);farT=std::min(farT,t1);if(farT<nearT)return false;}h.found=true;h.t=nearT;h.point=r.origin+r.direction*nearT;h.surface=Surface::Cube;float best=std::fabs(h.point.x-level.cubeMin.x);h.normal={-1,0,0};auto choose=[&](float q,Vec3 n){if(q<best){best=q;h.normal=n;}};choose(std::fabs(h.point.x-level.cubeMax.x),{1,0,0});choose(std::fabs(h.point.y-level.cubeMin.y),{0,-1,0});choose(std::fabs(h.point.y-level.cubeMax.y),{0,1,0});choose(std::fabs(h.point.z-level.cubeMin.z),{0,0,-1});choose(std::fabs(h.point.z-level.cubeMax.z),{0,0,1});return true;}
 bool intersectGround(const Ray&r,float mn,float mx,Hit&h){if(std::fabs(r.direction.z)<1e-7f)return false;float t=-r.origin.z/r.direction.z;if(t<mn||t>mx)return false;Vec3 p=r.origin+r.direction*t;if(std::fabs(p.x)>GROUND_LIMIT||std::fabs(p.y)>GROUND_LIMIT)return false;h.found=true;h.t=t;h.point=p;h.normal={0,0,1};h.surface=Surface::Ground;return true;}
 Hit traceClosest(const Ray&r,float mn,float mx){Hit out,h;if(intersectCube(r,mn,mx,h)){out=h;mx=h.t;}h=Hit();if(intersectSphere(r,mn,mx,h)){out=h;mx=h.t;}h=Hit();if(intersectGround(r,mn,mx,h))out=h;return out;}
-bool occluded(Vec3 p,Vec3 n){Vec3 to=LIGHT_POSITION-p;float dist=length(to);return traceClosest({p+n*EPSILON,to/dist},EPSILON,dist-EPSILON).found;}
-Vec3 material(const Hit&h){if(h.surface==Surface::Cube)return{.18f,.48f,.88f};if(h.surface==Surface::Sphere)return{.95f,.43f,.12f};int x=int(std::floor(h.point.x+20)),y=int(std::floor(h.point.y+20));float b=((x+y)&1)?.63f:.69f;return{b*.90f,b*.96f,b};}
-Vec3 shade(const Hit&h){Vec3 base=material(h),to=LIGHT_POSITION-h.point;float dist=length(to),diff=std::max(0.0f,dot(h.normal,to/dist)),att=1/(1+.018f*dist*dist),vis=occluded(h.point,h.normal)?0:1;Vec3 c=base*(.19f+vis*diff*att*1.18f);if(h.surface==Surface::Ground){float ex=std::fabs(h.point.x-std::round(h.point.x)),ey=std::fabs(h.point.y-std::round(h.point.y));if(std::min(ex,ey)<.022f)c=c*.78f;}return{std::min(c.x,1.0f),std::min(c.y,1.0f),std::min(c.z,1.0f)};}
+bool occluded(Vec3 p,Vec3 n){const auto&level=activeLevel();Vec3 to=level.lightPosition-p;float dist=length(to);return traceClosest({p+n*EPSILON,to/dist},EPSILON,dist-EPSILON).found;}
+Vec3 material(const Hit&h){const auto&level=activeLevel();if(h.surface==Surface::Cube)return{.18f,.48f,.88f};if(h.surface==Surface::Sphere)return{.95f,.43f,.12f};int x=int(std::floor(h.point.x+20)),y=int(std::floor(h.point.y+20));return((x+y)&1)?level.floorDark:level.floorLight;}
+Vec3 shade(const Hit&h){const auto&level=activeLevel();Vec3 base=material(h),to=level.lightPosition-h.point;float dist=length(to),diff=std::max(0.0f,dot(h.normal,to/dist)),att=1/(1+.018f*dist*dist),vis=occluded(h.point,h.normal)?0:1;Vec3 c=base*(.19f+vis*diff*att*1.18f);if(h.surface==Surface::Ground){float ex=std::fabs(h.point.x-std::round(h.point.x)),ey=std::fabs(h.point.y-std::round(h.point.y));if(std::min(ex,ey)<.022f)c=c*.78f;}return{std::min(c.x,1.0f),std::min(c.y,1.0f),std::min(c.z,1.0f)};}
 Vec3 background(float y){float t=std::max(0.0f,std::min(1.0f,y));return Vec3(.075f,.12f,.18f)*(1-t)+Vec3(.20f,.28f,.34f)*t;}
 Vec3 trace(float px,float py){Vec3 f=cameraForward(),r=normalise(cross(f,{0,0,1})),u=normalise(cross(r,f));float a=float(frameWidth)/frameHeight,vh=viewHeight(),vw=vh*a,sx=(px/frameWidth-.5f)*vw,sy=(.5f-py/frameHeight)*vh;Vec3 focus=canPan()?BASE_FOCUS+Vec3(cameraPanX,cameraPanY,0):BASE_FOCUS;Hit h=traceClosest({focus-f*9+r*sx+u*sy,f},EPSILON,FAR_DISTANCE);return h.found?shade(h):background(py/frameHeight);}
 std::uint8_t byte(float v){v=std::pow(std::max(0.0f,std::min(1.0f,v)),1/2.2f);return std::uint8_t(v*255+.5f);}
