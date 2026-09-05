@@ -18,6 +18,10 @@ bool Renderer::canPan() const {
   return camera_.canPan(frameWidth_, frameHeight_, world_.bounds());
 }
 
+CameraControlState Renderer::cameraControlState() const {
+  return camera_.controlState(frameWidth_, frameHeight_, world_.bounds());
+}
+
 float Renderer::viewHeight() const {
   return camera_.viewHeight(frameWidth_, frameHeight_, world_.bounds());
 }
@@ -84,11 +88,12 @@ void Renderer::render() {
     }
   }
 
+  const CameraControlState cameraState = cameraControlState();
   LevelControlState levelState;
   levelState.canMoveUp = world_.activeLevelIndex() + 1 < world_.levelCount();
   levelState.canMoveDown = world_.activeLevelIndex() > 0;
   levelState.atDefault = world_.activeLevelIndex() == world_.defaultLevelIndex();
-  controls_.draw(frame_, frameWidth_, frameHeight_, canPan(), levelState);
+  controls_.draw(frame_, frameWidth_, frameHeight_, cameraState, levelState);
 
   for (int y = 0; y < frameHeight_; ++y) {
     for (int x = 0; x < frameWidth_; ++x) {
