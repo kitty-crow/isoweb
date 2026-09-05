@@ -5,12 +5,15 @@ import { ControlBindings } from './controls/ControlBindings';
 import { PanQueue } from './input/PanQueue';
 import { PointerController } from './input/PointerController';
 import { WheelController } from './input/WheelController';
+import { loadDemoState } from './state/DemoStateLoader';
 import { ViewportController } from './viewport/ViewportController';
 
 export class App {
   constructor(private readonly module: IsowebModule) {}
 
-  start(): void {
+  async start(): Promise<void> {
+    await loadDemoState(this.module);
+
     const elements = getAppElements();
     const layout = new ControlLayout(elements.viewport, elements.controls);
     const viewport = new ViewportController(elements.viewport, this.module, layout);
@@ -26,10 +29,22 @@ export class App {
     wheel.bind();
     pointer.bind();
     viewport.startObserving();
+    window.addEventListener('keydown', event => {
+      if (event.key === 'Escape') this.module._isoweb_clear_selection();
+    });
 
     this.module._isoweb_set_detailed_mode(detailedZoomMode ? 1 : 0);
     this.module._isoweb_set_detailed_yaw_mode(detailedYawMode ? 1 : 0);
     viewport.syncRendererSize();
     controls.enableInitialState();
+
+    let previousTime = performance.now();
+    const tick = (time: number) => {
+      const deltaSeconds = Math.max(0, (time - previousTime) / 1000);
+      previousTime = time;
+      this.module._isoweb_tick(deltaSeconds);
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   }
 }
