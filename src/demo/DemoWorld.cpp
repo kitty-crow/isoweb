@@ -18,6 +18,15 @@ constexpr float FAR_DISTANCE = 1000.0f;
 constexpr float GROUND_LIMIT = 4.40f;
 const Vec3 BASE_FOCUS(0.0f, 0.15f, 0.55f);
 
+constexpr int STAIR_STEP_COUNT = 7;
+constexpr float STAIR_RISE = 1.40f;
+constexpr float STAIR_WIDTH = 0.78f;
+constexpr float STAIR_LOW_Y = -3.30f;
+constexpr float STAIR_HIGH_Y = -1.20f;
+constexpr float LOWER_MIDDLE_STAIR_X = 2.15f;
+constexpr float MIDDLE_UPPER_STAIR_X = 3.20f;
+constexpr float STAIR_HOLE_MARGIN = 0.06f;
+
 enum class ShapeKind {
   Cube,
   Sphere,
@@ -35,8 +44,26 @@ struct RenderObject {
   Vec3 colour;
 };
 
+struct FloorHole {
+  float minimumX;
+  float maximumX;
+  float minimumY;
+  float maximumY;
+};
+
+struct Staircase {
+  float centreX;
+  float startY;
+  float endY;
+  float startZ;
+  float endZ;
+  float width;
+};
+
 struct LevelDefinition {
   std::vector<RenderObject> objects;
+  std::vector<FloorHole> floorHoles;
+  std::vector<Staircase> staircases;
   Vec3 lightPosition;
   Vec3 floorDark;
   Vec3 floorLight;
@@ -122,6 +149,15 @@ const std::vector<Vec3>& icosahedronNormals() {
   return normals;
 }
 
+FloorHole stairHole(float centreX) {
+  return {
+    centreX - STAIR_WIDTH * 0.5f - STAIR_HOLE_MARGIN,
+    centreX + STAIR_WIDTH * 0.5f + STAIR_HOLE_MARGIN,
+    STAIR_LOW_Y - STAIR_HOLE_MARGIN,
+    STAIR_HIGH_Y + STAIR_HOLE_MARGIN
+  };
+}
+
 class DemoLevel final : public engine::IWorldLevel {
 public:
   explicit DemoLevel(LevelDefinition definition)
@@ -142,7 +178,9 @@ private:
   void buildBounds() {
     bounds_.focus = BASE_FOCUS;
     bounds_.points.clear();
-    bounds_.points.reserve(4 + definition_.objects.size() * 8);
+    bounds_.points.reserve(
+      4 + definition_.objects.size() * 8 + definition_.staircases.size() * 8
+    );
 
     bounds_.points.push_back({-GROUND_LIMIT, -GROUND_LIMIT, 0.0f});
     bounds_.points.push_back({GROUND_LIMIT, -GROUND_LIMIT, 0.0f});
@@ -157,6 +195,23 @@ private:
             bounds_.points.push_back(
               object.position + Vec3(extent.x * x, extent.y * y, extent.z * z)
             );
+          }
+        }
+      }
+    }
+
+    for (const Staircase& staircase : definition_.staircases) {
+      const float minimumY = std::min(staircase.startY, staircase.endY);
+      const float maximumY = std::max(staircase.startY, staircase.endY);
+      const float minimumZ = std::min(staircase.startZ, staircase.endZ);
+      const float maximumZ = std::max(staircase.startZ, staircase.endZ);
+      for (float x : {
+        staircase.centreX - staircase.width * 0.5f,
+        staircase.centreX + staircase.width * 0.5f
+      }) {
+        for (float y : {minimumY, maximumY}) {
+          for (float z : {minimumZ, maximumZ}) {
+            bounds_.points.push_back({x, y, z});
           }
         }
       }
@@ -416,6 +471,116 @@ private:
     return colour;
   }
 
+  bool insideFloorHole(const Vec3& point) const {
+    for (const FloorHole& hole : definition_.floorHoles) {
+      if (
+        point.x >= hole.minimumX && point.x <= hole.maximumX &&
+        point.y >= hole.minimumY && point.y <= hole.maximumY
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool intersectAxisAlignedBox(
+    const Ray& ray,
+    const Vec3& centre,
+    const Vec3& halfExtent,
+    float minimum,
+    float maximum,
+    Hit& hit
+  ) const {
+    const Vec3 localOrigin = ray.origin - centre;
+    const float origin[3] = {localOrigin.x, localOrigin.y, localOrigin.z};
+    const float direction[3] = {ray.direction.x, ray.direction.y, ray.direction.z};
+    const float half[3] = {halfExtent.x, halfExtent.y, halfExtent.z};
+    float nearT = minimum;
+    float farT = maximum;
+    int normalAxis = -1;
+    float normalSign = 0.0f;
+
+    for (int axis = 0; axis < 3; ++axis) {
+      if (std::fabs(direction[axis]) < 1e-7f) {
+        if (origin[axis] < -half[axis] || origin[axis] > half[axis]) return false;
+        continue;
+      }
+
+      const float inverse = 1.0f / direction[axis];
+      float t0 = (-half[axis] - origin[axis]) * inverse;
+      float t1 = (half[axis] - origin[axis]) * inverse;
+      float sign = -1.0f;
+      if (t0 > t1) {
+        std::swap(t0, t1);
+        sign = 1.0f;
+      }
+      if (t0 > nearT) {
+        nearT = t0;
+        normalAxis = axis;
+        normalSign = sign;
+      }
+      farT = std::min(farT, t1);
+      if (farT < nearT) return false;
+    }
+
+    if (normalAxis < 0) return false;
+    hit.found = true;
+    hit.t = nearT;
+    hit.point = ray.origin + ray.direction * nearT;
+    hit.normal = normalAxis == 0
+      ? Vec3(normalSign, 0.0f, 0.0f)
+      : normalAxis == 1
+        ? Vec3(0.0f, normalSign, 0.0f)
+        : Vec3(0.0f, 0.0f, normalSign);
+    return true;
+  }
+
+  bool intersectStaircase(
+    const Ray& ray,
+    const Staircase& staircase,
+    float minimum,
+    float maximum,
+    Hit& hit
+  ) const {
+    bool found = false;
+    float closest = maximum;
+    const float lowerZ = std::min(staircase.startZ, staircase.endZ);
+    const bool ascending = staircase.endZ > staircase.startZ;
+
+    for (int index = 0; index < STAIR_STEP_COUNT; ++index) {
+      const float y0 = staircase.startY +
+        (staircase.endY - staircase.startY) * static_cast<float>(index) / STAIR_STEP_COUNT;
+      const float y1 = staircase.startY +
+        (staircase.endY - staircase.startY) * static_cast<float>(index + 1) / STAIR_STEP_COUNT;
+      const float fraction = ascending
+        ? static_cast<float>(index + 1) / STAIR_STEP_COUNT
+        : static_cast<float>(index) / STAIR_STEP_COUNT;
+      const float topZ = staircase.startZ +
+        (staircase.endZ - staircase.startZ) * fraction;
+      const float boxMinimumZ = lowerZ;
+      const float boxMaximumZ = std::max(topZ, lowerZ + 0.025f);
+      const Vec3 centre(
+        staircase.centreX,
+        (y0 + y1) * 0.5f,
+        (boxMinimumZ + boxMaximumZ) * 0.5f
+      );
+      const Vec3 halfExtent(
+        staircase.width * 0.5f,
+        std::fabs(y1 - y0) * 0.5f,
+        (boxMaximumZ - boxMinimumZ) * 0.5f
+      );
+
+      Hit candidate;
+      if (intersectAxisAlignedBox(ray, centre, halfExtent, minimum, closest, candidate)) {
+        found = true;
+        closest = candidate.t;
+        hit = candidate;
+        hit.colour = floorColour(hit.point);
+      }
+    }
+    return found;
+  }
+
   bool intersectGround(const Ray& ray, float minimum, float maximum, Hit& hit) const {
     if (std::fabs(ray.direction.z) < 1e-7f) return false;
     const float t = -ray.origin.z / ray.direction.z;
@@ -423,6 +588,7 @@ private:
 
     const Vec3 point = ray.origin + ray.direction * t;
     if (std::fabs(point.x) > GROUND_LIMIT || std::fabs(point.y) > GROUND_LIMIT) return false;
+    if (insideFloorHole(point)) return false;
 
     hit.found = true;
     hit.t = t;
@@ -437,6 +603,14 @@ private:
     for (const RenderObject& object : definition_.objects) {
       Hit hit;
       if (intersectObject(ray, object, minimum, maximum, hit)) {
+        result = hit;
+        maximum = hit.t;
+      }
+    }
+
+    for (const Staircase& staircase : definition_.staircases) {
+      Hit hit;
+      if (intersectStaircase(ray, staircase, minimum, maximum, hit)) {
         result = hit;
         maximum = hit.t;
       }
@@ -487,6 +661,14 @@ LevelDefinition lowerLevel() {
   level.floorLight = {0.40f, 0.40f, 0.42f};
   level.objects.push_back({ShapeKind::Cone, {-1.30f, -0.80f, 0.82f}, 0.86f, 1.64f, {0.62f, 0.25f, 0.82f}});
   level.objects.push_back({ShapeKind::Pyramid, {1.20f, 0.85f, 0.83f}, 0.92f, 1.66f, {0.96f, 0.78f, 0.16f}});
+  level.staircases.push_back({
+    LOWER_MIDDLE_STAIR_X,
+    STAIR_LOW_Y,
+    STAIR_HIGH_Y,
+    0.0f,
+    STAIR_RISE,
+    STAIR_WIDTH
+  });
   return level;
 }
 
@@ -497,6 +679,24 @@ LevelDefinition middleLevel() {
   level.floorLight = {0.621f, 0.6624f, 0.690f};
   level.objects.push_back({ShapeKind::Cube, {-1.05f, 0.65f, 0.775f}, 0.80f, 1.55f, {0.18f, 0.48f, 0.88f}});
   level.objects.push_back({ShapeKind::Sphere, {1.05f, -0.25f, 0.90f}, 0.90f, 1.80f, {0.95f, 0.43f, 0.12f}});
+
+  level.floorHoles.push_back(stairHole(LOWER_MIDDLE_STAIR_X));
+  level.staircases.push_back({
+    LOWER_MIDDLE_STAIR_X,
+    STAIR_HIGH_Y,
+    STAIR_LOW_Y,
+    0.0f,
+    -STAIR_RISE,
+    STAIR_WIDTH
+  });
+  level.staircases.push_back({
+    MIDDLE_UPPER_STAIR_X,
+    STAIR_LOW_Y,
+    STAIR_HIGH_Y,
+    0.0f,
+    STAIR_RISE,
+    STAIR_WIDTH
+  });
   return level;
 }
 
@@ -507,6 +707,16 @@ LevelDefinition upperLevel() {
   level.floorLight = {0.82f, 0.82f, 0.84f};
   level.objects.push_back({ShapeKind::Dodecahedron, {-1.35f, 0.95f, 1.00f}, 0.72f, 0.0f, {0.18f, 0.50f, 0.94f}});
   level.objects.push_back({ShapeKind::Icosahedron, {1.30f, -0.95f, 1.10f}, 0.78f, 0.0f, {0.90f, 0.16f, 0.14f}});
+
+  level.floorHoles.push_back(stairHole(MIDDLE_UPPER_STAIR_X));
+  level.staircases.push_back({
+    MIDDLE_UPPER_STAIR_X,
+    STAIR_HIGH_Y,
+    STAIR_LOW_Y,
+    0.0f,
+    -STAIR_RISE,
+    STAIR_WIDTH
+  });
   return level;
 }
 
