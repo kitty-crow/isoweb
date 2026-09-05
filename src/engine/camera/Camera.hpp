@@ -17,6 +17,18 @@ struct CameraConfig {
         minimumViewWidth(minimumViewWidthValue) {}
 };
 
+struct CameraControlState {
+  bool canZoomIn = false;
+  bool canZoomOut = false;
+  bool canResetZoom = false;
+  bool canResetYaw = false;
+  bool canPanUp = false;
+  bool canPanDown = false;
+  bool canPanLeft = false;
+  bool canPanRight = false;
+  bool canResetPan = false;
+};
+
 class Camera {
 public:
   explicit Camera(const CameraConfig& config);
@@ -30,6 +42,7 @@ public:
   float wholeZoomScale(int frameWidth, int frameHeight, const WorldBounds& bounds) const;
   float viewHeight(int frameWidth, int frameHeight, const WorldBounds& bounds) const;
   bool canPan(int frameWidth, int frameHeight, const WorldBounds& bounds) const;
+  CameraControlState controlState(int frameWidth, int frameHeight, const WorldBounds& bounds) const;
 
   void rotateClockwise();
   void rotateCounterClockwise();
@@ -54,6 +67,7 @@ private:
   float yawRadians() const;
   float zoomScale() const;
   bool wholeZoom() const;
+  bool wouldPan(float right, float down, int frameWidth, int frameHeight, const WorldBounds& bounds) const;
   int detailedPresetAt(int position, int frameWidth, int frameHeight, const WorldBounds& bounds) const;
   int presetAt(int position, int frameWidth, int frameHeight, const WorldBounds& bounds) const;
   int sequenceLength() const;
