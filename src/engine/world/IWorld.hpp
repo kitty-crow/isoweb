@@ -5,6 +5,7 @@
 
 #include "engine/math/Vec3.hpp"
 #include "engine/render/Ray.hpp"
+#include "engine/world/WorldObject.hpp"
 
 namespace isoweb {
 namespace engine {
@@ -20,6 +21,8 @@ public:
 
   virtual const WorldBounds& bounds() const = 0;
   virtual Vec3 sample(const Ray& ray, float backgroundY) const = 0;
+  virtual const std::vector<WorldObject>& objects() const = 0;
+  virtual bool intersectsSolid(const HitBox& hitBox) const = 0;
 
   virtual std::size_t levelCount() const = 0;
   virtual std::size_t activeLevelIndex() const = 0;

@@ -8,6 +8,7 @@
     "build": "bun run build:site && bun run build:web",
     "build:wasm": "bash scripts/build-wasm.sh",
     "check:emscripten-bridge": "bun scripts/check-emscripten-bridge.ts",
+    "test:hitboxes": "c++ -std=c++14 -Isrc scripts/hitbox-smoke.cpp -o /tmp/isoweb-hitbox-smoke && /tmp/isoweb-hitbox-smoke",
     "test:runtime": "bun scripts/runtime-smoke.ts",
     "audit:mobile": "bun vendor/pages/src/cli.ts audit-mobile site"
   }

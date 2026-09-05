@@ -9,9 +9,11 @@ namespace isoweb {
 namespace demo {
 namespace {
 
+using engine::HitBox;
 using engine::Ray;
 using engine::Vec3;
 using engine::WorldBounds;
+using engine::WorldObject;
 
 constexpr float EPSILON = 0.0015f;
 constexpr float FAR_DISTANCE = 1000.0f;
@@ -49,6 +51,7 @@ struct RenderObject {
   float size;
   float height;
   Vec3 colour;
+  bool solid;
 };
 
 struct FloorHole {
@@ -176,6 +179,7 @@ class DemoLevel final : public engine::IWorldLevel {
 public:
   explicit DemoLevel(LevelDefinition definition)
       : definition_(std::move(definition)) {
+    buildCollisionObjects();
     buildBounds();
   }
 
@@ -188,7 +192,40 @@ public:
     return hit.found ? shade(hit) : background(backgroundY);
   }
 
+  const std::vector<WorldObject>& objects() const override {
+    return worldObjects_;
+  }
+
+  bool intersectsSolid(const HitBox& hitBox) const override {
+    for (const WorldObject& object : worldObjects_) {
+      if (object.blocks(hitBox)) return true;
+    }
+    return false;
+  }
+
 private:
+  Vec3 objectExtent(const RenderObject& object) const {
+    if (object.kind == ShapeKind::Sphere) return {object.size, object.size, object.size};
+    if (object.kind == ShapeKind::Dodecahedron || object.kind == ShapeKind::Icosahedron) {
+      const float radius = object.size * 1.55f;
+      return {radius, radius, radius};
+    }
+    return {object.size, object.size, object.height * 0.5f};
+  }
+
+  void buildCollisionObjects() {
+    worldObjects_.clear();
+    worldObjects_.reserve(definition_.objects.size());
+    for (const RenderObject& object : definition_.objects) {
+      const Vec3 extent = objectExtent(object);
+      WorldObject worldObject;
+      worldObject.solid = object.solid;
+      worldObject.hitBox.minimum = object.position - extent;
+      worldObject.hitBox.maximum = object.position + extent;
+      worldObjects_.push_back(worldObject);
+    }
+  }
+
   void buildBounds() {
     bounds_.focus = BASE_FOCUS;
     bounds_.points.clear();
@@ -230,15 +267,6 @@ private:
         }
       }
     }
-  }
-
-  Vec3 objectExtent(const RenderObject& object) const {
-    if (object.kind == ShapeKind::Sphere) return {object.size, object.size, object.size};
-    if (object.kind == ShapeKind::Dodecahedron || object.kind == ShapeKind::Icosahedron) {
-      const float radius = object.size * 1.55f;
-      return {radius, radius, radius};
-    }
-    return {object.size, object.size, object.height * 0.5f};
   }
 
   bool intersectSphere(const Ray& ray, const RenderObject& object, float minimum, float maximum, Hit& hit) const {
@@ -704,6 +732,7 @@ private:
 
   LevelDefinition definition_;
   WorldBounds bounds_;
+  std::vector<WorldObject> worldObjects_;
 };
 
 LevelDefinition lowerLevel() {
@@ -711,8 +740,8 @@ LevelDefinition lowerLevel() {
   level.lightPosition = {4.20f, -3.20f, 5.60f};
   level.floorDark = LOWER_FLOOR_DARK;
   level.floorLight = LOWER_FLOOR_LIGHT;
-  level.objects.push_back({ShapeKind::Cone, {-1.30f, -0.80f, 0.82f}, 0.86f, 1.64f, {0.62f, 0.25f, 0.82f}});
-  level.objects.push_back({ShapeKind::Pyramid, {1.20f, 0.85f, 0.83f}, 0.92f, 1.66f, {0.96f, 0.78f, 0.16f}});
+  level.objects.push_back({ShapeKind::Cone, {-1.30f, -0.80f, 0.82f}, 0.86f, 1.64f, {0.62f, 0.25f, 0.82f}, true});
+  level.objects.push_back({ShapeKind::Pyramid, {1.20f, 0.85f, 0.83f}, 0.92f, 1.66f, {0.96f, 0.78f, 0.16f}, true});
   level.staircases.push_back({
     LOWER_MIDDLE_STAIR_X,
     STAIR_LOW_Y,
@@ -729,8 +758,8 @@ LevelDefinition middleLevel() {
   level.lightPosition = {-3.60f, -4.20f, 6.50f};
   level.floorDark = MIDDLE_FLOOR_DARK;
   level.floorLight = MIDDLE_FLOOR_LIGHT;
-  level.objects.push_back({ShapeKind::Cube, {-1.05f, 0.65f, 0.775f}, 0.80f, 1.55f, {0.18f, 0.48f, 0.88f}});
-  level.objects.push_back({ShapeKind::Sphere, {1.05f, -0.25f, 0.90f}, 0.90f, 1.80f, {0.95f, 0.43f, 0.12f}});
+  level.objects.push_back({ShapeKind::Cube, {-1.05f, 0.65f, 0.775f}, 0.80f, 1.55f, {0.18f, 0.48f, 0.88f}, true});
+  level.objects.push_back({ShapeKind::Sphere, {1.05f, -0.25f, 0.90f}, 0.90f, 1.80f, {0.95f, 0.43f, 0.12f}, true});
 
   level.floorHoles.push_back(stairHole(LOWER_MIDDLE_STAIR_X));
   level.staircases.push_back({
@@ -763,8 +792,8 @@ LevelDefinition upperLevel() {
   level.lightPosition = {3.80f, 4.40f, 7.20f};
   level.floorDark = UPPER_FLOOR_DARK;
   level.floorLight = UPPER_FLOOR_LIGHT;
-  level.objects.push_back({ShapeKind::Dodecahedron, {-1.35f, 0.95f, 1.00f}, 0.72f, 0.0f, {0.18f, 0.50f, 0.94f}});
-  level.objects.push_back({ShapeKind::Icosahedron, {1.30f, -0.95f, 1.10f}, 0.78f, 0.0f, {0.90f, 0.16f, 0.14f}});
+  level.objects.push_back({ShapeKind::Dodecahedron, {-1.35f, 0.95f, 1.00f}, 0.72f, 0.0f, {0.18f, 0.50f, 0.94f}, true});
+  level.objects.push_back({ShapeKind::Icosahedron, {1.30f, -0.95f, 1.10f}, 0.78f, 0.0f, {0.90f, 0.16f, 0.14f}, true});
 
   level.floorHoles.push_back(stairHole(MIDDLE_UPPER_STAIR_X));
   level.staircases.push_back({
