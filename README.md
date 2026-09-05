@@ -1,15 +1,13 @@
 # isoweb
 
-Experimental CPU-rendered C++/WebAssembly isometric rendering foundation built around DFPSR.
+Browser C++/WebAssembly rendering proof built on DFPSR.
 
-## Architecture
+## Development
 
-The repository deliberately separates the reusable engine from the proof-of-concept world:
+The reusable engine lives under `src/engine/`; demo-world content lives under `src/demo/`; browser behaviour is TypeScript under `web/src/`.
 
-- `src/engine/` contains vendorable engine concepts such as maths, camera state, framebuffer rendering, control sprites, world interfaces, and browser presentation.
-- `src/demo/` contains the current cube/sphere proof world and its application wiring. Demo geometry, colours, lighting, and bounds do not live in the engine.
-- `src/wasm/` is the narrow WebAssembly export boundary used by the browser demo.
-- `web/src/` contains TypeScript browser behaviour. `web/index.html` is markup only.
-- `web/styles.css` is only the stylesheet index; functional CSS lives under `web/styles/`.
+## Regression checks
 
-The browser TypeScript is compiled during `bun run build`, and the C++ sources are compiled to WebAssembly by `bun run build:wasm`.
+After the WASM build, CI validates the generated Emscripten `ASM_CONSTS` bridge so a wrapper cannot reference undeclared `$N` arguments. CI then launches Chromium against the built site and verifies that WASM reaches its first rendered frame, clears the loading state, presents non-transparent canvas pixels, and updates camera-control state after a real rotation.
+
+These checks run before the existing mobile audit and Pages deployment.
