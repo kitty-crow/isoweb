@@ -61,8 +61,19 @@ bool CharacterMovement::advance(
   ) {
     const EntityLocation waypoint =
       character.navigation.route[character.navigation.nextWaypoint];
-    const float distance = distance3D(character.location.position, waypoint.position);
 
+    // Locations on different levels/worlds/timelines use different local
+    // coordinate spaces. A NavigationConnection explicitly declares the
+    // remap between them, so never interpolate the raw coordinates across a
+    // context boundary. Continue motion from the mapped endpoint instead.
+    if (!sameContext(character.location, waypoint)) {
+      character.location = waypoint;
+      ++character.navigation.nextWaypoint;
+      changed = true;
+      continue;
+    }
+
+    const float distance = distance3D(character.location.position, waypoint.position);
     if (distance <= epsilon) {
       character.location = waypoint;
       ++character.navigation.nextWaypoint;
@@ -86,13 +97,6 @@ bool CharacterMovement::advance(
 
     const Vec3 direction = (waypoint.position - character.location.position) / distance;
     character.location.position = character.location.position + direction * remaining;
-    // Keep the current context while traversing a segment. A context change
-    // occurs only when the connection waypoint itself is reached.
-    if (sameContext(character.location, waypoint)) {
-      character.location.worldId = waypoint.worldId;
-      character.location.timelineId = waypoint.timelineId;
-      character.location.levelId = waypoint.levelId;
-    }
     remaining = 0.0f;
     changed = true;
   }
