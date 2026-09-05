@@ -10,6 +10,9 @@ export interface ControlElements {
   panLeft: HTMLButtonElement;
   panRight: HTMLButtonElement;
   resetCamera: HTMLButtonElement;
+  levelUp: HTMLButtonElement;
+  resetLevel: HTMLButtonElement;
+  levelDown: HTMLButtonElement;
 }
 
 export interface AppElements {
@@ -43,7 +46,10 @@ export function getAppElements(): AppElements {
       panDown: required<HTMLButtonElement>('pan-down'),
       panLeft: required<HTMLButtonElement>('pan-left'),
       panRight: required<HTMLButtonElement>('pan-right'),
-      resetCamera: required<HTMLButtonElement>('reset-camera')
+      resetCamera: required<HTMLButtonElement>('reset-camera'),
+      levelUp: required<HTMLButtonElement>('level-up'),
+      resetLevel: required<HTMLButtonElement>('reset-level'),
+      levelDown: required<HTMLButtonElement>('level-down')
     }
   };
 }

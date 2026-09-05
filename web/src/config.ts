@@ -13,7 +13,10 @@ export const CONTROL_LAYOUT = {
   panXStep: 48,
   panYStep: 36,
   panPadRight: 18,
-  panPadBottom: 16
+  panPadBottom: 16,
+  levelRight: 18,
+  levelTop: 18,
+  levelGap: 6
 } as const;
 
 export const INPUT = {

@@ -74,5 +74,17 @@ void DemoApplication::resetCamera() {
   redraw();
 }
 
+void DemoApplication::levelUp() {
+  if (world_.levelUp()) redraw();
+}
+
+void DemoApplication::levelDown() {
+  if (world_.levelDown()) redraw();
+}
+
+void DemoApplication::resetLevel() {
+  if (world_.resetLevel()) redraw();
+}
+
 } // namespace demo
 } // namespace isoweb

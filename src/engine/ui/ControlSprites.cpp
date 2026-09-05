@@ -24,6 +24,9 @@ constexpr int PAN_X_STEP = 48;
 constexpr int PAN_Y_STEP = 36;
 constexpr int PAN_PAD_RIGHT = 18;
 constexpr int PAN_PAD_BOTTOM = 16;
+constexpr int LEVEL_RIGHT = 18;
+constexpr int LEVEL_TOP = 18;
+constexpr int LEVEL_GAP = 6;
 constexpr float PI = 3.14159265358979323846f;
 
 float segmentDistance(float px, float py, float ax, float ay, float bx, float by) {
@@ -111,6 +114,16 @@ float zoomGlyphDistance(float px, float py, bool plus) {
     : horizontal;
 }
 
+float levelGlyphDistance(float px, float py) {
+  const float left = 13.0f;
+  const float right = 25.0f;
+  const float top = 13.5f;
+  const float bottom = 24.5f;
+  float distance = segmentDistance(px, py, left, top, right, top);
+  distance = std::min(distance, segmentDistance(px, py, right, top, left, bottom));
+  return std::min(distance, segmentDistance(px, py, left, bottom, right, bottom));
+}
+
 } // namespace
 
 void ControlSprites::spritePixel(
@@ -171,6 +184,16 @@ void ControlSprites::buildReset(dsr::OrderedImageRgbaU8& sprite, bool disabled) 
   }
 }
 
+void ControlSprites::buildLevelReset(dsr::OrderedImageRgbaU8& sprite, bool disabled) {
+  buildReset(sprite, disabled);
+  const float strength = disabled ? 0.28f : 1.0f;
+  for (int y = 0; y < RESET_DISK_SIZE; ++y) {
+    for (int x = 0; x < RESET_DISK_SIZE; ++x) {
+      spritePixel(sprite, x, y, levelGlyphDistance(x + 0.5f, y + 0.5f), strength);
+    }
+  }
+}
+
 void ControlSprites::buildZoom(dsr::OrderedImageRgbaU8& sprite, bool plus) {
   sprite = dsr::image_create_RgbaU8(ZOOM_CONTROL_SIZE, ZOOM_CONTROL_SIZE, true);
   dsr::image_fill(sprite, {0, 0, 0, 0});
@@ -200,13 +223,23 @@ void ControlSprites::ensureSprites() {
     buildReset(resetSprite_);
     buildReset(resetDisabled_, true);
   }
+  if (!dsr::image_exists(levelResetSprite_)) {
+    buildLevelReset(levelResetSprite_);
+    buildLevelReset(levelResetDisabled_, true);
+  }
   if (!dsr::image_exists(plusSprite_)) {
     buildZoom(plusSprite_, true);
     buildZoom(minusSprite_, false);
   }
 }
 
-void ControlSprites::draw(dsr::OrderedImageRgbaU8& frame, int frameWidth, int frameHeight, bool canPan) {
+void ControlSprites::draw(
+  dsr::OrderedImageRgbaU8& frame,
+  int frameWidth,
+  int frameHeight,
+  bool canPan,
+  const LevelControlState& levelState
+) {
   ensureSprites();
 
   const int zoomX = ZOOM_LEFT + (RESET_DISK_SIZE - ZOOM_CONTROL_SIZE) / 2;
@@ -217,6 +250,17 @@ void ControlSprites::draw(dsr::OrderedImageRgbaU8& frame, int frameWidth, int fr
   dsr::draw_alphaFilter(frame, plusSprite_, zoomX, zoomInTop);
   dsr::draw_alphaFilter(frame, resetSprite_, zoomResetX, zoomResetTop);
   dsr::draw_alphaFilter(frame, minusSprite_, zoomX, zoomOutTop);
+
+  const int levelX = frameWidth - LEVEL_RIGHT - PAN_ARROW_SIZE;
+  const int levelUpTop = LEVEL_TOP;
+  const int levelResetTop = levelUpTop + PAN_ARROW_SIZE + LEVEL_GAP;
+  const int levelDownTop = levelResetTop + RESET_DISK_SIZE + LEVEL_GAP;
+  dsr::OrderedImageRgbaU8& levelUp = levelState.canMoveUp ? upSprite_ : upDisabled_;
+  dsr::OrderedImageRgbaU8& levelDown = levelState.canMoveDown ? downSprite_ : downDisabled_;
+  dsr::OrderedImageRgbaU8& levelReset = levelState.atDefault ? levelResetDisabled_ : levelResetSprite_;
+  dsr::draw_alphaFilter(frame, levelUp, levelX, levelUpTop);
+  dsr::draw_alphaFilter(frame, levelReset, levelX, levelResetTop);
+  dsr::draw_alphaFilter(frame, levelDown, levelX, levelDownTop);
 
   const int yawTop = frameHeight - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
   const int counterClockwiseX = ROTATE_LEFT_X;

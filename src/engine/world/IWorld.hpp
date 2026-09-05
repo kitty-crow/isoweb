@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <vector>
 
 #include "engine/math/Vec3.hpp"
@@ -19,6 +20,10 @@ public:
 
   virtual const WorldBounds& bounds() const = 0;
   virtual Vec3 sample(const Ray& ray, float backgroundY) const = 0;
+
+  virtual std::size_t levelCount() const = 0;
+  virtual std::size_t activeLevelIndex() const = 0;
+  virtual std::size_t defaultLevelIndex() const = 0;
 };
 
 } // namespace engine

@@ -19,6 +19,14 @@ export class ControlLayout {
     this.setHitbox(this.controls.resetZoom, zoomResetX, zoomResetTop, c.resetDiskSize, c.resetDiskSize, 44, renderWidth, renderHeight);
     this.setHitbox(this.controls.zoomOut, zoomX, zoomOutTop, c.zoomControlSize, c.zoomControlSize, 44, renderWidth, renderHeight);
 
+    const levelX = renderWidth - c.levelRight - c.panArrowSize;
+    const levelUpTop = c.levelTop;
+    const levelResetTop = levelUpTop + c.panArrowSize + c.levelGap;
+    const levelDownTop = levelResetTop + c.resetDiskSize + c.levelGap;
+    this.setHitbox(this.controls.levelUp, levelX, levelUpTop, c.panArrowSize, c.panArrowSize, 44, renderWidth, renderHeight);
+    this.setHitbox(this.controls.resetLevel, levelX, levelResetTop, c.resetDiskSize, c.resetDiskSize, 44, renderWidth, renderHeight);
+    this.setHitbox(this.controls.levelDown, levelX, levelDownTop, c.panArrowSize, c.panArrowSize, 44, renderWidth, renderHeight);
+
     const yawRowTop = renderHeight - c.controlBottom - c.rotateArrowHeight;
     const counterClockwiseX = c.rotateLeftX;
     const resetYawX = counterClockwiseX + c.rotateArrowWidth + c.rotateRowGap;

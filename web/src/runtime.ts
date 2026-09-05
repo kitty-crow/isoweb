@@ -10,6 +10,12 @@ export interface IsowebModule {
   _isoweb_set_detailed_mode(enabled: number): void;
   _isoweb_pan(right: number, down: number): void;
   _isoweb_reset_camera(): void;
+  _isoweb_level_up(): void;
+  _isoweb_level_down(): void;
+  _isoweb_reset_level(): void;
+  _isoweb_level_count(): number;
+  _isoweb_active_level_index(): number;
+  _isoweb_default_level_index(): number;
   onRuntimeInitialized?: () => void;
 }
 

@@ -15,7 +15,7 @@
         width="512"
         height="288"
         role="img"
-        aria-label="A ray-traced isometric scene containing a blue cube and an orange sphere on a tiled ground plane, with physically derived lighting and cast shadows."
+        aria-label="A ray-traced isometric multi-level demo world with physically derived lighting and cast shadows."
       ></canvas>
 
       <button id="zoom-in" class="control-hitbox" type="button" aria-label="Zoom in" disabled></button>
@@ -24,6 +24,10 @@
       <button id="reset-yaw" class="control-hitbox" type="button" aria-label="Reset camera yaw to 0 degrees" disabled></button>
       <button id="rotate-clockwise" class="control-hitbox" type="button" aria-label="Rotate camera 45 degrees clockwise around the Z axis" disabled></button>
       <button id="zoom-out" class="control-hitbox" type="button" aria-label="Zoom out" disabled></button>
+
+      <button id="level-up" class="control-hitbox" type="button" aria-label="Load the world level above" disabled></button>
+      <button id="reset-level" class="control-hitbox" type="button" aria-label="Load the default world level" disabled></button>
+      <button id="level-down" class="control-hitbox" type="button" aria-label="Load the world level below" disabled></button>
 
       <button id="pan-up" class="control-hitbox" type="button" aria-label="Pan camera up along the X axis" disabled></button>
       <button id="pan-down" class="control-hitbox" type="button" aria-label="Pan camera down along the X axis" disabled></button>
@@ -34,11 +38,6 @@
 
     <div id="loading" class="loading" role="status" aria-live="polite">Rendering C++ / WASM…</div>
     <div id="view-status" class="visually-hidden" role="status" aria-live="polite">Camera view 0 degrees around Z</div>
-
-    <div class="badge" aria-hidden="true">
-      <strong>isoweb</strong>
-      <span>DFPSR · C++ · WASM · ray cast</span>
-    </div>
   </main>
 
   <script src="./assets/bootstrap.js"></script>
