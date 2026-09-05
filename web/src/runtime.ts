@@ -31,7 +31,16 @@ export type PresentFrame = (
   detailed: boolean,
   canPan: boolean,
   viewHeight: number,
-  wholeZoomScale: number
+  wholeZoomScale: number,
+  canZoomIn: boolean,
+  canZoomOut: boolean,
+  canResetZoom: boolean,
+  canResetYaw: boolean,
+  canPanUp: boolean,
+  canPanDown: boolean,
+  canPanLeft: boolean,
+  canPanRight: boolean,
+  canResetPan: boolean
 ) => void;
 
 declare global {
