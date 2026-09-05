@@ -19,7 +19,7 @@ export class App {
     const wheel = new WheelController(elements.viewport, this.module, viewport, panQueue);
     const pointer = new PointerController(elements.viewport, this.module, viewport, panQueue);
     const browserArgs = new URLSearchParams(window.location.search);
-    const detailedZoomMode = browserArgs.get('detailed') === '1';
+    const detailedZoomMode = browserArgs.get('dzoom') === '1';
     const detailedYawMode = browserArgs.get('dyaw') === '1';
 
     controls.bind();

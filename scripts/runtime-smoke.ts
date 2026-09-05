@@ -97,11 +97,15 @@ try {
   await page.locator('#rotate-clockwise').click();
   await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('Camera 45 degrees'));
 
+  await page.goto(`http://127.0.0.1:${server.port}/?dzoom=1`, { waitUntil: 'domcontentloaded' });
+  await waitForWasmReady();
+  await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('zoom 1x detailed'));
+
   if (pageErrors.length > 0) {
     throw new Error(`Browser page error(s):\n${pageErrors.join('\n\n')}`);
   }
 
-  console.log('Browser WASM boot, normal yaw, detailed yaw, and camera-state smoke test passed.');
+  console.log('Browser WASM boot, normal yaw, detailed yaw, detailed zoom, and camera-state smoke test passed.');
 } finally {
   await browser.close();
   server.stop(true);
