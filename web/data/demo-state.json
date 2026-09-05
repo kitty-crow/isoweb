@@ -1,0 +1,27 @@
+{
+  "baseMovementSpeed": 1.15,
+  "characters": [
+    {
+      "position": {
+        "level": 1,
+        "x": 0.0,
+        "y": 2.15,
+        "z": 0.0
+      },
+      "forward": {
+        "x": 0.0,
+        "y": -1.0
+      },
+      "hitbox": {
+        "width": 0.52,
+        "depth": 0.38,
+        "height": 1.45
+      },
+      "solid": true,
+      "npc": false,
+      "controllable": true,
+      "movementSpeedMultiplier": 1.0,
+      "selectionTint": [0.18, 0.48, 1.0]
+    }
+  ]
+}
