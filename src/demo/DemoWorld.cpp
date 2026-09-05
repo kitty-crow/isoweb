@@ -18,6 +18,18 @@ constexpr float FAR_DISTANCE = 1000.0f;
 constexpr float GROUND_LIMIT = 4.40f;
 const Vec3 BASE_FOCUS(0.0f, 0.15f, 0.55f);
 
+constexpr int STAIR_COUNT = 8;
+constexpr float STAIR_WIDTH = 0.76f;
+constexpr float STAIR_HALF_WIDTH = STAIR_WIDTH * 0.5f;
+constexpr float STAIR_DEPTH = 0.34f;
+constexpr float STAIR_HALF_DEPTH = STAIR_DEPTH * 0.5f;
+constexpr float STAIR_RISE = 0.18f;
+constexpr float STAIR_START_Y = -1.19f;
+constexpr float STAIR_A_X = 2.65f;
+constexpr float STAIR_B_X = 3.60f;
+constexpr float STAIR_OPENING_MARGIN = 0.08f;
+constexpr float STAIR_DESCENT_BOTTOM = -1.58f;
+
 enum class ShapeKind {
   Cube,
   Sphere,
@@ -35,8 +47,22 @@ struct RenderObject {
   Vec3 colour;
 };
 
+struct StairStep {
+  Vec3 centre;
+  Vec3 halfExtent;
+};
+
+struct FloorOpening {
+  float minX;
+  float maxX;
+  float minY;
+  float maxY;
+};
+
 struct LevelDefinition {
   std::vector<RenderObject> objects;
+  std::vector<StairStep> stairSteps;
+  std::vector<FloorOpening> floorOpenings;
   Vec3 lightPosition;
   Vec3 floorDark;
   Vec3 floorLight;
@@ -122,6 +148,38 @@ const std::vector<Vec3>& icosahedronNormals() {
   return normals;
 }
 
+void addAscendingStairs(LevelDefinition& level, float centreX) {
+  for (int index = 0; index < STAIR_COUNT; ++index) {
+    const float top = (index + 1) * STAIR_RISE;
+    const float centreY = STAIR_START_Y + index * STAIR_DEPTH;
+    level.stairSteps.push_back({
+      {centreX, centreY, top * 0.5f},
+      {STAIR_HALF_WIDTH, STAIR_HALF_DEPTH, top * 0.5f}
+    });
+  }
+}
+
+void addDescendingStairs(LevelDefinition& level, float centreX) {
+  for (int index = 0; index < STAIR_COUNT; ++index) {
+    const float top = -(index + 1) * STAIR_RISE;
+    const float centreY = -STAIR_START_Y - index * STAIR_DEPTH;
+    const float halfHeight = (top - STAIR_DESCENT_BOTTOM) * 0.5f;
+    level.stairSteps.push_back({
+      {centreX, centreY, STAIR_DESCENT_BOTTOM + halfHeight},
+      {STAIR_HALF_WIDTH, STAIR_HALF_DEPTH, halfHeight}
+    });
+  }
+
+  const float minY = STAIR_START_Y - STAIR_HALF_DEPTH - STAIR_OPENING_MARGIN;
+  const float maxY = -STAIR_START_Y + STAIR_HALF_DEPTH + STAIR_OPENING_MARGIN;
+  level.floorOpenings.push_back({
+    centreX - STAIR_HALF_WIDTH - STAIR_OPENING_MARGIN,
+    centreX + STAIR_HALF_WIDTH + STAIR_OPENING_MARGIN,
+    minY,
+    maxY
+  });
+}
+
 class DemoLevel final : public engine::IWorldLevel {
 public:
   explicit DemoLevel(LevelDefinition definition)
@@ -142,7 +200,7 @@ private:
   void buildBounds() {
     bounds_.focus = BASE_FOCUS;
     bounds_.points.clear();
-    bounds_.points.reserve(4 + definition_.objects.size() * 8);
+    bounds_.points.reserve(4 + definition_.objects.size() * 8 + definition_.stairSteps.size() * 8);
 
     bounds_.points.push_back({-GROUND_LIMIT, -GROUND_LIMIT, 0.0f});
     bounds_.points.push_back({GROUND_LIMIT, -GROUND_LIMIT, 0.0f});
@@ -151,13 +209,21 @@ private:
 
     for (const RenderObject& object : definition_.objects) {
       const Vec3 extent = objectExtent(object);
-      for (int x : {-1, 1}) {
-        for (int y : {-1, 1}) {
-          for (int z : {-1, 1}) {
-            bounds_.points.push_back(
-              object.position + Vec3(extent.x * x, extent.y * y, extent.z * z)
-            );
-          }
+      addBoundsBox(object.position, extent);
+    }
+
+    for (const StairStep& step : definition_.stairSteps) {
+      addBoundsBox(step.centre, step.halfExtent);
+    }
+  }
+
+  void addBoundsBox(const Vec3& centre, const Vec3& extent) {
+    for (int x : {-1, 1}) {
+      for (int y : {-1, 1}) {
+        for (int z : {-1, 1}) {
+          bounds_.points.push_back(
+            centre + Vec3(extent.x * x, extent.y * y, extent.z * z)
+          );
         }
       }
     }
@@ -172,32 +238,16 @@ private:
     return {object.size, object.size, object.height * 0.5f};
   }
 
-  bool intersectSphere(const Ray& ray, const RenderObject& object, float minimum, float maximum, Hit& hit) const {
-    const Vec3 offset = ray.origin - object.position;
-    const float a = engine::dot(ray.direction, ray.direction);
-    const float halfB = engine::dot(offset, ray.direction);
-    const float c = engine::dot(offset, offset) - object.size * object.size;
-    const float discriminant = halfB * halfB - a * c;
-    if (discriminant < 0.0f) return false;
-
-    const float root = std::sqrt(discriminant);
-    float t = (-halfB - root) / a;
-    if (t < minimum || t > maximum) {
-      t = (-halfB + root) / a;
-      if (t < minimum || t > maximum) return false;
-    }
-
-    hit.found = true;
-    hit.t = t;
-    hit.point = ray.origin + ray.direction * t;
-    hit.normal = engine::normalise(hit.point - object.position);
-    hit.colour = object.colour;
-    return true;
-  }
-
-  bool intersectCube(const Ray& ray, const RenderObject& object, float minimum, float maximum, Hit& hit) const {
-    const Vec3 localOrigin = ray.origin - object.position;
-    const float half[3] = {object.size, object.size, object.height * 0.5f};
+  bool intersectBox(
+    const Ray& ray,
+    const Vec3& centre,
+    const Vec3& halfExtent,
+    float minimum,
+    float maximum,
+    Hit& hit
+  ) const {
+    const Vec3 localOrigin = ray.origin - centre;
+    const float half[3] = {halfExtent.x, halfExtent.y, halfExtent.z};
     const float origin[3] = {localOrigin.x, localOrigin.y, localOrigin.z};
     const float direction[3] = {ray.direction.x, ray.direction.y, ray.direction.z};
     float nearT = minimum;
@@ -237,6 +287,41 @@ private:
       : normalAxis == 1
         ? Vec3(0.0f, normalSign, 0.0f)
         : Vec3(0.0f, 0.0f, normalSign);
+    return true;
+  }
+
+  bool intersectSphere(const Ray& ray, const RenderObject& object, float minimum, float maximum, Hit& hit) const {
+    const Vec3 offset = ray.origin - object.position;
+    const float a = engine::dot(ray.direction, ray.direction);
+    const float halfB = engine::dot(offset, ray.direction);
+    const float c = engine::dot(offset, offset) - object.size * object.size;
+    const float discriminant = halfB * halfB - a * c;
+    if (discriminant < 0.0f) return false;
+
+    const float root = std::sqrt(discriminant);
+    float t = (-halfB - root) / a;
+    if (t < minimum || t > maximum) {
+      t = (-halfB + root) / a;
+      if (t < minimum || t > maximum) return false;
+    }
+
+    hit.found = true;
+    hit.t = t;
+    hit.point = ray.origin + ray.direction * t;
+    hit.normal = engine::normalise(hit.point - object.position);
+    hit.colour = object.colour;
+    return true;
+  }
+
+  bool intersectCube(const Ray& ray, const RenderObject& object, float minimum, float maximum, Hit& hit) const {
+    if (!intersectBox(
+      ray,
+      object.position,
+      {object.size, object.size, object.height * 0.5f},
+      minimum,
+      maximum,
+      hit
+    )) return false;
     hit.colour = object.colour;
     return true;
   }
@@ -416,6 +501,16 @@ private:
     return colour;
   }
 
+  bool insideFloorOpening(const Vec3& point) const {
+    for (const FloorOpening& opening : definition_.floorOpenings) {
+      if (
+        point.x >= opening.minX && point.x <= opening.maxX &&
+        point.y >= opening.minY && point.y <= opening.maxY
+      ) return true;
+    }
+    return false;
+  }
+
   bool intersectGround(const Ray& ray, float minimum, float maximum, Hit& hit) const {
     if (std::fabs(ray.direction.z) < 1e-7f) return false;
     const float t = -ray.origin.z / ray.direction.z;
@@ -423,6 +518,7 @@ private:
 
     const Vec3 point = ray.origin + ray.direction * t;
     if (std::fabs(point.x) > GROUND_LIMIT || std::fabs(point.y) > GROUND_LIMIT) return false;
+    if (insideFloorOpening(point)) return false;
 
     hit.found = true;
     hit.t = t;
@@ -432,11 +528,25 @@ private:
     return true;
   }
 
+  bool intersectStairStep(const Ray& ray, const StairStep& step, float minimum, float maximum, Hit& hit) const {
+    if (!intersectBox(ray, step.centre, step.halfExtent, minimum, maximum, hit)) return false;
+    hit.colour = floorColour(hit.point);
+    return true;
+  }
+
   Hit traceClosest(const Ray& ray, float minimum, float maximum) const {
     Hit result;
     for (const RenderObject& object : definition_.objects) {
       Hit hit;
       if (intersectObject(ray, object, minimum, maximum, hit)) {
+        result = hit;
+        maximum = hit.t;
+      }
+    }
+
+    for (const StairStep& step : definition_.stairSteps) {
+      Hit hit;
+      if (intersectStairStep(ray, step, minimum, maximum, hit)) {
         result = hit;
         maximum = hit.t;
       }
@@ -487,6 +597,7 @@ LevelDefinition lowerLevel() {
   level.floorLight = {0.40f, 0.40f, 0.42f};
   level.objects.push_back({ShapeKind::Cone, {-1.30f, -0.80f, 0.82f}, 0.86f, 1.64f, {0.62f, 0.25f, 0.82f}});
   level.objects.push_back({ShapeKind::Pyramid, {1.20f, 0.85f, 0.83f}, 0.92f, 1.66f, {0.96f, 0.78f, 0.16f}});
+  addAscendingStairs(level, STAIR_A_X);
   return level;
 }
 
@@ -497,6 +608,8 @@ LevelDefinition middleLevel() {
   level.floorLight = {0.621f, 0.6624f, 0.690f};
   level.objects.push_back({ShapeKind::Cube, {-1.05f, 0.65f, 0.775f}, 0.80f, 1.55f, {0.18f, 0.48f, 0.88f}});
   level.objects.push_back({ShapeKind::Sphere, {1.05f, -0.25f, 0.90f}, 0.90f, 1.80f, {0.95f, 0.43f, 0.12f}});
+  addDescendingStairs(level, STAIR_A_X);
+  addAscendingStairs(level, STAIR_B_X);
   return level;
 }
 
@@ -507,6 +620,7 @@ LevelDefinition upperLevel() {
   level.floorLight = {0.82f, 0.82f, 0.84f};
   level.objects.push_back({ShapeKind::Dodecahedron, {-1.35f, 0.95f, 1.00f}, 0.72f, 0.0f, {0.18f, 0.50f, 0.94f}});
   level.objects.push_back({ShapeKind::Icosahedron, {1.30f, -0.95f, 1.10f}, 0.78f, 0.0f, {0.90f, 0.16f, 0.14f}});
+  addDescendingStairs(level, STAIR_B_X);
   return level;
 }
 
