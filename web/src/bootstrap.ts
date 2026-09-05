@@ -6,6 +6,9 @@ installPresenter();
 
 globalThis.Module = {
   onRuntimeInitialized: () => {
-    new App(globalThis.Module as IsowebModule).start();
+    void new App(globalThis.Module as IsowebModule).start().catch(error => {
+      console.error('Failed to start isoweb demo:', error);
+      throw error;
+    });
   }
 } as IsowebModule;
