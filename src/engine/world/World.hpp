@@ -25,10 +25,16 @@ public:
   World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defaultLevelIndex);
 
   const WorldBounds& bounds() const override;
+  const WorldBounds& boundsForLevel(const std::string& levelId) const override;
   Vec3 sample(const Ray& ray, float backgroundY) const override;
   const std::vector<Object>& objects() const override;
+  const std::vector<Object>& objectsForLevel(const std::string& levelId) const override;
   const std::vector<Character>& characters() const override { return characters_; }
   std::vector<Character>& characters() { return characters_; }
+  const std::vector<NavigationConnection>& navigationConnections() const override {
+    return navigationConnections_;
+  }
+  std::vector<NavigationConnection>& navigationConnections() { return navigationConnections_; }
   bool intersectsSolid(const HitBox& hitBox) const override;
   bool collidesWith(const Object& candidate) const override;
 
@@ -44,6 +50,8 @@ public:
 
   void clearCharacters();
   Character& addCharacter(Character character);
+  void clearNavigationConnections();
+  NavigationConnection& addNavigationConnection(NavigationConnection connection);
 
   bool canMoveLevelUp() const;
   bool canMoveLevelDown() const;
@@ -56,10 +64,12 @@ public:
 
 private:
   const IWorldLevel& activeLevel() const;
+  std::size_t levelIndexForId(const std::string& levelId) const;
 
   std::vector<std::unique_ptr<IWorldLevel>> levels_;
   std::vector<std::string> levelIds_;
   std::vector<Character> characters_;
+  std::vector<NavigationConnection> navigationConnections_;
   std::size_t activeLevelIndex_ = 0;
   std::size_t defaultLevelIndex_ = 0;
   float baseMovementSpeed_ = 1.0f;
