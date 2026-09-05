@@ -1,5 +1,6 @@
 #include "engine/world/World.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <utility>
 
@@ -10,6 +11,11 @@ World::World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defau
     : levels_(std::move(levels)),
       defaultLevelIndex_(defaultLevelIndex) {
   if (levels_.empty() || defaultLevelIndex_ >= levels_.size()) std::abort();
+
+  levelIds_.reserve(levels_.size());
+  for (std::size_t index = 0; index < levels_.size(); ++index) {
+    levelIds_.push_back(std::to_string(index));
+  }
   activeLevelIndex_ = defaultLevelIndex_;
 }
 
@@ -35,9 +41,43 @@ bool World::intersectsSolid(const HitBox& hitBox) const {
 
 bool World::collidesWith(const Object& candidate) const {
   for (const Object& object : objects()) {
-    if (&object != &candidate && object.blocks(candidate)) return true;
+    if (!candidate.id.empty() && !object.id.empty() && object.id == candidate.id) continue;
+    if (object.blocks(candidate)) return true;
+  }
+
+  for (const Character& character : characters_) {
+    if (&character == &candidate) continue;
+    if (!candidate.id.empty() && character.id == candidate.id) continue;
+    if (character.blocks(candidate)) return true;
   }
   return false;
+}
+
+const std::string& World::levelId(std::size_t index) const {
+  if (index >= levelIds_.size()) std::abort();
+  return levelIds_[index];
+}
+
+bool World::setLevelId(std::size_t index, std::string id) {
+  if (index >= levelIds_.size() || id.empty()) return false;
+  if (std::find(levelIds_.begin(), levelIds_.end(), id) != levelIds_.end() && levelIds_[index] != id) {
+    return false;
+  }
+  levelIds_[index] = std::move(id);
+  return true;
+}
+
+void World::setBaseMovementSpeed(float speed) {
+  baseMovementSpeed_ = std::max(0.0f, speed);
+}
+
+void World::clearCharacters() {
+  characters_.clear();
+}
+
+Character& World::addCharacter(Character character) {
+  characters_.push_back(std::move(character));
+  return characters_.back();
 }
 
 bool World::canMoveLevelUp() const {
