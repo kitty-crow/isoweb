@@ -14,6 +14,7 @@ void DemoApplication::redraw() {
     renderer_.width(),
     renderer_.height(),
     camera_,
+    renderer_.cameraControlState(),
     renderer_.canPan(),
     renderer_.viewHeight(),
     renderer_.wholeZoomScale()
