@@ -4,6 +4,7 @@
 
 #include "demo/DemoWorld.hpp"
 #include "engine/camera/Camera.hpp"
+#include "engine/navigation/CharacterMovement.hpp"
 #include "engine/platform/BrowserPresenter.hpp"
 #include "engine/render/Renderer.hpp"
 #include "engine/ui/ControlSprites.hpp"
@@ -35,6 +36,31 @@ public:
   std::size_t activeLevelIndex() const { return world_.activeLevelIndex(); }
   std::size_t defaultLevelIndex() const { return world_.defaultLevelIndex(); }
 
+  void resetRuntimeState(float baseMovementSpeed);
+  void addCharacter(
+    float x,
+    float y,
+    float z,
+    float forwardX,
+    float forwardY,
+    float width,
+    float depth,
+    float height,
+    int levelIndex,
+    bool solid,
+    bool npc,
+    bool controllable,
+    float speedMultiplier,
+    float selectionRed,
+    float selectionGreen,
+    float selectionBlue
+  );
+  std::size_t characterCount() const { return world_.characters().size(); }
+
+  void pointerAction(float normalisedX, float normalisedY);
+  void clearSelection();
+  void tick(float deltaSeconds);
+
 private:
   void redraw();
 
@@ -43,6 +69,7 @@ private:
   engine::ControlSprites controls_;
   engine::Renderer renderer_;
   engine::BrowserPresenter presenter_;
+  engine::CharacterMovement movement_;
 };
 
 } // namespace demo
