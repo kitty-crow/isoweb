@@ -17,6 +17,31 @@ export interface IsowebModule {
   _isoweb_level_count(): number;
   _isoweb_active_level_index(): number;
   _isoweb_default_level_index(): number;
+
+  _isoweb_state_begin(baseMovementSpeed: number): void;
+  _isoweb_state_add_character(
+    x: number,
+    y: number,
+    z: number,
+    forwardX: number,
+    forwardY: number,
+    width: number,
+    depth: number,
+    height: number,
+    levelIndex: number,
+    solid: number,
+    npc: number,
+    controllable: number,
+    speedMultiplier: number,
+    selectionRed: number,
+    selectionGreen: number,
+    selectionBlue: number
+  ): void;
+  _isoweb_character_count(): number;
+  _isoweb_pointer_action(normalisedX: number, normalisedY: number): void;
+  _isoweb_clear_selection(): void;
+  _isoweb_tick(deltaSeconds: number): void;
+
   onRuntimeInitialized?: () => void;
 }
 
