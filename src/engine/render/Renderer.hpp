@@ -27,10 +27,15 @@ public:
   float viewHeight() const;
   float wholeZoomScale() const;
 
+  bool screenToGround(float pixelX, float pixelY, Vec3& point) const;
+  int pickCharacter(float pixelX, float pixelY) const;
+
 private:
   static std::uint8_t toByte(float value);
   void ensureFrame();
   Ray makeRay(float px, float py) const;
+  float approximateSceneDepth(const Ray& ray) const;
+  bool characterOnActiveLevel(const Character& character) const;
 
   const IWorld& world_;
   Camera& camera_;
