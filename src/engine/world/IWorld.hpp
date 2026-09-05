@@ -31,6 +31,7 @@ public:
   virtual const std::vector<NavigationConnection>& navigationConnections() const = 0;
   virtual bool intersectsSolid(const HitBox& hitBox) const = 0;
   virtual bool collidesWith(const Object& candidate) const = 0;
+  virtual bool navigationAllows(const Object& candidate) const = 0;
 
   virtual std::size_t levelCount() const = 0;
   virtual std::size_t activeLevelIndex() const = 0;
