@@ -69,6 +69,11 @@ bool World::collidesWith(const Object& candidate) const {
   return false;
 }
 
+bool World::navigationAllows(const Object& candidate) const {
+  if (collidesWith(candidate)) return false;
+  return levels_[levelIndexForId(candidate.location.levelId)]->navigationAllows(candidate);
+}
+
 const std::string& World::levelId(std::size_t index) const {
   if (index >= levelIds_.size()) std::abort();
   return levelIds_[index];
