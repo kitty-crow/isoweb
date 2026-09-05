@@ -18,84 +18,18 @@
         aria-label="A ray-traced isometric scene containing a blue cube and an orange sphere on a tiled ground plane, with physically derived lighting and cast shadows."
       ></canvas>
 
-      <button
-        id="zoom-in"
-        class="control-hitbox"
-        type="button"
-        aria-label="Zoom in"
-        disabled
-      ></button>
-      <button
-        id="reset-zoom"
-        class="control-hitbox"
-        type="button"
-        aria-label="Reset zoom to 1x"
-        disabled
-      ></button>
-      <button
-        id="rotate-counterclockwise"
-        class="control-hitbox"
-        type="button"
-        aria-label="Rotate camera 45 degrees counter-clockwise around the Z axis"
-        disabled
-      ></button>
-      <button
-        id="reset-yaw"
-        class="control-hitbox"
-        type="button"
-        aria-label="Reset camera yaw to 0 degrees"
-        disabled
-      ></button>
-      <button
-        id="rotate-clockwise"
-        class="control-hitbox"
-        type="button"
-        aria-label="Rotate camera 45 degrees clockwise around the Z axis"
-        disabled
-      ></button>
-      <button
-        id="zoom-out"
-        class="control-hitbox"
-        type="button"
-        aria-label="Zoom out"
-        disabled
-      ></button>
+      <button id="zoom-in" class="control-hitbox" type="button" aria-label="Zoom in" disabled></button>
+      <button id="reset-zoom" class="control-hitbox" type="button" aria-label="Reset zoom to 1x" disabled></button>
+      <button id="rotate-counterclockwise" class="control-hitbox" type="button" aria-label="Rotate camera 45 degrees counter-clockwise around the Z axis" disabled></button>
+      <button id="reset-yaw" class="control-hitbox" type="button" aria-label="Reset camera yaw to 0 degrees" disabled></button>
+      <button id="rotate-clockwise" class="control-hitbox" type="button" aria-label="Rotate camera 45 degrees clockwise around the Z axis" disabled></button>
+      <button id="zoom-out" class="control-hitbox" type="button" aria-label="Zoom out" disabled></button>
 
-      <button
-        id="pan-up"
-        class="control-hitbox"
-        type="button"
-        aria-label="Pan camera up along the X axis"
-        disabled
-      ></button>
-      <button
-        id="pan-down"
-        class="control-hitbox"
-        type="button"
-        aria-label="Pan camera down along the X axis"
-        disabled
-      ></button>
-      <button
-        id="pan-left"
-        class="control-hitbox"
-        type="button"
-        aria-label="Pan camera left along the Y axis"
-        disabled
-      ></button>
-      <button
-        id="pan-right"
-        class="control-hitbox"
-        type="button"
-        aria-label="Pan camera right along the Y axis"
-        disabled
-      ></button>
-      <button
-        id="reset-camera"
-        class="control-hitbox"
-        type="button"
-        aria-label="Reset camera X and Y position to centre"
-        disabled
-      ></button>
+      <button id="pan-up" class="control-hitbox" type="button" aria-label="Pan camera up along the X axis" disabled></button>
+      <button id="pan-down" class="control-hitbox" type="button" aria-label="Pan camera down along the X axis" disabled></button>
+      <button id="pan-left" class="control-hitbox" type="button" aria-label="Pan camera left along the Y axis" disabled></button>
+      <button id="pan-right" class="control-hitbox" type="button" aria-label="Pan camera right along the Y axis" disabled></button>
+      <button id="reset-camera" class="control-hitbox" type="button" aria-label="Reset camera X and Y position to centre" disabled></button>
     </div>
 
     <div id="loading" class="loading" role="status" aria-live="polite">Rendering C++ / WASM…</div>
@@ -158,7 +92,6 @@
         let pinchDistance = 0;
         let touchRotationAngle = 0;
         let touchRotationAccumulator = 0;
-        let touchRotationActive = false;
         let zoomWheelAccumulator = 0;
         let yawWheelAccumulator = 0;
         const detailedZoomMode = new URLSearchParams(window.location.search).get('detailed') === '1';
@@ -170,7 +103,6 @@
           const scale = pixels > MAX_RENDER_PIXELS
             ? Math.sqrt(MAX_RENDER_PIXELS / pixels)
             : 1;
-
           return {
             width: Math.max(160, Math.round(safeWidth * scale)),
             height: Math.max(160, Math.round(safeHeight * scale))
@@ -181,7 +113,6 @@
           const rect = viewport.getBoundingClientRect();
           const scaleX = rect.width / renderWidth;
           const scaleY = rect.height / renderHeight;
-
           let left = renderX * scaleX;
           let top = renderY * scaleY;
           let width = renderW * scaleX;
@@ -203,7 +134,6 @@
         }
 
         function positionControls() {
-          // Independent zoom stack in the top-left: +, 1x reset disk, -.
           const zoomX = ZOOM_LEFT + (RESET_DISK_SIZE - ZOOM_CONTROL_SIZE) * 0.5;
           const zoomResetX = ZOOM_LEFT;
           const zoomInTop = ZOOM_TOP;
@@ -213,7 +143,6 @@
           setHitbox(resetZoom, zoomResetX, zoomResetTop, RESET_DISK_SIZE, RESET_DISK_SIZE, 44);
           setHitbox(zoomOut, zoomX, zoomOutTop, ZOOM_CONTROL_SIZE, ZOOM_CONTROL_SIZE, 44);
 
-          // Yaw stays grouped at the bottom-left.
           const yawRowTop = renderHeight - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
           const counterClockwiseX = ROTATE_LEFT_X;
           const resetYawX = counterClockwiseX + ROTATE_ARROW_WIDTH + ROTATE_ROW_GAP;
@@ -228,4 +157,213 @@
           setHitbox(panLeft, centreX - PAN_X_STEP, centreY, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
           setHitbox(resetCamera, centreX, centreY, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
           setHitbox(panRight, centreX + PAN_X_STEP, centreY, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
-          setHitbox(panU
+          setHitbox(panUp, centreX, centreY - PAN_Y_STEP, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+          setHitbox(panDown, centreX, centreY + PAN_Y_STEP, PAN_ARROW_SIZE, PAN_ARROW_SIZE, 44);
+        }
+
+        function syncRendererSize() {
+          const rect = viewport.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return;
+          const size = chooseRenderSize(rect.width, rect.height);
+          renderWidth = size.width;
+          renderHeight = size.height;
+          positionControls();
+          Module._isoweb_resize(renderWidth, renderHeight);
+        }
+
+        function scheduleResize() {
+          if (resizeFrame) return;
+          resizeFrame = requestAnimationFrame(function () {
+            resizeFrame = 0;
+            syncRendererSize();
+          });
+        }
+
+        function pixelsToWorld(pixels) {
+          const rect = viewport.getBoundingClientRect();
+          if (rect.height <= 0) return 0;
+          const viewHeight = Number(window.isowebViewHeightWorld) || 6.15;
+          return pixels * (viewHeight / rect.height);
+        }
+
+        function zoomStep(direction) {
+          if (direction > 0) Module._isoweb_zoom_in();
+          else if (direction < 0) Module._isoweb_zoom_out();
+        }
+
+        function queuePan(screenRight, screenDown) {
+          pendingPanX += screenRight;
+          pendingPanY += screenDown;
+          if (panFrame) return;
+          panFrame = requestAnimationFrame(function () {
+            const x = pendingPanX;
+            const y = pendingPanY;
+            pendingPanX = 0;
+            pendingPanY = 0;
+            panFrame = 0;
+            if (x !== 0 || y !== 0) Module._isoweb_pan(x, y);
+          });
+        }
+
+        function normaliseAngleDelta(value) {
+          while (value > Math.PI) value -= Math.PI * 2;
+          while (value < -Math.PI) value += Math.PI * 2;
+          return value;
+        }
+
+        function currentPinchDistance() {
+          if (touchPointers.size < 2) return 0;
+          const points = Array.from(touchPointers.values());
+          const dx = points[0].x - points[1].x;
+          const dy = points[0].y - points[1].y;
+          return Math.hypot(dx, dy);
+        }
+
+        function currentTouchAngle() {
+          if (touchPointers.size < 2) return 0;
+          const points = Array.from(touchPointers.values());
+          return Math.atan2(points[1].y - points[0].y, points[1].x - points[0].x);
+        }
+
+        zoomIn.addEventListener('click', function () { zoomStep(1); });
+        resetZoom.addEventListener('click', function () { Module._isoweb_reset_zoom(); });
+        counterClockwise.addEventListener('click', function () { Module._isoweb_rotate_counterclockwise(); });
+        resetYaw.addEventListener('click', function () { Module._isoweb_reset_yaw(); });
+        clockwise.addEventListener('click', function () { Module._isoweb_rotate_clockwise(); });
+        zoomOut.addEventListener('click', function () { zoomStep(-1); });
+
+        panUp.addEventListener('click', function () { queuePan(0, PAN_BUTTON_STEP); });
+        panDown.addEventListener('click', function () { queuePan(0, -PAN_BUTTON_STEP); });
+        panLeft.addEventListener('click', function () { queuePan(-PAN_BUTTON_STEP, 0); });
+        panRight.addEventListener('click', function () { queuePan(PAN_BUTTON_STEP, 0); });
+        resetCamera.addEventListener('click', function () { Module._isoweb_reset_camera(); });
+
+        viewport.addEventListener('wheel', function (event) {
+          event.preventDefault();
+          const rect = viewport.getBoundingClientRect();
+          let delta = event.deltaY;
+          if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) delta *= 16;
+          else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) delta *= rect.height;
+
+          if (event.shiftKey) {
+            yawWheelAccumulator += delta;
+            zoomWheelAccumulator = 0;
+            while (yawWheelAccumulator >= YAW_WHEEL_THRESHOLD) {
+              Module._isoweb_rotate_clockwise();
+              yawWheelAccumulator -= YAW_WHEEL_THRESHOLD;
+            }
+            while (yawWheelAccumulator <= -YAW_WHEEL_THRESHOLD) {
+              Module._isoweb_rotate_counterclockwise();
+              yawWheelAccumulator += YAW_WHEEL_THRESHOLD;
+            }
+            return;
+          }
+
+          yawWheelAccumulator = 0;
+          if (event.altKey) {
+            zoomWheelAccumulator += delta;
+            while (zoomWheelAccumulator <= -ZOOM_WHEEL_THRESHOLD) {
+              zoomStep(1);
+              zoomWheelAccumulator += ZOOM_WHEEL_THRESHOLD;
+            }
+            while (zoomWheelAccumulator >= ZOOM_WHEEL_THRESHOLD) {
+              zoomStep(-1);
+              zoomWheelAccumulator -= ZOOM_WHEEL_THRESHOLD;
+            }
+            return;
+          }
+
+          zoomWheelAccumulator = 0;
+          const worldDelta = pixelsToWorld(delta) * 0.35;
+          if (event.ctrlKey) queuePan(worldDelta, 0);
+          else queuePan(0, worldDelta);
+        }, { passive: false });
+
+        viewport.addEventListener('pointerdown', function (event) {
+          if (event.pointerType === 'mouse' || event.target.closest('button')) return;
+          touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+          viewport.setPointerCapture(event.pointerId);
+          if (touchPointers.size >= 2) {
+            pinchDistance = currentPinchDistance();
+            touchRotationAngle = currentTouchAngle();
+            touchRotationAccumulator = 0;
+          }
+        });
+
+        viewport.addEventListener('pointermove', function (event) {
+          const previous = touchPointers.get(event.pointerId);
+          if (!previous) return;
+          const next = { x: event.clientX, y: event.clientY };
+          touchPointers.set(event.pointerId, next);
+
+          if (touchPointers.size >= 2) {
+            const distance = currentPinchDistance();
+            if (pinchDistance > 0) {
+              const ratio = distance / pinchDistance;
+              if (ratio >= PINCH_STEP_RATIO_IN) {
+                zoomStep(1);
+                pinchDistance = distance;
+              } else if (ratio <= PINCH_STEP_RATIO_OUT) {
+                zoomStep(-1);
+                pinchDistance = distance;
+              }
+            } else {
+              pinchDistance = distance;
+            }
+
+            const angle = currentTouchAngle();
+            touchRotationAccumulator += normaliseAngleDelta(angle - touchRotationAngle);
+            touchRotationAngle = angle;
+
+            while (touchRotationAccumulator >= TOUCH_ROTATE_STEP) {
+              Module._isoweb_rotate_clockwise();
+              touchRotationAccumulator -= TOUCH_ROTATE_STEP;
+            }
+            while (touchRotationAccumulator <= -TOUCH_ROTATE_STEP) {
+              Module._isoweb_rotate_counterclockwise();
+              touchRotationAccumulator += TOUCH_ROTATE_STEP;
+            }
+            return;
+          }
+
+          const dx = next.x - previous.x;
+          const dy = next.y - previous.y;
+          queuePan(-pixelsToWorld(dx), -pixelsToWorld(dy));
+        });
+
+        function endPointer(event) {
+          if (!touchPointers.has(event.pointerId)) return;
+          touchPointers.delete(event.pointerId);
+          if (touchPointers.size >= 2) {
+            pinchDistance = currentPinchDistance();
+            touchRotationAngle = currentTouchAngle();
+          } else {
+            pinchDistance = 0;
+            touchRotationAccumulator = 0;
+          }
+        }
+
+        viewport.addEventListener('pointerup', endPointer);
+        viewport.addEventListener('pointercancel', endPointer);
+        window.addEventListener('resize', scheduleResize);
+        window.addEventListener('orientationchange', scheduleResize);
+        if (window.visualViewport) window.visualViewport.addEventListener('resize', scheduleResize);
+
+        const observer = new ResizeObserver(scheduleResize);
+        observer.observe(viewport);
+
+        Module._isoweb_set_detailed_mode(detailedZoomMode ? 1 : 0);
+        syncRendererSize();
+        [zoomIn, resetZoom, zoomOut, counterClockwise, resetYaw, clockwise].forEach(function (control) {
+          control.disabled = false;
+        });
+        const panEnabled = window.isowebCameraCanPan !== false;
+        [panUp, panDown, panLeft, panRight, resetCamera].forEach(function (control) {
+          control.disabled = !panEnabled;
+        });
+      }
+    };
+  </script>
+  <script src="./assets/isoweb.js"></script>
+</body>
+</html>
