@@ -4,9 +4,11 @@ import { PanQueue } from './PanQueue';
 import { ViewportController } from '../viewport/ViewportController';
 
 type Point = { x: number; y: number };
+type PointerStart = Point & { moved: boolean };
 
 export class PointerController {
   private readonly pointers = new Map<number, Point>();
+  private readonly starts = new Map<number, PointerStart>();
   private pinchDistance = 0;
   private rotationAngle = 0;
   private rotationAccumulator = 0;
@@ -21,8 +23,8 @@ export class PointerController {
   bind(): void {
     this.viewport.addEventListener('pointerdown', event => this.onPointerDown(event));
     this.viewport.addEventListener('pointermove', event => this.onPointerMove(event));
-    this.viewport.addEventListener('pointerup', event => this.endPointer(event));
-    this.viewport.addEventListener('pointercancel', event => this.endPointer(event));
+    this.viewport.addEventListener('pointerup', event => this.endPointer(event, true));
+    this.viewport.addEventListener('pointercancel', event => this.endPointer(event, false));
   }
 
   private zoomStep(direction: number): void {
@@ -50,13 +52,29 @@ export class PointerController {
     return Math.atan2(points[1].y - points[0].y, points[1].x - points[0].x);
   }
 
+  private suppressTapForActivePointers(): void {
+    for (const start of this.starts.values()) start.moved = true;
+  }
+
   private onPointerDown(event: PointerEvent): void {
     const target = event.target;
-    if (event.pointerType === 'mouse' || (target instanceof Element && target.closest('button'))) return;
+    if (target instanceof Element && target.closest('button')) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+    this.starts.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+      moved: false
+    });
+    this.viewport.setPointerCapture(event.pointerId);
+
+    // Mouse is reserved for selection/destination clicks. Touch and pen retain
+    // the existing one-finger pan and two-finger pinch/yaw gestures.
+    if (event.pointerType === 'mouse') return;
 
     this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    this.viewport.setPointerCapture(event.pointerId);
     if (this.pointers.size >= 2) {
+      this.suppressTapForActivePointers();
       this.pinchDistance = this.currentPinchDistance();
       this.rotationAngle = this.currentTouchAngle();
       this.rotationAccumulator = 0;
@@ -64,6 +82,14 @@ export class PointerController {
   }
 
   private onPointerMove(event: PointerEvent): void {
+    const start = this.starts.get(event.pointerId);
+    if (start && !start.moved) {
+      const distance = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+      if (distance > INPUT.pointerTapSlop) start.moved = true;
+    }
+
+    if (event.pointerType === 'mouse') return;
+
     const previous = this.pointers.get(event.pointerId);
     if (!previous) return;
 
@@ -71,6 +97,7 @@ export class PointerController {
     this.pointers.set(event.pointerId, next);
 
     if (this.pointers.size >= 2) {
+      this.suppressTapForActivePointers();
       const distance = this.currentPinchDistance();
       if (this.pinchDistance > 0) {
         const ratio = distance / this.pinchDistance;
@@ -100,6 +127,11 @@ export class PointerController {
       return;
     }
 
+    // Preserve tap intent until the pointer has actually moved far enough to
+    // become a pan gesture. This prevents a tap on a character from nudging
+    // the camera before selection is resolved.
+    if (!start?.moved) return;
+
     const dx = next.x - previous.x;
     const dy = next.y - previous.y;
     this.panQueue.queue(
@@ -108,15 +140,35 @@ export class PointerController {
     );
   }
 
-  private endPointer(event: PointerEvent): void {
-    if (!this.pointers.has(event.pointerId)) return;
-    this.pointers.delete(event.pointerId);
-    if (this.pointers.size >= 2) {
-      this.pinchDistance = this.currentPinchDistance();
-      this.rotationAngle = this.currentTouchAngle();
-    } else {
-      this.pinchDistance = 0;
-      this.rotationAccumulator = 0;
+  private endPointer(event: PointerEvent, allowTap: boolean): void {
+    const start = this.starts.get(event.pointerId);
+    this.starts.delete(event.pointerId);
+
+    if (event.pointerType !== 'mouse' && this.pointers.has(event.pointerId)) {
+      this.pointers.delete(event.pointerId);
+      if (this.pointers.size >= 2) {
+        this.pinchDistance = this.currentPinchDistance();
+        this.rotationAngle = this.currentTouchAngle();
+      } else {
+        this.pinchDistance = 0;
+        this.rotationAccumulator = 0;
+      }
     }
+
+    if (this.viewport.hasPointerCapture(event.pointerId)) {
+      this.viewport.releasePointerCapture(event.pointerId);
+    }
+
+    if (!allowTap || !start || start.moved) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+    const rect = this.viewport.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const normalisedX = (event.clientX - rect.left) / rect.width;
+    const normalisedY = (event.clientY - rect.top) / rect.height;
+    if (normalisedX < 0 || normalisedX > 1 || normalisedY < 0 || normalisedY > 1) return;
+
+    this.module._isoweb_pointer_action(normalisedX, normalisedY);
   }
 }
