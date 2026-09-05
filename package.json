@@ -7,6 +7,8 @@
     "build:web": "bun build web/src/bootstrap.ts --outdir site/assets --target browser --format iife && mkdir -p site/styles && cp web/styles.css site/styles.css && cp web/styles/*.css site/styles/",
     "build": "bun run build:site && bun run build:web",
     "build:wasm": "bash scripts/build-wasm.sh",
+    "check:emscripten-bridge": "bun scripts/check-emscripten-bridge.ts",
+    "test:runtime": "bun scripts/runtime-smoke.ts",
     "audit:mobile": "bun vendor/pages/src/cli.ts audit-mobile site"
   }
 }
