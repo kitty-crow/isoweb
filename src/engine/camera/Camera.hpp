@@ -47,6 +47,7 @@ public:
   void rotateClockwise();
   void rotateCounterClockwise();
   void resetYaw();
+  void setDetailedYawMode(bool enabled);
 
   void stepZoom(int delta, int frameWidth, int frameHeight, const WorldBounds& bounds);
   void resetZoom();
@@ -60,6 +61,7 @@ public:
   float panX() const { return panX_; }
   float panY() const { return panY_; }
   bool detailedMode() const { return detailedMode_; }
+  bool detailedYawMode() const { return detailedYawMode_; }
 
 private:
   static constexpr float PI = 3.14159265358979323846f;
@@ -79,6 +81,7 @@ private:
   float panX_ = 0.0f;
   float panY_ = 0.0f;
   bool detailedMode_ = false;
+  bool detailedYawMode_ = false;
 };
 
 } // namespace engine

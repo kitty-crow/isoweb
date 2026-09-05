@@ -45,6 +45,11 @@ void DemoApplication::resetYaw() {
   redraw();
 }
 
+void DemoApplication::setDetailedYawMode(bool enabled) {
+  camera_.setDetailedYawMode(enabled);
+  redraw();
+}
+
 void DemoApplication::zoomIn() {
   camera_.stepZoom(1, renderer_.width(), renderer_.height(), world_.bounds());
   redraw();

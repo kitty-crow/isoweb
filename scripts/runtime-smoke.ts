@@ -36,14 +36,17 @@ const pageErrors: string[] = [];
 
 page.on('pageerror', error => pageErrors.push(error.stack || error.message));
 
-try {
-  await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: 'domcontentloaded' });
-
+async function waitForWasmReady(): Promise<void> {
   await page.waitForFunction(
     () => document.documentElement.classList.contains('wasm-ready'),
     undefined,
     { timeout: 45_000 }
   );
+}
+
+try {
+  await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: 'domcontentloaded' });
+  await waitForWasmReady();
 
   const bootState = await page.evaluate(() => {
     const loading = document.getElementById('loading') as HTMLElement | null;
@@ -84,16 +87,21 @@ try {
   }
 
   await page.locator('#rotate-clockwise').click();
-  await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('Camera 45 degrees'));
+  await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('Camera 90 degrees'));
 
   const resetYawEnabled = await page.locator('#reset-yaw').isEnabled();
   if (!resetYawEnabled) throw new Error('Yaw reset did not become enabled after rotating the camera.');
+
+  await page.goto(`http://127.0.0.1:${server.port}/?dyaw=1`, { waitUntil: 'domcontentloaded' });
+  await waitForWasmReady();
+  await page.locator('#rotate-clockwise').click();
+  await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('Camera 45 degrees'));
 
   if (pageErrors.length > 0) {
     throw new Error(`Browser page error(s):\n${pageErrors.join('\n\n')}`);
   }
 
-  console.log('Browser WASM boot and camera-state smoke test passed.');
+  console.log('Browser WASM boot, normal yaw, detailed yaw, and camera-state smoke test passed.');
 } finally {
   await browser.close();
   server.stop(true);

@@ -148,15 +148,22 @@ int Camera::sequencePosition(int frameWidth, int frameHeight, const WorldBounds&
 }
 
 void Camera::rotateClockwise() {
-  yawStep_ = (yawStep_ + 1) & 7;
+  yawStep_ = (yawStep_ + (detailedYawMode_ ? 1 : 2)) & 7;
 }
 
 void Camera::rotateCounterClockwise() {
-  yawStep_ = (yawStep_ + 7) & 7;
+  yawStep_ = (yawStep_ + (detailedYawMode_ ? 7 : 6)) & 7;
 }
 
 void Camera::resetYaw() {
   yawStep_ = 0;
+}
+
+void Camera::setDetailedYawMode(bool enabled) {
+  detailedYawMode_ = enabled;
+  if (!detailedYawMode_ && (yawStep_ & 1)) {
+    yawStep_ = (yawStep_ + 1) & 6;
+  }
 }
 
 void Camera::stepZoom(int delta, int frameWidth, int frameHeight, const WorldBounds& bounds) {

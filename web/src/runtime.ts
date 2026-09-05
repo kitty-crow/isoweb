@@ -4,6 +4,7 @@ export interface IsowebModule {
   _isoweb_rotate_clockwise(): void;
   _isoweb_rotate_counterclockwise(): void;
   _isoweb_reset_yaw(): void;
+  _isoweb_set_detailed_yaw_mode(enabled: number): void;
   _isoweb_zoom_in(): void;
   _isoweb_zoom_out(): void;
   _isoweb_reset_zoom(): void;

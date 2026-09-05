@@ -31,6 +31,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_reset_yaw() {
   application().resetYaw();
 }
 
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_set_detailed_yaw_mode(int enabled) {
+  application().setDetailedYawMode(enabled != 0);
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_zoom_in() {
   application().zoomIn();
 }

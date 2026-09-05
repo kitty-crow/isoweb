@@ -20,6 +20,7 @@ public:
   void rotateClockwise();
   void rotateCounterClockwise();
   void resetYaw();
+  void setDetailedYawMode(bool enabled);
   void zoomIn();
   void zoomOut();
   void resetZoom();
