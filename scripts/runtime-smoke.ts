@@ -8,6 +8,7 @@ const mimeTypes: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
   '.wasm': 'application/wasm'
 };
 
@@ -77,13 +78,17 @@ try {
       reason: loading.hidden ? '' : 'Loading indicator never hid.',
       resetYawDisabled: resetYaw.disabled,
       resetZoomDisabled: resetZoom.disabled,
-      resetCameraDisabled: resetCamera.disabled
+      resetCameraDisabled: resetCamera.disabled,
+      characterCount: globalThis.Module._isoweb_character_count()
     };
   });
 
   if (!bootState.ok) throw new Error(bootState.reason || 'WASM boot state is invalid.');
   if (!bootState.resetYawDisabled || !bootState.resetZoomDisabled || !bootState.resetCameraDisabled) {
     throw new Error('Default camera reset controls are not disabled after the first rendered frame.');
+  }
+  if (bootState.characterCount !== 1) {
+    throw new Error(`Expected one character from demo-state.json, got ${bootState.characterCount}.`);
   }
 
   await page.locator('#rotate-clockwise').click();
@@ -101,11 +106,16 @@ try {
   await waitForWasmReady();
   await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('zoom 1x detailed'));
 
+  const reloadedCharacterCount = await page.evaluate(() => globalThis.Module._isoweb_character_count());
+  if (reloadedCharacterCount !== 1) {
+    throw new Error('Reload did not restore exactly one default-state character.');
+  }
+
   if (pageErrors.length > 0) {
     throw new Error(`Browser page error(s):\n${pageErrors.join('\n\n')}`);
   }
 
-  console.log('Browser WASM boot, normal yaw, detailed yaw, detailed zoom, and camera-state smoke test passed.');
+  console.log('Browser WASM boot, default character state, normal yaw, detailed yaw, detailed zoom, and camera-state smoke test passed.');
 } finally {
   await browser.close();
   server.stop(true);
