@@ -25,7 +25,14 @@ constexpr float STAIR_LOW_Y = -3.30f;
 constexpr float STAIR_HIGH_Y = -1.20f;
 constexpr float LOWER_MIDDLE_STAIR_X = 2.15f;
 constexpr float MIDDLE_UPPER_STAIR_X = 3.20f;
-constexpr float STAIR_HOLE_MARGIN = 0.06f;
+constexpr float STAIR_HOLE_INSET = 0.015f;
+
+const Vec3 LOWER_FLOOR_DARK(0.34f, 0.34f, 0.36f);
+const Vec3 LOWER_FLOOR_LIGHT(0.40f, 0.40f, 0.42f);
+const Vec3 MIDDLE_FLOOR_DARK(0.567f, 0.6048f, 0.630f);
+const Vec3 MIDDLE_FLOOR_LIGHT(0.621f, 0.6624f, 0.690f);
+const Vec3 UPPER_FLOOR_DARK(0.74f, 0.74f, 0.76f);
+const Vec3 UPPER_FLOOR_LIGHT(0.82f, 0.82f, 0.84f);
 
 enum class ShapeKind {
   Cube,
@@ -60,10 +67,17 @@ struct Staircase {
   float width;
 };
 
+struct FloorProxy {
+  float z;
+  Vec3 dark;
+  Vec3 light;
+};
+
 struct LevelDefinition {
   std::vector<RenderObject> objects;
   std::vector<FloorHole> floorHoles;
   std::vector<Staircase> staircases;
+  std::vector<FloorProxy> floorProxies;
   Vec3 lightPosition;
   Vec3 floorDark;
   Vec3 floorLight;
@@ -151,10 +165,10 @@ const std::vector<Vec3>& icosahedronNormals() {
 
 FloorHole stairHole(float centreX) {
   return {
-    centreX - STAIR_WIDTH * 0.5f - STAIR_HOLE_MARGIN,
-    centreX + STAIR_WIDTH * 0.5f + STAIR_HOLE_MARGIN,
-    STAIR_LOW_Y - STAIR_HOLE_MARGIN,
-    STAIR_HIGH_Y + STAIR_HOLE_MARGIN
+    centreX - STAIR_WIDTH * 0.5f + STAIR_HOLE_INSET,
+    centreX + STAIR_WIDTH * 0.5f - STAIR_HOLE_INSET,
+    STAIR_LOW_Y + STAIR_HOLE_INSET,
+    STAIR_HIGH_Y - STAIR_HOLE_INSET
   };
 }
 
@@ -461,14 +475,22 @@ private:
     return false;
   }
 
-  Vec3 floorColour(const Vec3& point) const {
+  Vec3 floorColour(
+    const Vec3& point,
+    const Vec3& dark,
+    const Vec3& light
+  ) const {
     const int x = static_cast<int>(std::floor(point.x + 20.0f));
     const int y = static_cast<int>(std::floor(point.y + 20.0f));
-    Vec3 colour = ((x + y) & 1) ? definition_.floorDark : definition_.floorLight;
+    Vec3 colour = ((x + y) & 1) ? dark : light;
     const float edgeX = std::fabs(point.x - std::round(point.x));
     const float edgeY = std::fabs(point.y - std::round(point.y));
     if (std::min(edgeX, edgeY) < 0.022f) colour = colour * 0.78f;
     return colour;
+  }
+
+  Vec3 floorColour(const Vec3& point) const {
+    return floorColour(point, definition_.floorDark, definition_.floorLight);
   }
 
   bool insideFloorHole(const Vec3& point) const {
@@ -581,6 +603,28 @@ private:
     return found;
   }
 
+  bool intersectFloorProxy(
+    const Ray& ray,
+    const FloorProxy& floor,
+    float minimum,
+    float maximum,
+    Hit& hit
+  ) const {
+    if (std::fabs(ray.direction.z) < 1e-7f) return false;
+    const float t = (floor.z - ray.origin.z) / ray.direction.z;
+    if (t < minimum || t > maximum) return false;
+
+    const Vec3 point = ray.origin + ray.direction * t;
+    if (std::fabs(point.x) > GROUND_LIMIT || std::fabs(point.y) > GROUND_LIMIT) return false;
+
+    hit.found = true;
+    hit.t = t;
+    hit.point = point;
+    hit.normal = {0.0f, 0.0f, 1.0f};
+    hit.colour = floorColour(point, floor.dark, floor.light);
+    return true;
+  }
+
   bool intersectGround(const Ray& ray, float minimum, float maximum, Hit& hit) const {
     if (std::fabs(ray.direction.z) < 1e-7f) return false;
     const float t = -ray.origin.z / ray.direction.z;
@@ -611,6 +655,14 @@ private:
     for (const Staircase& staircase : definition_.staircases) {
       Hit hit;
       if (intersectStaircase(ray, staircase, minimum, maximum, hit)) {
+        result = hit;
+        maximum = hit.t;
+      }
+    }
+
+    for (const FloorProxy& floor : definition_.floorProxies) {
+      Hit hit;
+      if (intersectFloorProxy(ray, floor, minimum, maximum, hit)) {
         result = hit;
         maximum = hit.t;
       }
@@ -657,8 +709,8 @@ private:
 LevelDefinition lowerLevel() {
   LevelDefinition level;
   level.lightPosition = {4.20f, -3.20f, 5.60f};
-  level.floorDark = {0.34f, 0.34f, 0.36f};
-  level.floorLight = {0.40f, 0.40f, 0.42f};
+  level.floorDark = LOWER_FLOOR_DARK;
+  level.floorLight = LOWER_FLOOR_LIGHT;
   level.objects.push_back({ShapeKind::Cone, {-1.30f, -0.80f, 0.82f}, 0.86f, 1.64f, {0.62f, 0.25f, 0.82f}});
   level.objects.push_back({ShapeKind::Pyramid, {1.20f, 0.85f, 0.83f}, 0.92f, 1.66f, {0.96f, 0.78f, 0.16f}});
   level.staircases.push_back({
@@ -675,8 +727,8 @@ LevelDefinition lowerLevel() {
 LevelDefinition middleLevel() {
   LevelDefinition level;
   level.lightPosition = {-3.60f, -4.20f, 6.50f};
-  level.floorDark = {0.567f, 0.6048f, 0.630f};
-  level.floorLight = {0.621f, 0.6624f, 0.690f};
+  level.floorDark = MIDDLE_FLOOR_DARK;
+  level.floorLight = MIDDLE_FLOOR_LIGHT;
   level.objects.push_back({ShapeKind::Cube, {-1.05f, 0.65f, 0.775f}, 0.80f, 1.55f, {0.18f, 0.48f, 0.88f}});
   level.objects.push_back({ShapeKind::Sphere, {1.05f, -0.25f, 0.90f}, 0.90f, 1.80f, {0.95f, 0.43f, 0.12f}});
 
@@ -689,6 +741,12 @@ LevelDefinition middleLevel() {
     -STAIR_RISE,
     STAIR_WIDTH
   });
+  level.floorProxies.push_back({
+    -STAIR_RISE,
+    LOWER_FLOOR_DARK,
+    LOWER_FLOOR_LIGHT
+  });
+
   level.staircases.push_back({
     MIDDLE_UPPER_STAIR_X,
     STAIR_LOW_Y,
@@ -703,8 +761,8 @@ LevelDefinition middleLevel() {
 LevelDefinition upperLevel() {
   LevelDefinition level;
   level.lightPosition = {3.80f, 4.40f, 7.20f};
-  level.floorDark = {0.74f, 0.74f, 0.76f};
-  level.floorLight = {0.82f, 0.82f, 0.84f};
+  level.floorDark = UPPER_FLOOR_DARK;
+  level.floorLight = UPPER_FLOOR_LIGHT;
   level.objects.push_back({ShapeKind::Dodecahedron, {-1.35f, 0.95f, 1.00f}, 0.72f, 0.0f, {0.18f, 0.50f, 0.94f}});
   level.objects.push_back({ShapeKind::Icosahedron, {1.30f, -0.95f, 1.10f}, 0.78f, 0.0f, {0.90f, 0.16f, 0.14f}});
 
@@ -716,6 +774,11 @@ LevelDefinition upperLevel() {
     0.0f,
     -STAIR_RISE,
     STAIR_WIDTH
+  });
+  level.floorProxies.push_back({
+    -STAIR_RISE,
+    MIDDLE_FLOOR_DARK,
+    MIDDLE_FLOOR_LIGHT
   });
   return level;
 }
