@@ -142,13 +142,14 @@ void ControlSprites::spritePixel(
   dsr::image_writePixel(sprite, x, y, dsr::ColorRgbaI32(shade, shade, shade, alpha));
 }
 
-void ControlSprites::buildRotate(dsr::OrderedImageRgbaU8& sprite, bool mirror) {
+void ControlSprites::buildRotate(dsr::OrderedImageRgbaU8& sprite, bool mirror, bool disabled) {
   sprite = dsr::image_create_RgbaU8(ROTATE_ARROW_WIDTH, ROTATE_ARROW_HEIGHT, true);
   dsr::image_fill(sprite, {0, 0, 0, 0});
+  const float strength = disabled ? 0.28f : 1.0f;
   for (int y = 0; y < ROTATE_ARROW_HEIGHT; ++y) {
     for (int x = 0; x < ROTATE_ARROW_WIDTH; ++x) {
       const float sampleX = mirror ? ROTATE_ARROW_WIDTH - 1 - x + 0.5f : x + 0.5f;
-      spritePixel(sprite, x, y, curvedArrowDistance(sampleX, y + 0.5f));
+      spritePixel(sprite, x, y, curvedArrowDistance(sampleX, y + 0.5f), strength);
     }
   }
 }
@@ -194,12 +195,13 @@ void ControlSprites::buildLevelReset(dsr::OrderedImageRgbaU8& sprite, bool disab
   }
 }
 
-void ControlSprites::buildZoom(dsr::OrderedImageRgbaU8& sprite, bool plus) {
+void ControlSprites::buildZoom(dsr::OrderedImageRgbaU8& sprite, bool plus, bool disabled) {
   sprite = dsr::image_create_RgbaU8(ZOOM_CONTROL_SIZE, ZOOM_CONTROL_SIZE, true);
   dsr::image_fill(sprite, {0, 0, 0, 0});
+  const float strength = disabled ? 0.28f : 1.0f;
   for (int y = 0; y < ZOOM_CONTROL_SIZE; ++y) {
     for (int x = 0; x < ZOOM_CONTROL_SIZE; ++x) {
-      spritePixel(sprite, x, y, zoomGlyphDistance(x + 0.5f, y + 0.5f, plus));
+      spritePixel(sprite, x, y, zoomGlyphDistance(x + 0.5f, y + 0.5f, plus), strength);
     }
   }
 }
@@ -230,6 +232,8 @@ void ControlSprites::ensureSprites() {
   if (!dsr::image_exists(plusSprite_)) {
     buildZoom(plusSprite_, true);
     buildZoom(minusSprite_, false);
+    buildZoom(plusDisabled_, true, true);
+    buildZoom(minusDisabled_, false, true);
   }
 }
 
@@ -237,7 +241,7 @@ void ControlSprites::draw(
   dsr::OrderedImageRgbaU8& frame,
   int frameWidth,
   int frameHeight,
-  bool canPan,
+  const CameraControlState& cameraState,
   const LevelControlState& levelState
 ) {
   ensureSprites();
@@ -247,9 +251,12 @@ void ControlSprites::draw(
   const int zoomInTop = ZOOM_TOP;
   const int zoomResetTop = zoomInTop + ZOOM_CONTROL_SIZE + ZOOM_GAP;
   const int zoomOutTop = zoomResetTop + RESET_DISK_SIZE + ZOOM_GAP;
-  dsr::draw_alphaFilter(frame, plusSprite_, zoomX, zoomInTop);
-  dsr::draw_alphaFilter(frame, resetSprite_, zoomResetX, zoomResetTop);
-  dsr::draw_alphaFilter(frame, minusSprite_, zoomX, zoomOutTop);
+  dsr::OrderedImageRgbaU8& zoomIn = cameraState.canZoomIn ? plusSprite_ : plusDisabled_;
+  dsr::OrderedImageRgbaU8& zoomReset = cameraState.canResetZoom ? resetSprite_ : resetDisabled_;
+  dsr::OrderedImageRgbaU8& zoomOut = cameraState.canZoomOut ? minusSprite_ : minusDisabled_;
+  dsr::draw_alphaFilter(frame, zoomIn, zoomX, zoomInTop);
+  dsr::draw_alphaFilter(frame, zoomReset, zoomResetX, zoomResetTop);
+  dsr::draw_alphaFilter(frame, zoomOut, zoomX, zoomOutTop);
 
   const int levelX = frameWidth - LEVEL_RIGHT - PAN_ARROW_SIZE;
   const int levelUpTop = LEVEL_TOP;
@@ -267,17 +274,18 @@ void ControlSprites::draw(
   const int resetYawX = counterClockwiseX + ROTATE_ARROW_WIDTH + ROTATE_ROW_GAP;
   const int clockwiseX = resetYawX + RESET_DISK_SIZE + ROTATE_ROW_GAP;
   const int resetYawTop = yawTop + (ROTATE_ARROW_HEIGHT - RESET_DISK_SIZE) / 2;
+  dsr::OrderedImageRgbaU8& yawReset = cameraState.canResetYaw ? resetSprite_ : resetDisabled_;
   dsr::draw_alphaFilter(frame, counterClockwiseSprite_, counterClockwiseX, yawTop);
-  dsr::draw_alphaFilter(frame, resetSprite_, resetYawX, resetYawTop);
+  dsr::draw_alphaFilter(frame, yawReset, resetYawX, resetYawTop);
   dsr::draw_alphaFilter(frame, clockwiseSprite_, clockwiseX, yawTop);
 
   const int centreX = frameWidth - PAN_PAD_RIGHT - PAN_ARROW_SIZE - PAN_X_STEP;
   const int centreY = frameHeight - PAN_PAD_BOTTOM - PAN_ARROW_SIZE - PAN_Y_STEP;
-  dsr::OrderedImageRgbaU8& left = canPan ? leftSprite_ : leftDisabled_;
-  dsr::OrderedImageRgbaU8& right = canPan ? rightSprite_ : rightDisabled_;
-  dsr::OrderedImageRgbaU8& up = canPan ? upSprite_ : upDisabled_;
-  dsr::OrderedImageRgbaU8& down = canPan ? downSprite_ : downDisabled_;
-  dsr::OrderedImageRgbaU8& centre = canPan ? resetSprite_ : resetDisabled_;
+  dsr::OrderedImageRgbaU8& left = cameraState.canPanLeft ? leftSprite_ : leftDisabled_;
+  dsr::OrderedImageRgbaU8& right = cameraState.canPanRight ? rightSprite_ : rightDisabled_;
+  dsr::OrderedImageRgbaU8& up = cameraState.canPanUp ? upSprite_ : upDisabled_;
+  dsr::OrderedImageRgbaU8& down = cameraState.canPanDown ? downSprite_ : downDisabled_;
+  dsr::OrderedImageRgbaU8& centre = cameraState.canResetPan ? resetSprite_ : resetDisabled_;
 
   dsr::draw_alphaFilter(frame, left, centreX - PAN_X_STEP, centreY);
   dsr::draw_alphaFilter(frame, centre, centreX, centreY);

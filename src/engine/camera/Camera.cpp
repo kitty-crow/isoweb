@@ -84,6 +84,44 @@ bool Camera::canPan(int frameWidth, int frameHeight, const WorldBounds& bounds) 
   return viewHeight(frameWidth, frameHeight, bounds) + 0.0001f < wholeViewHeight(aspect, bounds);
 }
 
+bool Camera::wouldPan(
+  float right,
+  float down,
+  int frameWidth,
+  int frameHeight,
+  const WorldBounds& bounds
+) const {
+  if (!canPan(frameWidth, frameHeight, bounds)) return false;
+
+  const Vec3 delta = groundRight() * right + groundDown() * down;
+  const float nextX = std::max(-config_.panLimit, std::min(config_.panLimit, panX_ + delta.x));
+  const float nextY = std::max(-config_.panLimit, std::min(config_.panLimit, panY_ + delta.y));
+  return std::fabs(nextX - panX_) > 0.0001f || std::fabs(nextY - panY_) > 0.0001f;
+}
+
+CameraControlState Camera::controlState(
+  int frameWidth,
+  int frameHeight,
+  const WorldBounds& bounds
+) const {
+  CameraControlState state;
+  const int position = sequencePosition(frameWidth, frameHeight, bounds);
+
+  state.canZoomIn = position + 1 < sequenceLength();
+  state.canZoomOut = position > 0;
+  state.canResetZoom = zoomPreset_ != 3;
+  state.canResetYaw = yawStep_ != 0;
+
+  state.canPanUp = wouldPan(0.0f, 1.0f, frameWidth, frameHeight, bounds);
+  state.canPanDown = wouldPan(0.0f, -1.0f, frameWidth, frameHeight, bounds);
+  state.canPanLeft = wouldPan(-1.0f, 0.0f, frameWidth, frameHeight, bounds);
+  state.canPanRight = wouldPan(1.0f, 0.0f, frameWidth, frameHeight, bounds);
+  state.canResetPan = canPan(frameWidth, frameHeight, bounds) &&
+    (std::fabs(panX_) > 0.0001f || std::fabs(panY_) > 0.0001f);
+
+  return state;
+}
+
 int Camera::detailedPresetAt(int position, int frameWidth, int frameHeight, const WorldBounds& bounds) const {
   if (wholeZoomScale(frameWidth, frameHeight, bounds) > 0.25f) {
     static const int order[6] = {1, 0, 2, 3, 4, 5};
