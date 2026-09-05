@@ -11,6 +11,7 @@ void BrowserPresenter::present(
   int width,
   int height,
   const Camera& camera,
+  const CameraControlState& controlState,
   bool canPan,
   float viewHeight,
   float wholeZoomScale
@@ -32,7 +33,16 @@ void BrowserPresenter::present(
         !!$7,
         !!$8,
         $9,
-        $10
+        $10,
+        !!$11,
+        !!$12,
+        !!$13,
+        !!$14,
+        !!$15,
+        !!$16,
+        !!$17,
+        !!$18,
+        !!$19
       );
     }
   },
@@ -46,7 +56,16 @@ void BrowserPresenter::present(
     camera.detailedMode() ? 1 : 0,
     canPan ? 1 : 0,
     viewHeight,
-    wholeZoomScale
+    wholeZoomScale,
+    controlState.canZoomIn ? 1 : 0,
+    controlState.canZoomOut ? 1 : 0,
+    controlState.canResetZoom ? 1 : 0,
+    controlState.canResetYaw ? 1 : 0,
+    controlState.canPanUp ? 1 : 0,
+    controlState.canPanDown ? 1 : 0,
+    controlState.canPanLeft ? 1 : 0,
+    controlState.canPanRight ? 1 : 0,
+    controlState.canResetPan ? 1 : 0
   );
 }
 
