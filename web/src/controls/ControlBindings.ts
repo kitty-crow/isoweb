@@ -39,28 +39,8 @@ export class ControlBindings {
   }
 
   enableInitialState(): void {
-    [
-      this.controls.zoomIn,
-      this.controls.resetZoom,
-      this.controls.zoomOut,
-      this.controls.counterClockwise,
-      this.controls.resetYaw,
-      this.controls.clockwise
-    ].forEach(control => {
-      control.disabled = false;
-    });
-
-    const panEnabled = window.isowebCameraCanPan !== false;
-    [
-      this.controls.panUp,
-      this.controls.panDown,
-      this.controls.panLeft,
-      this.controls.panRight,
-      this.controls.resetCamera
-    ].forEach(control => {
-      control.disabled = !panEnabled;
-    });
-
+    this.controls.counterClockwise.disabled = false;
+    this.controls.clockwise.disabled = false;
     this.syncLevelState();
   }
 
