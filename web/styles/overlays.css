@@ -1,0 +1,38 @@
+.loading,
+.badge {
+  position: absolute;
+  z-index: 4;
+  padding: 0.48rem 0.7rem;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 0.5rem;
+  background: rgb(8 13 19 / 76%);
+  color: rgb(255 255 255 / 86%);
+  font: 600 0.72rem/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  backdrop-filter: blur(8px);
+}
+
+.loading {
+  top: max(0.75rem, env(safe-area-inset-top));
+  left: max(0.75rem, env(safe-area-inset-left));
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.badge {
+  top: max(0.75rem, env(safe-area-inset-top));
+  right: max(0.75rem, env(safe-area-inset-right));
+  display: flex;
+  gap: 0.65rem;
+  align-items: baseline;
+
+  & strong {
+    color: white;
+  }
+
+  & span {
+    color: rgb(255 255 255 / 58%);
+    font-weight: 500;
+  }
+}

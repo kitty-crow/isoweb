@@ -3,10 +3,11 @@ set -euo pipefail
 
 mkdir -p site/assets
 
+mapfile -t ISOWEB_SOURCES < <(find src -type f -name '*.cpp' -print | sort)
 mapfile -t DFPSR_SOURCES < <(find vendor/dfpsr/Source/DFPSR -type f -name '*.cpp' -print | sort)
 
 em++ \
-  src/main.cpp \
+  "${ISOWEB_SOURCES[@]}" \
   "${DFPSR_SOURCES[@]}" \
   vendor/dfpsr/Source/windowManagers/NoWindow.cpp \
   vendor/dfpsr/Source/soundManagers/NoSound.cpp \
@@ -14,6 +15,7 @@ em++ \
   -O3 \
   -DDISABLE_MULTI_THREADING \
   -D__unix__ \
+  -Isrc \
   -Ivendor/dfpsr/Source \
   --no-entry \
   -sALLOW_MEMORY_GROWTH=1 \

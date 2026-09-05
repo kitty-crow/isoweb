@@ -1,0 +1,15 @@
+@media (max-width: 420px) {
+  .badge {
+    & span {
+      display: none;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #canvas {
+    & {
+      transition: none;
+    }
+  }
+}
