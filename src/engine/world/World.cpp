@@ -25,6 +25,14 @@ Vec3 World::sample(const Ray& ray, float backgroundY) const {
   return activeLevel().sample(ray, backgroundY);
 }
 
+const std::vector<WorldObject>& World::objects() const {
+  return activeLevel().objects();
+}
+
+bool World::intersectsSolid(const HitBox& hitBox) const {
+  return activeLevel().intersectsSolid(hitBox);
+}
+
 bool World::canMoveLevelUp() const {
   return activeLevelIndex_ + 1 < levels_.size();
 }
