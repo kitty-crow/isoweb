@@ -25,12 +25,19 @@ Vec3 World::sample(const Ray& ray, float backgroundY) const {
   return activeLevel().sample(ray, backgroundY);
 }
 
-const std::vector<WorldObject>& World::objects() const {
+const std::vector<Object>& World::objects() const {
   return activeLevel().objects();
 }
 
 bool World::intersectsSolid(const HitBox& hitBox) const {
   return activeLevel().intersectsSolid(hitBox);
+}
+
+bool World::collidesWith(const Object& candidate) const {
+  for (const Object& object : objects()) {
+    if (&object != &candidate && object.blocks(candidate)) return true;
+  }
+  return false;
 }
 
 bool World::canMoveLevelUp() const {
