@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <map>
 #include <string>
+#include <vector>
 
 #include "engine/world/Object.hpp"
 
@@ -62,6 +63,20 @@ struct CharacterSpriteSet {
   }
 };
 
+struct CharacterNavigationState {
+  std::vector<EntityLocation> route;
+  std::size_t nextWaypoint = 0;
+  EntityLocation requestedDestination;
+  bool hasDestination = false;
+
+  void clear() {
+    route.clear();
+    nextWaypoint = 0;
+    requestedDestination = EntityLocation();
+    hasDestination = false;
+  }
+};
+
 class Character : public Object {
 public:
   bool npc = false;
@@ -71,6 +86,7 @@ public:
   bool moving = false;
   std::string activeAction;
   CharacterSpriteSet sprites;
+  CharacterNavigationState navigation;
 
   // Client/game presentation state. It is intentionally independent from
   // collision and can later be owned by a player/session selection policy.
