@@ -15,6 +15,7 @@ public:
     int width,
     int height,
     const Camera& camera,
+    const CameraControlState& controlState,
     bool canPan,
     float viewHeight,
     float wholeZoomScale
