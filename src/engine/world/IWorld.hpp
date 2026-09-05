@@ -5,7 +5,7 @@
 
 #include "engine/math/Vec3.hpp"
 #include "engine/render/Ray.hpp"
-#include "engine/world/Object.hpp"
+#include "engine/world/WorldObject.hpp"
 
 namespace isoweb {
 namespace engine {
