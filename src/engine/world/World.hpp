@@ -35,6 +35,7 @@ public:
   virtual bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const = 0;
   virtual bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const = 0;
   virtual const std::vector<Object>& objects() const = 0;
+  virtual bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const = 0;
   virtual bool intersectsSolid(const HitBox& hitBox) const = 0;
 };
 
@@ -98,6 +99,7 @@ public:
 
 private:
   const IWorldLevel& activeLevel() const;
+  const IWorldLevel& levelFor(const std::string& levelId) const;
   Vec3 sampleRuntimeEntities(const Ray& ray, float backgroundY, float environmentDistance, bool& found) const;
 
   std::vector<std::unique_ptr<IWorldLevel>> levels_;
