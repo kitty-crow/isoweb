@@ -72,7 +72,7 @@ void Renderer::ensureFrame() {
 
 Ray Renderer::rayForPixel(float px, float py) const {
   const Vec3 forward = camera_.forward();
-  const Vec3 right = normalise(cross(forward, {0.0f, 0.0f, 1.0f}));
+  const Vec3 right = camera_.groundRight();
   const Vec3 up = normalise(cross(right, forward));
   const float aspect = static_cast<float>(frameWidth_) / frameHeight_;
   const float height = frameViewHeight_;
@@ -99,7 +99,7 @@ bool Renderer::groundPointForPixel(float px, float py, float groundZ, Vec3& poin
 
 bool Renderer::worldPointToPixel(const Vec3& point, float& px, float& py) const {
   const Vec3 forward = camera_.forward();
-  const Vec3 right = normalise(cross(forward, {0.0f, 0.0f, 1.0f}));
+  const Vec3 right = camera_.groundRight();
   const Vec3 up = normalise(cross(right, forward));
   const float aspect = static_cast<float>(frameWidth_) / frameHeight_;
   const float height = frameViewHeight_;
@@ -198,6 +198,9 @@ void Renderer::render() {
       (static_cast<float>(y) + 0.25f) * inverseFrameHeight,
       (static_cast<float>(y) + 0.75f) * inverseFrameHeight
     };
+    std::uint8_t* frameRow = reinterpret_cast<std::uint8_t*>(
+      &dsr::image_accessPixel(frame_, 0, y)
+    );
 
     for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
       Vec3 colour;
@@ -225,12 +228,11 @@ void Renderer::render() {
       }
       colour = colour * 0.25f;
 
-      dsr::image_writePixel(
-        frame_,
-        x,
-        y,
-        {toByte(colour.x), toByte(colour.y), toByte(colour.z), 255}
-      );
+      const std::size_t offset = static_cast<std::size_t>(x) * 4;
+      frameRow[offset] = toByte(colour.x);
+      frameRow[offset + 1] = toByte(colour.y);
+      frameRow[offset + 2] = toByte(colour.z);
+      frameRow[offset + 3] = 255;
       pixelOrigin = pixelOrigin + rightStep;
     }
     rowOrigin = rowOrigin + downStep;
