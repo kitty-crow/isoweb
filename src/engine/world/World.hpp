@@ -102,6 +102,12 @@ public:
     const Vec3& environmentColour,
     float environmentDistance
   ) const override {
+    // Renderer always prepares the frame first. This makes the overwhelmingly
+    // common no-runtime-entity case a single branch per supersample instead of
+    // entering the compositor and clearing scratch storage.
+    if (runtimeRenderCachePrepared_ && runtimeRenderEntries_.empty()) {
+      return environmentColour;
+    }
     bool found = false;
     const Vec3 runtime = sampleRuntimeEntities(
       ray,
@@ -215,11 +221,28 @@ private:
     float maximumY = 0.0f;
   };
 
+  struct RuntimeSample {
+    float distance = 0.0f;
+    Vec3 point;
+    Vec3 colour;
+    float alpha = 1.0f;
+  };
+
   struct RuntimeRenderEntry {
     const Character* character = nullptr;
     Vec3 renderPosition;
     Object proxy;
     bool selected = false;
+
+    // Sprite state and geometry are fixed for one render pass. Cache them once
+    // so supersample rays only perform the plane intersection and texel lookup.
+    bool artworkReady = false;
+    const SpriteAnimation* animation = nullptr;
+    std::size_t spriteFrame = 0;
+    bool spriteMirror = false;
+    Vec3 spriteCentre;
+    float spriteInverseWidth = 0.0f;
+    float spriteInverseHeight = 0.0f;
   };
 
   const IWorldLevel& activeLevel() const;
@@ -253,6 +276,11 @@ private:
   const CollisionPolicy* collisionPolicy_ = nullptr;
 
   mutable std::vector<RuntimeRenderEntry> runtimeRenderEntries_;
+  mutable std::vector<RuntimeSample> runtimeSampleScratch_;
+  mutable Vec3 runtimeSpritePlaneNormal_;
+  mutable Vec3 runtimeSpriteScreenRight_;
+  mutable float runtimeSpriteInverseDenominator_ = 0.0f;
+  mutable bool runtimeSpritePlaneValid_ = false;
   mutable bool runtimeRenderCachePrepared_ = false;
 };
 
