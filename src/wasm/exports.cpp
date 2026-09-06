@@ -36,6 +36,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_tick(float deltaSeconds) {
   application().tick(deltaSeconds);
 }
 
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_needs_tick() {
+  return application().characterSystem().needsTick() ? 1 : 0;
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_resize(int width, int height) {
   application().resize(width, height);
 }
