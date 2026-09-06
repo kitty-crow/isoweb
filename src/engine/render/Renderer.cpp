@@ -97,29 +97,59 @@ bool Renderer::worldPointToPixel(const Vec3& point, float& px, float& py) const 
 
 void Renderer::render() {
   ensureFrame();
-  const float offsets[2] = {0.25f, 0.75f};
 
+  // Orthographic rays differ only by origin. Build the complete camera basis,
+  // bounds-dependent view dimensions and pixel increments once per frame
+  // instead of repeating them for every 2x2 sub-sample.
+  const WorldBounds& bounds = world_.bounds();
+  const Vec3 forward = camera_.forward();
+  const Vec3 right = normalise(cross(forward, {0.0f, 0.0f, 1.0f}));
+  const Vec3 up = normalise(cross(right, forward));
+  const float aspect = static_cast<float>(frameWidth_) / frameHeight_;
+  const float height = camera_.viewHeight(frameWidth_, frameHeight_, bounds);
+  const float width = height * aspect;
+  const bool panEnabled = camera_.canPan(frameWidth_, frameHeight_, bounds);
+  const Vec3 focus = panEnabled
+    ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
+    : bounds.focus;
+
+  const Vec3 rightStep = right * (width / static_cast<float>(frameWidth_));
+  const Vec3 downStep = up * (-height / static_cast<float>(frameHeight_));
+  const Vec3 cornerOrigin = focus - forward * 9.0f - right * (width * 0.5f) + up * (height * 0.5f);
+
+  const Vec3 sampleOffsets[4] = {
+    rightStep * 0.25f + downStep * 0.25f,
+    rightStep * 0.75f + downStep * 0.25f,
+    rightStep * 0.25f + downStep * 0.75f,
+    rightStep * 0.75f + downStep * 0.75f
+  };
+
+  Vec3 rowOrigin = cornerOrigin;
   for (int y = 0; y < frameHeight_; ++y) {
+    Vec3 pixelOrigin = rowOrigin;
+    const float backgroundY0 = (static_cast<float>(y) + 0.25f) / frameHeight_;
+    const float backgroundY1 = (static_cast<float>(y) + 0.75f) / frameHeight_;
+
     for (int x = 0; x < frameWidth_; ++x) {
       Vec3 colour;
-      for (int sampleY = 0; sampleY < 2; ++sampleY) {
-        for (int sampleX = 0; sampleX < 2; ++sampleX) {
-          const float px = x + offsets[sampleX];
-          const float py = y + offsets[sampleY];
-          colour = colour + world_.sample(rayForPixel(px, py), py / frameHeight_);
-        }
-      }
+      colour = colour + world_.sample({pixelOrigin + sampleOffsets[0], forward}, backgroundY0);
+      colour = colour + world_.sample({pixelOrigin + sampleOffsets[1], forward}, backgroundY0);
+      colour = colour + world_.sample({pixelOrigin + sampleOffsets[2], forward}, backgroundY1);
+      colour = colour + world_.sample({pixelOrigin + sampleOffsets[3], forward}, backgroundY1);
       colour = colour * 0.25f;
+
       dsr::image_writePixel(
         frame_,
         x,
         y,
         {toByte(colour.x), toByte(colour.y), toByte(colour.z), 255}
       );
+      pixelOrigin = pixelOrigin + rightStep;
     }
+    rowOrigin = rowOrigin + downStep;
   }
 
-  const CameraControlState cameraState = cameraControlState();
+  const CameraControlState cameraState = camera_.controlState(frameWidth_, frameHeight_, bounds);
   LevelControlState levelState;
   levelState.canMoveUp = world_.activeLevelIndex() + 1 < world_.levelCount();
   levelState.canMoveDown = world_.activeLevelIndex() > 0;
