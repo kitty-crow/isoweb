@@ -1,10 +1,31 @@
 #include "engine/render/Renderer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace isoweb {
 namespace engine {
+namespace {
+
+const std::array<float, 255>& gammaThresholds() {
+  // The old conversion was round(pow(linear, 1/2.2) * 255). The boundary at
+  // which output N becomes selected is therefore ((N - 0.5) / 255)^2.2.
+  // Computing these 255 boundaries once removes three pow() calls per pixel
+  // while preserving the same 8-bit transfer curve and sample quality.
+  static const std::array<float, 255> thresholds = [] {
+    std::array<float, 255> values{};
+    for (std::size_t output = 1; output <= 255; ++output) {
+      const float encodedBoundary =
+        (static_cast<float>(output) - 0.5f) * (1.0f / 255.0f);
+      values[output - 1] = std::pow(encodedBoundary, 2.2f);
+    }
+    return values;
+  }();
+  return thresholds;
+}
+
+} // namespace
 
 Renderer::Renderer(const IWorld& world, Camera& camera, ControlSprites& controls)
     : world_(world), camera_(camera), controls_(controls) {}
@@ -31,8 +52,12 @@ float Renderer::wholeZoomScale() const {
 }
 
 std::uint8_t Renderer::toByte(float value) {
-  value = std::pow(std::max(0.0f, std::min(1.0f, value)), 1.0f / 2.2f);
-  return static_cast<std::uint8_t>(value * 255.0f + 0.5f);
+  if (value <= 0.0f) return 0;
+  if (value >= 1.0f) return 255;
+  const auto& thresholds = gammaThresholds();
+  return static_cast<std::uint8_t>(
+    std::upper_bound(thresholds.begin(), thresholds.end(), value) - thresholds.begin()
+  );
 }
 
 void Renderer::ensureFrame() {
@@ -98,9 +123,6 @@ bool Renderer::worldPointToPixel(const Vec3& point, float& px, float& py) const 
 void Renderer::render() {
   ensureFrame();
 
-  // Orthographic rays differ only by origin. Build the complete camera basis,
-  // bounds-dependent view dimensions and pixel increments once per frame
-  // instead of repeating them for every 2x2 sub-sample.
   const WorldBounds& bounds = world_.bounds();
   const Vec3 forward = camera_.forward();
   const Vec3 right = normalise(cross(forward, {0.0f, 0.0f, 1.0f}));
@@ -113,8 +135,6 @@ void Renderer::render() {
     ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
     : bounds.focus;
 
-  // Character projection, liminal mapping, proxy construction and selection
-  // are frame invariant. Pull them out of the per-ray loop too.
   world_.prepareRenderFrame(forward);
 
   const float inverseFrameWidth = 1.0f / static_cast<float>(frameWidth_);
