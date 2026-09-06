@@ -53,6 +53,7 @@ async function runtimeDiagnostics(): Promise<unknown> {
     const module = (globalThis as any).Module;
     return {
       ready: document.documentElement.classList.contains('wasm-ready'),
+      ccallType: typeof module?.ccall,
       characterCountType: typeof module?._isoweb_character_count,
       characterCount: typeof module?._isoweb_character_count === 'function'
         ? module._isoweb_character_count()
@@ -174,19 +175,11 @@ try {
 
   const initialPosition = await page.evaluate(() => {
     const module = (globalThis as any).Module;
-    const bytes = new TextEncoder().encode('demo-character');
-    const pointer = module._malloc(bytes.length + 1);
-    module.HEAPU8.set(bytes, pointer);
-    module.HEAPU8[pointer + bytes.length] = 0;
-    try {
-      return {
-        x: module._isoweb_character_position_x(pointer),
-        y: module._isoweb_character_position_y(pointer),
-        z: module._isoweb_character_position_z(pointer)
-      };
-    } finally {
-      module._free(pointer);
-    }
+    return {
+      x: module.ccall('isoweb_character_position_x', 'number', ['string'], ['demo-character']),
+      y: module.ccall('isoweb_character_position_y', 'number', ['string'], ['demo-character']),
+      z: module.ccall('isoweb_character_position_z', 'number', ['string'], ['demo-character'])
+    };
   });
   if (![initialPosition.x, initialPosition.y, initialPosition.z].every(Number.isFinite)) {
     throw new Error('Character runtime position getters did not resolve the JSON-created Character.');
@@ -214,17 +207,9 @@ try {
     await page.waitForFunction(
       ({ x, y }) => {
         const module = (globalThis as any).Module;
-        const bytes = new TextEncoder().encode('demo-character');
-        const pointer = module._malloc(bytes.length + 1);
-        module.HEAPU8.set(bytes, pointer);
-        module.HEAPU8[pointer + bytes.length] = 0;
-        try {
-          const nextX = module._isoweb_character_position_x(pointer);
-          const nextY = module._isoweb_character_position_y(pointer);
-          return Math.hypot(nextX - x, nextY - y) > 0.02;
-        } finally {
-          module._free(pointer);
-        }
+        const nextX = module.ccall('isoweb_character_position_x', 'number', ['string'], ['demo-character']);
+        const nextY = module.ccall('isoweb_character_position_y', 'number', ['string'], ['demo-character']);
+        return Math.hypot(nextX - x, nextY - y) > 0.02;
       },
       initialPosition,
       { timeout: 10_000 }
