@@ -1,7 +1,10 @@
 export interface IsowebModule {
-  HEAPU8: Uint8Array;
-  _malloc(size: number): number;
-  _free(pointer: number): void;
+  ccall(
+    ident: string,
+    returnType: 'number' | null,
+    argTypes: Array<'number' | 'string' | 'array'>,
+    args: unknown[]
+  ): number | void;
 
   _isoweb_render(): void;
   _isoweb_tick(deltaSeconds: number): void;
@@ -30,35 +33,6 @@ export interface IsowebModule {
   _isoweb_clear_entities(): void;
   _isoweb_character_count(): number;
   _isoweb_selected_character_count(): number;
-  _isoweb_character_position_x(id: number): number;
-  _isoweb_character_position_y(id: number): number;
-  _isoweb_character_position_z(id: number): number;
-  _isoweb_character_is_moving(id: number): number;
-  _isoweb_create_character(id: number, world: number, timeline: number, level: number, x: number, y: number, z: number): number;
-  _isoweb_set_character_location(id: number, world: number, timeline: number, level: number, x: number, y: number, z: number): number;
-  _isoweb_set_character_forward(id: number, x: number, y: number): number;
-  _isoweb_set_character_hitbox(id: number, minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): number;
-  _isoweb_set_character_flags(id: number, solid: number, npc: number, controllable: number): number;
-  _isoweb_set_character_speed(id: number, multiplier: number): number;
-  _isoweb_add_character_collision_tag(id: number, tag: number): number;
-  _isoweb_add_character_must_collide_with(id: number, selector: number): number;
-  _isoweb_clear_character_collision_filters(id: number): number;
-  _isoweb_set_character_sprite(
-    id: number,
-    state: number,
-    action: number,
-    facing: number,
-    resource: number,
-    frameCount: number,
-    columns: number,
-    rows: number,
-    nominalFps: number,
-    worldWidth: number,
-    worldHeight: number,
-    loop: number
-  ): number;
-  _isoweb_set_character_action(id: number, action: number): number;
-  _isoweb_register_sprite_atlas(resource: number, width: number, height: number, rgba: number, byteCount: number): number;
   _isoweb_set_base_movement_speed(speed: number): void;
   _isoweb_set_selection_mode(mode: number): void;
   _isoweb_set_selection_style(red: number, green: number, blue: number, strength: number): void;
