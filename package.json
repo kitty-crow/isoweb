@@ -4,11 +4,11 @@
   "scripts": {
     "check": "bun vendor/pages/src/cli.ts check pages.config.ts",
     "build:site": "bun vendor/pages/src/cli.ts build pages.config.ts",
-    "build:web": "bun build web/src/bootstrap.ts --outdir site/assets --target browser --format iife && mkdir -p site/styles && cp web/styles.css site/styles.css && cp web/styles/*.css site/styles/",
+    "build:web": "bun build web/src/bootstrap.ts --outdir site/assets --target browser --format iife && mkdir -p site/styles site/assets && cp web/styles.css site/styles.css && cp web/styles/*.css site/styles/ && cp -R web/assets/. site/assets/",
     "build": "bun run build:site && bun run build:web",
     "build:wasm": "bash scripts/build-wasm.sh",
     "check:emscripten-bridge": "bun scripts/check-emscripten-bridge.ts",
-    "test:hitboxes": "c++ -std=c++14 -Isrc scripts/hitbox-smoke.cpp src/demo/DemoWorld.cpp src/engine/world/World.cpp -o /tmp/isoweb-hitbox-smoke && /tmp/isoweb-hitbox-smoke",
+    "test:hitboxes": "c++ -std=c++14 -Isrc scripts/hitbox-smoke.cpp src/demo/DemoWorld.cpp src/engine/camera/Camera.cpp src/engine/world/World.cpp src/engine/world/EntityStore.cpp src/engine/character/CharacterSelection.cpp src/engine/character/CharacterPresentation.cpp src/engine/character/CharacterPolicies.cpp src/engine/character/CharacterSystem.cpp src/engine/character/SpriteAtlas.cpp -o /tmp/isoweb-hitbox-smoke && /tmp/isoweb-hitbox-smoke",
     "test:runtime": "bun scripts/runtime-smoke.ts",
     "audit:mobile": "bun vendor/pages/src/cli.ts audit-mobile site"
   }
