@@ -14,6 +14,12 @@ namespace isoweb {
 namespace engine {
 namespace {
 
+struct RuntimeSample {
+  float distance = 0.0f;
+  Vec3 colour;
+  float alpha = 1.0f;
+};
+
 bool glyph(char letter, int x, int y) {
   static const char* S[5] = {"111", "100", "111", "001", "111"};
   static const char* R[5] = {"110", "101", "110", "101", "101"};
@@ -108,13 +114,14 @@ bool spriteSample(
   const Ray& ray,
   const SpriteAtlasRegistry& atlases,
   float maximumDistance,
-  float& distance,
-  Vec3& colour,
-  float& alpha
+  bool& artworkReady,
+  RuntimeSample& result
 ) {
+  artworkReady = false;
   bool implicitMirror = false;
   const SpriteAnimation* animation = character.currentSpriteAnimation(&implicitMirror);
   if (!animation || !animation->assigned() || !atlases.contains(animation->resource)) return false;
+  artworkReady = true;
 
   const Vec3 horizontalRay(ray.direction.x, ray.direction.y, 0.0f);
   const float horizontalLength = length(horizontalRay);
@@ -150,9 +157,9 @@ bool spriteSample(
   );
   if (pixel.alpha <= 0.01f) return false;
 
-  distance = t;
-  colour = pixel.colour;
-  alpha = pixel.alpha;
+  result.distance = t;
+  result.colour = pixel.colour;
+  result.alpha = pixel.alpha;
   return true;
 }
 
@@ -217,64 +224,73 @@ Vec3 World::sample(const Ray& ray, float backgroundY) const {
 }
 
 Vec3 World::sampleRuntimeEntities(const Ray& ray, float backgroundY, float staticDistance, bool& found) const {
-  found = false;
-  float closest = staticDistance;
-  float closestAlpha = 1.0f;
-  Vec3 colour;
+  std::vector<RuntimeSample> samples;
 
   for (const Character* character : entities_.characters()) {
     if (!character || character->location.levelId != activeLevelId()) continue;
 
-    Vec3 candidateColour;
-    float candidateAlpha = 1.0f;
-    float candidateDistance = closest;
-    bool candidateFound = false;
+    RuntimeSample sample;
+    bool sampleFound = false;
+    bool artworkReady = false;
 
     if (character->hasArtwork()) {
-      candidateFound = spriteSample(
+      sampleFound = spriteSample(
         *character,
         ray,
         spriteAtlases_,
-        closest,
-        candidateDistance,
-        candidateColour,
-        candidateAlpha
+        staticDistance,
+        artworkReady,
+        sample
       );
-    }
 
-    // While an assigned WebP is still being decoded/registered, retain the
-    // debug hitbox rather than making the character disappear.
-    if (!candidateFound) {
-      ObjectRayHit hit;
-      if (character->intersectRay(ray, 0.001f, closest, hit)) {
-        candidateDistance = hit.distance;
-        candidateColour = labelPixel(*character, hit)
-          ? Vec3(0.96f, 0.97f, 1.0f)
-          : faceColour(hit.face);
-        const float facingLight = 0.66f + 0.34f * std::max(
-          0.0f,
-          dot(hit.worldNormal, normalise(Vec3(-0.4f, -0.6f, 1.0f)))
-        );
-        candidateColour = candidateColour * facingLight;
-        candidateAlpha = 1.0f;
-        candidateFound = true;
+      // A loaded sprite fully replaces the debug hitbox. Transparent pixels
+      // remain transparent and reveal the scene/characters behind them.
+      if (artworkReady) {
+        if (sampleFound) {
+          if (characterSystem_ && characterSystem_->isSelected(character->id)) {
+            sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
+          }
+          samples.push_back(sample);
+        }
+        continue;
       }
     }
 
-    if (!candidateFound || candidateDistance >= closest) continue;
-    closest = candidateDistance;
-    colour = candidateColour;
-    closestAlpha = candidateAlpha;
-    found = true;
+    // Before an assigned WebP has finished decoding/registration, retain the
+    // labelled debug representation so the character never disappears.
+    ObjectRayHit hit;
+    if (!character->intersectRay(ray, 0.001f, staticDistance, hit)) continue;
+    sample.distance = hit.distance;
+    sample.colour = labelPixel(*character, hit)
+      ? Vec3(0.96f, 0.97f, 1.0f)
+      : faceColour(hit.face);
+    const float facingLight = 0.66f + 0.34f * std::max(
+      0.0f,
+      dot(hit.worldNormal, normalise(Vec3(-0.4f, -0.6f, 1.0f)))
+    );
+    sample.colour = sample.colour * facingLight;
+    sample.alpha = 1.0f;
     if (characterSystem_ && characterSystem_->isSelected(character->id)) {
-      colour = applyTint(colour, characterSystem_->selectionStyle());
+      sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
     }
+    samples.push_back(sample);
   }
 
-  if (found && closestAlpha < 0.999f) {
-    const Vec3 behind = activeLevel().sample(ray, backgroundY);
-    colour = colour * closestAlpha + behind * (1.0f - closestAlpha);
+  if (samples.empty()) {
+    found = false;
+    return Vec3();
   }
+
+  std::sort(samples.begin(), samples.end(), [](const RuntimeSample& a, const RuntimeSample& b) {
+    return a.distance > b.distance;
+  });
+
+  Vec3 colour = activeLevel().sample(ray, backgroundY);
+  for (const RuntimeSample& sample : samples) {
+    const float alpha = std::max(0.0f, std::min(1.0f, sample.alpha));
+    colour = sample.colour * alpha + colour * (1.0f - alpha);
+  }
+  found = true;
   return colour;
 }
 
