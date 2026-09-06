@@ -28,6 +28,12 @@ export interface IsowebModule {
   _isoweb_drag_select(x0: number, y0: number, x1: number, y1: number, additive: number): number;
   _isoweb_clear_selection(): void;
   _isoweb_clear_entities(): void;
+  _isoweb_character_count(): number;
+  _isoweb_selected_character_count(): number;
+  _isoweb_character_position_x(id: number): number;
+  _isoweb_character_position_y(id: number): number;
+  _isoweb_character_position_z(id: number): number;
+  _isoweb_character_is_moving(id: number): number;
   _isoweb_create_character(id: number, world: number, timeline: number, level: number, x: number, y: number, z: number): number;
   _isoweb_set_character_location(id: number, world: number, timeline: number, level: number, x: number, y: number, z: number): number;
   _isoweb_set_character_forward(id: number, x: number, y: number): number;
