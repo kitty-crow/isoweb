@@ -13,6 +13,8 @@ struct CharacterEngineDefaults {
   float navigationCellSize = 0.25f;
   float arrivalEpsilon = 0.025f;
   float destinationSearchRadius = 2.5f;
+  float maxStepHeight = 0.25f;
+  float maxDropHeight = 0.25f;
 };
 
 class CollisionPolicy {
@@ -38,16 +40,12 @@ class LevelTransitionPolicy {
 public:
   virtual ~LevelTransitionPolicy() = default;
 
-  // Games may veto particular navigation links for a Character without
-  // changing the navigation algorithm itself.
   virtual bool canTraverse(
     const Character& character,
     const NavigationLink& link,
     bool reverse
   ) const;
 
-  // Games may customise the contextual/physical state applied at the level
-  // boundary. The default lands at the link endpoint in the adjacent level.
   virtual EntityLocation arrival(
     const Character& character,
     const NavigationLink& link,

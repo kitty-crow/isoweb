@@ -40,6 +40,7 @@ public:
   std::size_t defaultLevelIndex() const { return world_.defaultLevelIndex(); }
 
   bool pointerTap(float x, float y, bool additive);
+  bool pointerWalkable(float x, float y) const;
   std::size_t dragSelect(float x0, float y0, float x1, float y1, bool additive);
   void clearSelection();
 
@@ -81,7 +82,6 @@ public:
 
 private:
   void redraw();
-  void configureDemoWorldNavigation();
 
   DemoWorld world_;
   engine::Camera camera_;
@@ -89,7 +89,6 @@ private:
   engine::Renderer renderer_;
   engine::BrowserPresenter presenter_;
   engine::CharacterSystem characters_;
-  bool movementCommandArmed_ = false;
 };
 
 } // namespace demo

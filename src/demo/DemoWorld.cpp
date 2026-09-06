@@ -10,7 +10,11 @@ namespace demo {
 namespace {
 
 using engine::HitBox;
+using engine::NavigationLink;
+using engine::Object;
 using engine::Ray;
+using engine::SceneSurfaceHit;
+using engine::SceneSurfaceKind;
 using engine::Vec3;
 using engine::WorldBounds;
 using engine::WorldObject;
@@ -70,6 +74,16 @@ struct Staircase {
   float width;
 };
 
+struct StairConnection {
+  float centreX;
+  float lowY;
+  float highY;
+  float rise;
+  float width;
+  const char* lowerLevelId;
+  const char* upperLevelId;
+};
+
 struct FloorProxy {
   float z;
   Vec3 dark;
@@ -92,7 +106,97 @@ struct Hit {
   Vec3 point;
   Vec3 normal;
   Vec3 colour;
+  SceneSurfaceKind kind = SceneSurfaceKind::Object;
+  bool walkable = false;
 };
+
+const StairConnection LOWER_MIDDLE_STAIR = {
+  LOWER_MIDDLE_STAIR_X,
+  STAIR_LOW_Y,
+  STAIR_HIGH_Y,
+  STAIR_RISE,
+  STAIR_WIDTH,
+  "lower",
+  "middle"
+};
+
+const StairConnection MIDDLE_UPPER_STAIR = {
+  MIDDLE_UPPER_STAIR_X,
+  STAIR_LOW_Y,
+  STAIR_HIGH_Y,
+  STAIR_RISE,
+  STAIR_WIDTH,
+  "middle",
+  "upper"
+};
+
+Staircase ascendingStaircase(const StairConnection& connection) {
+  return {
+    connection.centreX,
+    connection.lowY,
+    connection.highY,
+    0.0f,
+    connection.rise,
+    connection.width
+  };
+}
+
+Staircase descendingStaircase(const StairConnection& connection) {
+  return {
+    connection.centreX,
+    connection.highY,
+    connection.lowY,
+    0.0f,
+    -connection.rise,
+    connection.width
+  };
+}
+
+FloorHole stairHole(const StairConnection& connection) {
+  return {
+    connection.centreX - connection.width * 0.5f + STAIR_HOLE_INSET,
+    connection.centreX + connection.width * 0.5f - STAIR_HOLE_INSET,
+    connection.lowY + STAIR_HOLE_INSET,
+    connection.highY - STAIR_HOLE_INSET
+  };
+}
+
+std::vector<Vec3> staircaseTraversal(const Staircase& staircase) {
+  std::vector<Vec3> result;
+  result.reserve(STAIR_STEP_COUNT);
+  const float lowerZ = std::min(staircase.startZ, staircase.endZ);
+  const bool ascending = staircase.endZ > staircase.startZ;
+
+  for (int index = 0; index < STAIR_STEP_COUNT; ++index) {
+    const float y0 = staircase.startY +
+      (staircase.endY - staircase.startY) * static_cast<float>(index) / STAIR_STEP_COUNT;
+    const float y1 = staircase.startY +
+      (staircase.endY - staircase.startY) * static_cast<float>(index + 1) / STAIR_STEP_COUNT;
+    const float fraction = ascending
+      ? static_cast<float>(index + 1) / STAIR_STEP_COUNT
+      : static_cast<float>(index) / STAIR_STEP_COUNT;
+    const float topZ = staircase.startZ +
+      (staircase.endZ - staircase.startZ) * fraction;
+    result.push_back({
+      staircase.centreX,
+      (y0 + y1) * 0.5f,
+      std::max(topZ, lowerZ + 0.025f)
+    });
+  }
+  return result;
+}
+
+NavigationLink navigationLink(const StairConnection& connection) {
+  NavigationLink link;
+  link.fromLevelId = connection.lowerLevelId;
+  link.toLevelId = connection.upperLevelId;
+  link.fromPosition = {connection.centreX, connection.lowY, 0.0f};
+  link.toPosition = {connection.centreX, connection.highY, 0.0f};
+  link.forwardTraversal = staircaseTraversal(ascendingStaircase(connection));
+  link.reverseTraversal = staircaseTraversal(descendingStaircase(connection));
+  link.bidirectional = true;
+  return link;
+}
 
 float triangleIntersection(
   const Ray& ray,
@@ -166,13 +270,268 @@ const std::vector<Vec3>& icosahedronNormals() {
   return normals;
 }
 
-FloorHole stairHole(float centreX) {
-  return {
-    centreX - STAIR_WIDTH * 0.5f + STAIR_HOLE_INSET,
-    centreX + STAIR_WIDTH * 0.5f - STAIR_HOLE_INSET,
-    STAIR_LOW_Y + STAIR_HOLE_INSET,
-    STAIR_HIGH_Y - STAIR_HOLE_INSET
-  };
+Vec3 negated(const Vec3& value) {
+  return {-value.x, -value.y, -value.z};
+}
+
+float lengthSquared(const Vec3& value) {
+  return engine::dot(value, value);
+}
+
+std::vector<Vec3> convexVertices(const std::vector<Vec3>& normals) {
+  std::vector<Vec3> vertices;
+  for (std::size_t a = 0; a < normals.size(); ++a) {
+    for (std::size_t b = a + 1; b < normals.size(); ++b) {
+      for (std::size_t c = b + 1; c < normals.size(); ++c) {
+        const Vec3 bc = engine::cross(normals[b], normals[c]);
+        const float determinant = engine::dot(normals[a], bc);
+        if (std::fabs(determinant) < 1e-6f) continue;
+        const Vec3 point = (
+          bc +
+          engine::cross(normals[c], normals[a]) +
+          engine::cross(normals[a], normals[b])
+        ) / determinant;
+
+        bool inside = true;
+        for (const Vec3& normal : normals) {
+          if (engine::dot(point, normal) > 1.0005f) {
+            inside = false;
+            break;
+          }
+        }
+        if (!inside) continue;
+
+        bool duplicate = false;
+        for (const Vec3& existing : vertices) {
+          if (lengthSquared(existing - point) < 1e-6f) {
+            duplicate = true;
+            break;
+          }
+        }
+        if (!duplicate) vertices.push_back(point);
+      }
+    }
+  }
+  return vertices;
+}
+
+const std::vector<Vec3>& dodecahedronVertices() {
+  static const std::vector<Vec3> vertices = convexVertices(dodecahedronNormals());
+  return vertices;
+}
+
+const std::vector<Vec3>& icosahedronVertices() {
+  static const std::vector<Vec3> vertices = convexVertices(icosahedronNormals());
+  return vertices;
+}
+
+Vec3 supportObjectBox(const Object& object, const Vec3& direction) {
+  const Vec3 half = object.hitBox.halfExtent();
+  const Vec3 centre = object.localToWorld(object.hitBox.centre());
+  const Vec3 right = object.horizontalRight();
+  const Vec3 forward = object.horizontalForward();
+  return centre +
+    right * (engine::dot(direction, right) >= 0.0f ? std::fabs(half.x) : -std::fabs(half.x)) +
+    forward * (engine::dot(direction, forward) >= 0.0f ? std::fabs(half.y) : -std::fabs(half.y)) +
+    Vec3(0.0f, 0.0f, direction.z >= 0.0f ? std::fabs(half.z) : -std::fabs(half.z));
+}
+
+Vec3 supportVertices(const RenderObject& object, const std::vector<Vec3>& vertices, const Vec3& direction) {
+  Vec3 best = object.position;
+  float bestProjection = -FAR_DISTANCE;
+  for (const Vec3& vertex : vertices) {
+    const Vec3 point = object.position + vertex * object.size;
+    const float projection = engine::dot(point, direction);
+    if (projection > bestProjection) {
+      bestProjection = projection;
+      best = point;
+    }
+  }
+  return best;
+}
+
+Vec3 supportRenderObject(const RenderObject& object, const Vec3& direction) {
+  switch (object.kind) {
+    case ShapeKind::Cube:
+      return object.position + Vec3(
+        direction.x >= 0.0f ? object.size : -object.size,
+        direction.y >= 0.0f ? object.size : -object.size,
+        direction.z >= 0.0f ? object.height * 0.5f : -object.height * 0.5f
+      );
+    case ShapeKind::Sphere: {
+      const float magnitude = engine::length(direction);
+      return magnitude > 1e-7f
+        ? object.position + direction * (object.size / magnitude)
+        : object.position;
+    }
+    case ShapeKind::Cone: {
+      const float horizontal = std::sqrt(direction.x * direction.x + direction.y * direction.y);
+      const Vec3 apex = object.position + Vec3(0.0f, 0.0f, object.height * 0.5f);
+      Vec3 base = object.position + Vec3(0.0f, 0.0f, -object.height * 0.5f);
+      if (horizontal > 1e-7f) {
+        base.x += object.size * direction.x / horizontal;
+        base.y += object.size * direction.y / horizontal;
+      }
+      return engine::dot(apex, direction) >= engine::dot(base, direction) ? apex : base;
+    }
+    case ShapeKind::Pyramid: {
+      const float z0 = object.position.z - object.height * 0.5f;
+      const Vec3 vertices[5] = {
+        {object.position.x - object.size, object.position.y - object.size, z0},
+        {object.position.x + object.size, object.position.y - object.size, z0},
+        {object.position.x + object.size, object.position.y + object.size, z0},
+        {object.position.x - object.size, object.position.y + object.size, z0},
+        {object.position.x, object.position.y, object.position.z + object.height * 0.5f}
+      };
+      Vec3 best = vertices[0];
+      float bestProjection = engine::dot(best, direction);
+      for (int index = 1; index < 5; ++index) {
+        const float projection = engine::dot(vertices[index], direction);
+        if (projection > bestProjection) {
+          bestProjection = projection;
+          best = vertices[index];
+        }
+      }
+      return best;
+    }
+    case ShapeKind::Dodecahedron:
+      return supportVertices(object, dodecahedronVertices(), direction);
+    case ShapeKind::Icosahedron:
+      return supportVertices(object, icosahedronVertices(), direction);
+  }
+  return object.position;
+}
+
+Vec3 minkowskiSupport(const Object& candidate, const RenderObject& object, const Vec3& direction) {
+  return supportObjectBox(candidate, direction) - supportRenderObject(object, negated(direction));
+}
+
+bool sameDirection(const Vec3& direction, const Vec3& toward) {
+  return engine::dot(direction, toward) > 1e-7f;
+}
+
+Vec3 perpendicularToward(const Vec3& edge, const Vec3& toward) {
+  Vec3 result = engine::cross(engine::cross(edge, toward), edge);
+  if (lengthSquared(result) > 1e-10f) return result;
+  result = engine::cross(edge, Vec3(0.0f, 0.0f, 1.0f));
+  if (lengthSquared(result) > 1e-10f) return result;
+  return engine::cross(edge, Vec3(0.0f, 1.0f, 0.0f));
+}
+
+bool handleLine(std::vector<Vec3>& simplex, Vec3& direction) {
+  const Vec3 a = simplex.back();
+  const Vec3 b = simplex[simplex.size() - 2];
+  const Vec3 ab = b - a;
+  const Vec3 ao = negated(a);
+  if (sameDirection(ab, ao)) {
+    simplex = {b, a};
+    direction = perpendicularToward(ab, ao);
+  } else {
+    simplex = {a};
+    direction = ao;
+  }
+  return lengthSquared(direction) < 1e-12f;
+}
+
+bool handleTriangle(std::vector<Vec3>& simplex, Vec3& direction) {
+  const Vec3 a = simplex[2];
+  const Vec3 b = simplex[1];
+  const Vec3 c = simplex[0];
+  const Vec3 ab = b - a;
+  const Vec3 ac = c - a;
+  const Vec3 ao = negated(a);
+  Vec3 abc = engine::cross(ab, ac);
+
+  if (sameDirection(engine::cross(abc, ac), ao)) {
+    if (sameDirection(ac, ao)) {
+      simplex = {c, a};
+      direction = perpendicularToward(ac, ao);
+      return lengthSquared(direction) < 1e-12f;
+    }
+    simplex = {b, a};
+    return handleLine(simplex, direction);
+  }
+
+  if (sameDirection(engine::cross(ab, abc), ao)) {
+    simplex = {b, a};
+    return handleLine(simplex, direction);
+  }
+
+  if (sameDirection(abc, ao)) {
+    direction = abc;
+    simplex = {c, b, a};
+  } else {
+    direction = negated(abc);
+    simplex = {b, c, a};
+  }
+  return lengthSquared(direction) < 1e-12f;
+}
+
+bool handleTetrahedron(std::vector<Vec3>& simplex, Vec3& direction) {
+  const Vec3 a = simplex[3];
+  const Vec3 b = simplex[2];
+  const Vec3 c = simplex[1];
+  const Vec3 d = simplex[0];
+  const Vec3 ao = negated(a);
+
+  Vec3 abc = engine::cross(b - a, c - a);
+  if (engine::dot(abc, d - a) > 0.0f) abc = negated(abc);
+  if (sameDirection(abc, ao)) {
+    simplex = {c, b, a};
+    return handleTriangle(simplex, direction);
+  }
+
+  Vec3 acd = engine::cross(c - a, d - a);
+  if (engine::dot(acd, b - a) > 0.0f) acd = negated(acd);
+  if (sameDirection(acd, ao)) {
+    simplex = {d, c, a};
+    return handleTriangle(simplex, direction);
+  }
+
+  Vec3 adb = engine::cross(d - a, b - a);
+  if (engine::dot(adb, c - a) > 0.0f) adb = negated(adb);
+  if (sameDirection(adb, ao)) {
+    simplex = {b, d, a};
+    return handleTriangle(simplex, direction);
+  }
+
+  return true;
+}
+
+bool handleSimplex(std::vector<Vec3>& simplex, Vec3& direction) {
+  if (simplex.size() == 2) return handleLine(simplex, direction);
+  if (simplex.size() == 3) return handleTriangle(simplex, direction);
+  if (simplex.size() == 4) return handleTetrahedron(simplex, direction);
+  return false;
+}
+
+bool overlapsConvexObject(const Object& candidate, const RenderObject& object) {
+  Vec3 direction = candidate.localToWorld(candidate.hitBox.centre()) - object.position;
+  if (lengthSquared(direction) < 1e-10f) direction = {1.0f, 0.0f, 0.0f};
+
+  std::vector<Vec3> simplex;
+  simplex.reserve(4);
+  simplex.push_back(minkowskiSupport(candidate, object, direction));
+  direction = negated(simplex.back());
+  if (lengthSquared(direction) < 1e-12f) return true;
+
+  for (int iteration = 0; iteration < 40; ++iteration) {
+    const Vec3 point = minkowskiSupport(candidate, object, direction);
+    if (engine::dot(point, direction) <= 1e-6f) return false;
+    simplex.push_back(point);
+    if (handleSimplex(simplex, direction)) return true;
+  }
+  return false;
+}
+
+void copySurface(const Hit& source, SceneSurfaceHit& destination) {
+  destination.found = source.found;
+  destination.distance = source.t;
+  destination.point = source.point;
+  destination.normal = source.normal;
+  destination.colour = source.colour;
+  destination.kind = source.kind;
+  destination.walkable = source.walkable;
 }
 
 class DemoLevel final : public engine::IWorldLevel {
@@ -192,13 +551,52 @@ public:
     return hit.found ? shade(hit) : background(backgroundY);
   }
 
+  bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const override {
+    const Hit traced = traceClosest(ray, EPSILON, FAR_DISTANCE);
+    if (!traced.found) return false;
+    copySurface(traced, hit);
+    return true;
+  }
+
+  bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const override {
+    const Ray ray{{x, y, 100.0f}, {0.0f, 0.0f, -1.0f}};
+    Hit closest;
+    float maximum = FAR_DISTANCE;
+
+    for (const Staircase& staircase : definition_.staircases) {
+      Hit candidate;
+      if (intersectStaircase(ray, staircase, EPSILON, maximum, candidate) && candidate.walkable) {
+        closest = candidate;
+        maximum = candidate.t;
+      }
+    }
+
+    Hit ground;
+    if (intersectGround(ray, EPSILON, maximum, ground)) {
+      closest = ground;
+      maximum = ground.t;
+    }
+
+    if (!closest.found) return false;
+    copySurface(closest, hit);
+    return true;
+  }
+
   const std::vector<WorldObject>& objects() const override {
     return worldObjects_;
   }
 
+  bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const override {
+    if (objectIndex >= definition_.objects.size()) return false;
+    const RenderObject& object = definition_.objects[objectIndex];
+    return object.solid && overlapsConvexObject(candidate, object);
+  }
+
   bool intersectsSolid(const HitBox& hitBox) const override {
-    for (const WorldObject& object : worldObjects_) {
-      if (object.blocks(hitBox)) return true;
+    Object candidate;
+    candidate.hitBox = hitBox;
+    for (std::size_t index = 0; index < definition_.objects.size(); ++index) {
+      if (overlapsStatic(index, candidate)) return true;
     }
     return false;
   }
@@ -486,21 +884,32 @@ private:
   }
 
   bool intersectObject(const Ray& ray, const RenderObject& object, float minimum, float maximum, Hit& hit) const {
+    bool found = false;
     switch (object.kind) {
       case ShapeKind::Cube:
-        return intersectCube(ray, object, minimum, maximum, hit);
+        found = intersectCube(ray, object, minimum, maximum, hit);
+        break;
       case ShapeKind::Sphere:
-        return intersectSphere(ray, object, minimum, maximum, hit);
+        found = intersectSphere(ray, object, minimum, maximum, hit);
+        break;
       case ShapeKind::Cone:
-        return intersectCone(ray, object, minimum, maximum, hit);
+        found = intersectCone(ray, object, minimum, maximum, hit);
+        break;
       case ShapeKind::Pyramid:
-        return intersectPyramid(ray, object, minimum, maximum, hit);
+        found = intersectPyramid(ray, object, minimum, maximum, hit);
+        break;
       case ShapeKind::Dodecahedron:
-        return intersectPolyhedron(ray, object, dodecahedronNormals(), minimum, maximum, hit);
+        found = intersectPolyhedron(ray, object, dodecahedronNormals(), minimum, maximum, hit);
+        break;
       case ShapeKind::Icosahedron:
-        return intersectPolyhedron(ray, object, icosahedronNormals(), minimum, maximum, hit);
+        found = intersectPolyhedron(ray, object, icosahedronNormals(), minimum, maximum, hit);
+        break;
     }
-    return false;
+    if (found) {
+      hit.kind = SceneSurfaceKind::Object;
+      hit.walkable = false;
+    }
+    return found;
   }
 
   Vec3 floorColour(
@@ -626,6 +1035,8 @@ private:
         closest = candidate.t;
         hit = candidate;
         hit.colour = floorColour(hit.point);
+        hit.kind = SceneSurfaceKind::Stair;
+        hit.walkable = hit.normal.z > 0.5f;
       }
     }
     return found;
@@ -650,6 +1061,8 @@ private:
     hit.point = point;
     hit.normal = {0.0f, 0.0f, 1.0f};
     hit.colour = floorColour(point, floor.dark, floor.light);
+    hit.kind = SceneSurfaceKind::Proxy;
+    hit.walkable = false;
     return true;
   }
 
@@ -667,6 +1080,8 @@ private:
     hit.point = point;
     hit.normal = {0.0f, 0.0f, 1.0f};
     hit.colour = floorColour(point);
+    hit.kind = SceneSurfaceKind::Ground;
+    hit.walkable = true;
     return true;
   }
 
@@ -742,14 +1157,7 @@ LevelDefinition lowerLevel() {
   level.floorLight = LOWER_FLOOR_LIGHT;
   level.objects.push_back({ShapeKind::Cone, {-1.30f, -0.80f, 0.82f}, 0.86f, 1.64f, {0.62f, 0.25f, 0.82f}, true});
   level.objects.push_back({ShapeKind::Pyramid, {1.20f, 0.85f, 0.83f}, 0.92f, 1.66f, {0.96f, 0.78f, 0.16f}, true});
-  level.staircases.push_back({
-    LOWER_MIDDLE_STAIR_X,
-    STAIR_LOW_Y,
-    STAIR_HIGH_Y,
-    0.0f,
-    STAIR_RISE,
-    STAIR_WIDTH
-  });
+  level.staircases.push_back(ascendingStaircase(LOWER_MIDDLE_STAIR));
   return level;
 }
 
@@ -761,29 +1169,15 @@ LevelDefinition middleLevel() {
   level.objects.push_back({ShapeKind::Cube, {-1.05f, 0.65f, 0.775f}, 0.80f, 1.55f, {0.18f, 0.48f, 0.88f}, true});
   level.objects.push_back({ShapeKind::Sphere, {1.05f, -0.25f, 0.90f}, 0.90f, 1.80f, {0.95f, 0.43f, 0.12f}, true});
 
-  level.floorHoles.push_back(stairHole(LOWER_MIDDLE_STAIR_X));
-  level.staircases.push_back({
-    LOWER_MIDDLE_STAIR_X,
-    STAIR_HIGH_Y,
-    STAIR_LOW_Y,
-    0.0f,
-    -STAIR_RISE,
-    STAIR_WIDTH
-  });
+  level.floorHoles.push_back(stairHole(LOWER_MIDDLE_STAIR));
+  level.staircases.push_back(descendingStaircase(LOWER_MIDDLE_STAIR));
   level.floorProxies.push_back({
     -STAIR_RISE,
     LOWER_FLOOR_DARK,
     LOWER_FLOOR_LIGHT
   });
 
-  level.staircases.push_back({
-    MIDDLE_UPPER_STAIR_X,
-    STAIR_LOW_Y,
-    STAIR_HIGH_Y,
-    0.0f,
-    STAIR_RISE,
-    STAIR_WIDTH
-  });
+  level.staircases.push_back(ascendingStaircase(MIDDLE_UPPER_STAIR));
   return level;
 }
 
@@ -795,15 +1189,8 @@ LevelDefinition upperLevel() {
   level.objects.push_back({ShapeKind::Dodecahedron, {-1.35f, 0.95f, 1.00f}, 0.72f, 0.0f, {0.18f, 0.50f, 0.94f}, true});
   level.objects.push_back({ShapeKind::Icosahedron, {1.30f, -0.95f, 1.10f}, 0.78f, 0.0f, {0.90f, 0.16f, 0.14f}, true});
 
-  level.floorHoles.push_back(stairHole(MIDDLE_UPPER_STAIR_X));
-  level.staircases.push_back({
-    MIDDLE_UPPER_STAIR_X,
-    STAIR_HIGH_Y,
-    STAIR_LOW_Y,
-    0.0f,
-    -STAIR_RISE,
-    STAIR_WIDTH
-  });
+  level.floorHoles.push_back(stairHole(MIDDLE_UPPER_STAIR));
+  level.staircases.push_back(descendingStaircase(MIDDLE_UPPER_STAIR));
   level.floorProxies.push_back({
     -STAIR_RISE,
     MIDDLE_FLOOR_DARK,
@@ -824,7 +1211,15 @@ std::vector<std::unique_ptr<engine::IWorldLevel>> DemoWorld::makeLevels() {
 }
 
 DemoWorld::DemoWorld()
-    : engine::World(makeLevels(), 1) {}
+    : engine::World(makeLevels(), 1) {
+  setLevelId(0, "lower");
+  setLevelId(1, "middle");
+  setLevelId(2, "upper");
+  setNavigationLinks({
+    navigationLink(LOWER_MIDDLE_STAIR),
+    navigationLink(MIDDLE_UPPER_STAIR)
+  });
+}
 
 } // namespace demo
 } // namespace isoweb

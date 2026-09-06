@@ -32,7 +32,10 @@ public:
 
   virtual const WorldBounds& bounds() const = 0;
   virtual Vec3 sample(const Ray& ray, float backgroundY) const = 0;
+  virtual bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const = 0;
+  virtual bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const = 0;
   virtual const std::vector<Object>& objects() const = 0;
+  virtual bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const = 0;
   virtual bool intersectsSolid(const HitBox& hitBox) const = 0;
 };
 
@@ -42,6 +45,7 @@ public:
 
   const WorldBounds& bounds() const override;
   Vec3 sample(const Ray& ray, float backgroundY) const override;
+  bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const override;
   const std::vector<Object>& objects() const override;
   bool intersectsSolid(const HitBox& hitBox) const override;
   bool collidesWith(const Object& candidate) const override;
@@ -64,6 +68,20 @@ public:
   bool collidesWith(const Object& candidate, const Object* ignored) const;
   bool containsPosition(const std::string& levelId, const Vec3& position) const;
 
+  bool traceEnvironment(const std::string& levelId, const Ray& ray, SceneSurfaceHit& hit) const;
+  float environmentDistance(const Ray& ray) const;
+  bool pickWalkableSurface(const Ray& ray, SceneSurfaceHit& hit) const;
+  bool walkableSurfaceAt(const std::string& levelId, float x, float y, SceneSurfaceHit& hit) const;
+  bool resolveWalkablePosition(
+    const Object& object,
+    const std::string& levelId,
+    const Vec3& requested,
+    float referenceZ,
+    float maxStepUp,
+    float maxDrop,
+    Vec3& resolved
+  ) const;
+
   const std::vector<NavigationLink>& navigationLinks() const { return navigationLinks_; }
   void setNavigationLinks(std::vector<NavigationLink> links) { navigationLinks_ = std::move(links); }
 
@@ -81,8 +99,8 @@ public:
 
 private:
   const IWorldLevel& activeLevel() const;
-  Vec3 sampleRuntimeEntities(const Ray& ray, float backgroundY, float staticDistance, bool& found) const;
-  float staticOccluderDistance(const Ray& ray) const;
+  const IWorldLevel& levelFor(const std::string& levelId) const;
+  Vec3 sampleRuntimeEntities(const Ray& ray, float backgroundY, float environmentDistance, bool& found) const;
 
   std::vector<std::unique_ptr<IWorldLevel>> levels_;
   std::vector<std::string> levelIds_;

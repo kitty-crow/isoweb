@@ -89,23 +89,62 @@ bool positionBlocked(
   return world.collidesWith(candidate, &character);
 }
 
+bool resolveSupported(
+  const World& world,
+  const Character& character,
+  const std::string& levelId,
+  const Vec3& desired,
+  float referenceZ,
+  const Vec3& facing,
+  const CharacterEngineDefaults& defaults,
+  Vec3& resolved
+) {
+  if (!world.resolveWalkablePosition(
+    character,
+    levelId,
+    desired,
+    referenceZ,
+    defaults.maxStepHeight,
+    defaults.maxDropHeight,
+    resolved
+  )) {
+    return false;
+  }
+  return !positionBlocked(world, character, levelId, resolved, facing);
+}
+
 bool segmentClear(
   const World& world,
   const Character& character,
   const std::string& levelId,
   const Vec3& from,
   const Vec3& to,
-  float cell
+  const CharacterEngineDefaults& defaults,
+  Vec3* resolvedEnd = nullptr
 ) {
-  const float length = distance2(from, to);
-  if (length <= 1e-6f) return true;
-  const int steps = std::max(1, static_cast<int>(std::ceil(length / std::max(0.05f, cell * 0.5f))));
+  const float horizontalLength = distance2(from, to);
   const Vec3 facing = horizontalDirection(from, to, character.forward);
+  Vec3 current = from;
+
+  if (horizontalLength <= 1e-6f) {
+    Vec3 resolved;
+    if (!resolveSupported(world, character, levelId, to, from.z, facing, defaults, resolved)) return false;
+    if (resolvedEnd) *resolvedEnd = resolved;
+    return true;
+  }
+
+  const float sampleDistance = std::max(0.04f, defaults.navigationCellSize * 0.35f);
+  const int steps = std::max(1, static_cast<int>(std::ceil(horizontalLength / sampleDistance)));
   for (int i = 1; i <= steps; ++i) {
     const float t = static_cast<float>(i) / steps;
-    const Vec3 point = from * (1.0f - t) + to * t;
-    if (!world.containsPosition(levelId, point) || positionBlocked(world, character, levelId, point, facing)) return false;
+    Vec3 desired = from * (1.0f - t) + to * t;
+    desired.z = current.z;
+    Vec3 supported;
+    if (!resolveSupported(world, character, levelId, desired, current.z, facing, defaults, supported)) return false;
+    current = supported;
   }
+
+  if (resolvedEnd) *resolvedEnd = current;
   return true;
 }
 
@@ -118,11 +157,12 @@ bool sameLevelPath(
   const CharacterEngineDefaults& defaults,
   std::vector<CharacterWaypoint>& output
 ) {
-  if (segmentClear(world, character, levelId, start, destination, defaults.navigationCellSize)) {
+  Vec3 directDestination;
+  if (segmentClear(world, character, levelId, start, destination, defaults, &directDestination)) {
     CharacterWaypoint waypoint;
     waypoint.location = character.location;
     waypoint.location.levelId = levelId;
-    waypoint.location.position = destination;
+    waypoint.location.position = directDestination;
     output.push_back(waypoint);
     return true;
   }
@@ -138,9 +178,11 @@ bool sameLevelPath(
   std::priority_queue<QueueNode> open;
   std::map<GridPoint, float> cost;
   std::map<GridPoint, GridPoint> parent;
+  std::map<GridPoint, Vec3> positions;
   std::set<GridPoint> closed;
   open.push({startGrid, 0.0f});
   cost[startGrid] = 0.0f;
+  positions[startGrid] = start;
 
   const int directions[8][2] = {
     {-1, 0}, {1, 0}, {0, -1}, {0, 1},
@@ -158,22 +200,36 @@ bool sameLevelPath(
       break;
     }
 
+    const Vec3 currentPoint = positions[current];
     for (const auto& direction : directions) {
       GridPoint next{current.x + direction[0], current.y + direction[1]};
       if (next.x < 0 || next.y < 0 || next.x > maxGridX || next.y > maxGridY) continue;
       if (closed.find(next) != closed.end()) continue;
 
-      const Vec3 currentPoint = fromGrid(current, minX, minY, cell, start.z);
-      const Vec3 nextPoint = fromGrid(next, minX, minY, cell, start.z);
-      const Vec3 facing = horizontalDirection(currentPoint, nextPoint, character.forward);
-      if (!world.containsPosition(levelId, nextPoint) || positionBlocked(world, character, levelId, nextPoint, facing)) continue;
+      Vec3 desired = fromGrid(next, minX, minY, cell, currentPoint.z);
+      const Vec3 facing = horizontalDirection(currentPoint, desired, character.forward);
+      Vec3 supported;
+      if (!resolveSupported(
+        world,
+        character,
+        levelId,
+        desired,
+        currentPoint.z,
+        facing,
+        defaults,
+        supported
+      )) {
+        continue;
+      }
 
-      const float step = (direction[0] != 0 && direction[1] != 0) ? 1.41421356f : 1.0f;
-      const float nextCost = cost[current] + step;
+      const float horizontalStep = (direction[0] != 0 && direction[1] != 0) ? 1.41421356f : 1.0f;
+      const float verticalCost = std::fabs(supported.z - currentPoint.z) / cell;
+      const float nextCost = cost[current] + horizontalStep + verticalCost * 0.25f;
       auto existing = cost.find(next);
       if (existing != cost.end() && existing->second <= nextCost) continue;
       cost[next] = nextCost;
       parent[next] = current;
+      positions[next] = supported;
       const float heuristic = static_cast<float>(std::abs(goalGrid.x - next.x) + std::abs(goalGrid.y - next.y));
       open.push({next, nextCost + heuristic});
     }
@@ -184,28 +240,40 @@ bool sameLevelPath(
   std::vector<Vec3> reversed;
   GridPoint cursor = goalGrid;
   while (!(cursor == startGrid)) {
-    reversed.push_back(fromGrid(cursor, minX, minY, cell, start.z));
+    const auto position = positions.find(cursor);
+    if (position == positions.end()) return false;
+    reversed.push_back(position->second);
     const auto it = parent.find(cursor);
     if (it == parent.end()) return false;
     cursor = it->second;
   }
   std::reverse(reversed.begin(), reversed.end());
-  if (!reversed.empty()) reversed.back() = destination;
+  reversed.push_back(destination);
 
   Vec3 anchor = start;
   std::size_t index = 0;
   while (index < reversed.size()) {
     std::size_t furthest = index;
+    Vec3 furthestResolved;
+    bool foundClear = false;
     for (std::size_t candidate = index; candidate < reversed.size(); ++candidate) {
-      if (segmentClear(world, character, levelId, anchor, reversed[candidate], cell)) furthest = candidate;
-      else break;
+      Vec3 resolved;
+      if (segmentClear(world, character, levelId, anchor, reversed[candidate], defaults, &resolved)) {
+        furthest = candidate;
+        furthestResolved = resolved;
+        foundClear = true;
+      } else {
+        break;
+      }
     }
+    if (!foundClear) return false;
+
     CharacterWaypoint waypoint;
     waypoint.location = character.location;
     waypoint.location.levelId = levelId;
-    waypoint.location.position = reversed[furthest];
+    waypoint.location.position = furthestResolved;
     output.push_back(waypoint);
-    anchor = reversed[furthest];
+    anchor = furthestResolved;
     index = furthest + 1;
   }
   return true;
@@ -270,19 +338,39 @@ std::vector<DirectedLink> levelRoute(
   return reversed;
 }
 
-void appendTraversal(
+bool appendTraversal(
+  const World& world,
   const Character& character,
   const std::string& levelId,
   const std::vector<Vec3>& points,
+  const CharacterEngineDefaults& defaults,
+  Vec3& currentPosition,
   std::vector<CharacterWaypoint>& output
 ) {
   for (const Vec3& point : points) {
+    const Vec3 facing = horizontalDirection(currentPosition, point, character.forward);
+    Vec3 supported;
+    if (!resolveSupported(
+      world,
+      character,
+      levelId,
+      point,
+      currentPosition.z,
+      facing,
+      defaults,
+      supported
+    )) {
+      return false;
+    }
+
     CharacterWaypoint waypoint;
     waypoint.location = character.location;
     waypoint.location.levelId = levelId;
-    waypoint.location.position = point;
+    waypoint.location.position = supported;
     output.push_back(waypoint);
+    currentPosition = supported;
   }
+  return true;
 }
 
 } // namespace
@@ -317,9 +405,25 @@ EntityLocation DestinationPolicy::resolve(
   if (resolved.timelineId.empty()) resolved.timelineId = character.location.timelineId;
   if (resolved.levelId.empty()) resolved.levelId = character.location.levelId;
 
-  Character probe = character;
-  probe.location = resolved;
-  if (world.containsPosition(resolved.levelId, resolved.position) && !world.collidesWith(probe, &character)) return resolved;
+  const float unlimited = std::numeric_limits<float>::max() * 0.25f;
+  Vec3 supported;
+  if (world.resolveWalkablePosition(
+    character,
+    resolved.levelId,
+    resolved.position,
+    resolved.position.z,
+    unlimited,
+    unlimited,
+    supported
+  )) {
+    Character probe = character;
+    probe.location = resolved;
+    probe.location.position = supported;
+    if (!world.collidesWith(probe, &character)) {
+      resolved.position = supported;
+      return resolved;
+    }
+  }
 
   const float step = std::max(0.08f, defaults.navigationCellSize);
   const int rings = std::max(1, static_cast<int>(std::ceil(defaults.destinationSearchRadius / step)));
@@ -328,9 +432,26 @@ EntityLocation DestinationPolicy::resolve(
     for (int x = -radius; x <= radius; ++x) {
       for (int y = -radius; y <= radius; ++y) {
         if (std::max(std::abs(x), std::abs(y)) != radius) continue;
-        resolved.position = requested.position + Vec3(x * step, y * step, 0.0f);
+        Vec3 candidatePoint = requested.position + Vec3(x * step, y * step, 0.0f);
+        if (!world.resolveWalkablePosition(
+          character,
+          resolved.levelId,
+          candidatePoint,
+          candidatePoint.z,
+          unlimited,
+          unlimited,
+          supported
+        )) {
+          continue;
+        }
+
+        Character probe = character;
         probe.location = resolved;
-        if (world.containsPosition(resolved.levelId, resolved.position) && !world.collidesWith(probe, &character)) return resolved;
+        probe.location.position = supported;
+        if (!world.collidesWith(probe, &character)) {
+          resolved.position = supported;
+          return resolved;
+        }
       }
     }
   }
@@ -370,7 +491,8 @@ bool DefaultNavigationPolicy::buildRoute(
       const std::vector<Vec3>& traversal = directed.reverse ? link.reverseTraversal : link.forwardTraversal;
 
       if (!sameLevelPath(world, character, currentLevel, currentPosition, approach, defaults, waypoints)) return false;
-      appendTraversal(character, currentLevel, traversal, waypoints);
+      if (!waypoints.empty()) currentPosition = waypoints.back().location.position;
+      if (!appendTraversal(world, character, currentLevel, traversal, defaults, currentPosition, waypoints)) return false;
 
       CharacterWaypoint transition;
       transition.location = transitions.arrival(character, link, directed.reverse);
