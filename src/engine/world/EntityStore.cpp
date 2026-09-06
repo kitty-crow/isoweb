@@ -9,7 +9,14 @@ namespace engine {
 
 Object& EntityStore::add(std::unique_ptr<Object> entity) {
   Object& reference = *entity;
+  Object* pointer = entity.get();
   entities_.push_back(std::move(entity));
+  allView_.push_back(pointer);
+  constAllView_.push_back(pointer);
+  if (Character* character = dynamic_cast<Character*>(pointer)) {
+    characterView_.push_back(character);
+    constCharacterView_.push_back(character);
+  }
   return reference;
 }
 
@@ -19,55 +26,68 @@ bool EntityStore::remove(const std::string& id) {
   });
   if (it == entities_.end()) return false;
   entities_.erase(it, entities_.end());
+  rebuildViews();
   return true;
 }
 
 void EntityStore::clear() {
   entities_.clear();
+  allView_.clear();
+  constAllView_.clear();
+  characterView_.clear();
+  constCharacterView_.clear();
 }
 
 Object* EntityStore::find(const std::string& id) {
-  for (const auto& entity : entities_) {
-    if (entity && entity->id == id) return entity.get();
+  for (Object* entity : allView_) {
+    if (entity && entity->id == id) return entity;
   }
   return nullptr;
 }
 
 const Object* EntityStore::find(const std::string& id) const {
-  for (const auto& entity : entities_) {
-    if (entity && entity->id == id) return entity.get();
+  for (const Object* entity : constAllView_) {
+    if (entity && entity->id == id) return entity;
   }
   return nullptr;
 }
 
-std::vector<Object*> EntityStore::all() {
-  std::vector<Object*> result;
-  result.reserve(entities_.size());
-  for (const auto& entity : entities_) if (entity) result.push_back(entity.get());
-  return result;
+const std::vector<Object*>& EntityStore::all() {
+  return allView_;
 }
 
-std::vector<const Object*> EntityStore::all() const {
-  std::vector<const Object*> result;
-  result.reserve(entities_.size());
-  for (const auto& entity : entities_) if (entity) result.push_back(entity.get());
-  return result;
+const std::vector<const Object*>& EntityStore::all() const {
+  return constAllView_;
 }
 
-std::vector<Character*> EntityStore::characters() {
-  std::vector<Character*> result;
+const std::vector<Character*>& EntityStore::characters() {
+  return characterView_;
+}
+
+const std::vector<const Character*>& EntityStore::characters() const {
+  return constCharacterView_;
+}
+
+void EntityStore::rebuildViews() {
+  allView_.clear();
+  constAllView_.clear();
+  characterView_.clear();
+  constCharacterView_.clear();
+  allView_.reserve(entities_.size());
+  constAllView_.reserve(entities_.size());
+  characterView_.reserve(entities_.size());
+  constCharacterView_.reserve(entities_.size());
+
   for (const auto& entity : entities_) {
-    if (Character* character = dynamic_cast<Character*>(entity.get())) result.push_back(character);
+    if (!entity) continue;
+    Object* pointer = entity.get();
+    allView_.push_back(pointer);
+    constAllView_.push_back(pointer);
+    if (Character* character = dynamic_cast<Character*>(pointer)) {
+      characterView_.push_back(character);
+      constCharacterView_.push_back(character);
+    }
   }
-  return result;
-}
-
-std::vector<const Character*> EntityStore::characters() const {
-  std::vector<const Character*> result;
-  for (const auto& entity : entities_) {
-    if (const Character* character = dynamic_cast<const Character*>(entity.get())) result.push_back(character);
-  }
-  return result;
 }
 
 } // namespace engine
