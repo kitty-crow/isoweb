@@ -79,6 +79,10 @@ enum class ObjectFace {
 struct ObjectRayHit {
   float distance = 0.0f;
   Vec3 worldPoint;
+  // Geometrically exact object-local point.
+  Vec3 geometricLocalPoint;
+  // Object-local surface coordinates oriented so artwork/text reads correctly
+  // when viewed from outside that face. This is what debug face skins sample.
   Vec3 localPoint;
   Vec3 worldNormal;
   ObjectFace face = ObjectFace::Front;
@@ -258,16 +262,30 @@ public:
 
     hit.distance = nearT;
     hit.worldPoint = ray.origin + ray.direction * nearT;
-    hit.localPoint = localOrigin + localDirection * nearT;
+    hit.geometricLocalPoint = localOrigin + localDirection * nearT;
+    hit.localPoint = hit.geometricLocalPoint;
     if (nearAxis == 0) {
       hit.worldNormal = right * nearSign;
       hit.face = nearSign < 0.0f ? ObjectFace::Left : ObjectFace::Right;
+      // Looking inward from the object's left side reverses local +Y on screen.
+      if (hit.face == ObjectFace::Left) {
+        hit.localPoint.y = hitBox.minimum.y + hitBox.maximum.y - hit.localPoint.y;
+      }
     } else if (nearAxis == 1) {
       hit.worldNormal = facing * nearSign;
       hit.face = nearSign < 0.0f ? ObjectFace::Back : ObjectFace::Front;
+      // Back already reads correctly; the outward-facing front reverses +X.
+      if (hit.face == ObjectFace::Front) {
+        hit.localPoint.x = hitBox.minimum.x + hitBox.maximum.x - hit.localPoint.x;
+      }
     } else {
       hit.worldNormal = {0.0f, 0.0f, nearSign};
       hit.face = nearSign < 0.0f ? ObjectFace::Bottom : ObjectFace::Top;
+      // Keep +Y as glyph-up on both horizontal faces; the underside needs X
+      // reversed to retain an outward-facing, readable coordinate frame.
+      if (hit.face == ObjectFace::Bottom) {
+        hit.localPoint.x = hitBox.minimum.x + hitBox.maximum.x - hit.localPoint.x;
+      }
     }
     return true;
   }
