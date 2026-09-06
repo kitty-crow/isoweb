@@ -76,12 +76,15 @@ private:
   int presetAt(int position, float wholeZoomScaleValue) const;
   int sequenceLength() const;
   int sequencePosition(float wholeZoomScaleValue) const;
+  void resetPanPixelRemainder();
 
   CameraConfig config_;
   int yawStep_ = 0;
   int zoomPreset_ = 3;
   float panX_ = 0.0f;
   float panY_ = 0.0f;
+  float panPixelRemainderRight_ = 0.0f;
+  float panPixelRemainderVertical_ = 0.0f;
   bool detailedMode_ = false;
   bool detailedYawMode_ = false;
 };
