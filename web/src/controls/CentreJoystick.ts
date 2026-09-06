@@ -26,7 +26,6 @@ export type QuantisedStick = {
 };
 
 const EIGHTH_TURN = Math.PI / 4;
-const TWO_PI = Math.PI * 2;
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
@@ -106,8 +105,6 @@ export class CentreJoystick {
     this.pointerId = event.pointerId;
     this.originX = rect.left + rect.width * 0.5;
     this.originY = rect.top + rect.height * 0.5;
-    // Allow the thumb/finger to travel beyond the visible disc while keeping
-    // full-strength reachable on small 44px touch hitboxes.
     this.radius = Math.max(24, Math.min(64, Math.max(rect.width, rect.height) * 0.85));
     this.rawX = 0;
     this.rawY = 0;
@@ -134,7 +131,6 @@ export class CentreJoystick {
 
     if (this.dragged && !this.frame) {
       this.previousTime = performance.now();
-      // Give the first non-neutral drag an immediate discrete response.
       this.repeatAccumulator = 1;
       this.frame = requestAnimationFrame(this.animate);
     }
@@ -144,16 +140,21 @@ export class CentreJoystick {
   private readonly onPointerUp = (event: PointerEvent): void => {
     if (event.pointerId !== this.pointerId) return;
     event.preventDefault();
-    if (this.spec.element.hasPointerCapture(event.pointerId)) {
-      this.spec.element.releasePointerCapture(event.pointerId);
-    }
+    const pointerId = event.pointerId;
     this.finish(false);
+    if (this.spec.element.hasPointerCapture(pointerId)) {
+      this.spec.element.releasePointerCapture(pointerId);
+    }
   };
 
   private readonly onPointerCancel = (event: PointerEvent): void => {
     if (event.pointerId !== this.pointerId) return;
     event.preventDefault();
+    const pointerId = event.pointerId;
     this.finish(true);
+    if (this.spec.element.hasPointerCapture(pointerId)) {
+      this.spec.element.releasePointerCapture(pointerId);
+    }
   };
 
   private readonly onLostPointerCapture = (event: PointerEvent): void => {
@@ -188,8 +189,6 @@ export class CentreJoystick {
     if (stick.level > 0) {
       switch (this.spec.id) {
         case CentreStickId.Pan: {
-          // Pointer-space +Y is screen-down, while the established engine pan
-          // binding uses +down to move the view upward. Preserve that mapping.
           const right = stick.x * INPUT.joystickPanUnitsPerSecond * deltaSeconds;
           const down = -stick.y * INPUT.joystickPanUnitsPerSecond * deltaSeconds;
           if (right !== 0 || down !== 0) {
@@ -276,7 +275,3 @@ export class CentreJoystick {
     if (hadVisualOffset) this.module._isoweb_render();
   }
 }
-
-// Keep the constants used above visibly finite for bundlers/static analysis and
-// avoid accidental angle-normalisation drift in future changes.
-void TWO_PI;
