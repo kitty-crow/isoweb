@@ -159,6 +159,7 @@ public:
       cachedForwardX_ = forward.x;
       cachedForwardY_ = forward.y;
       basisCacheValid_ = true;
+      rayDirectionCacheValid_ = false;
     }
     facing = cachedFacing_;
     right = cachedRight_;
@@ -199,23 +200,44 @@ public:
     horizontalBasis(facing, right);
     const Vec3 relativeOrigin = ray.origin - location.position;
     const Vec3 localOrigin(dot2(relativeOrigin, right), dot2(relativeOrigin, facing), relativeOrigin.z);
-    const Vec3 localDirection(dot2(ray.direction, right), dot2(ray.direction, facing), ray.direction.z);
 
+    if (!rayDirectionCacheValid_ ||
+        cachedRayDirection_.x != ray.direction.x ||
+        cachedRayDirection_.y != ray.direction.y ||
+        cachedRayDirection_.z != ray.direction.z) {
+      cachedRayDirection_ = ray.direction;
+      cachedLocalRayDirection_ = {
+        dot2(ray.direction, right),
+        dot2(ray.direction, facing),
+        ray.direction.z
+      };
+      const float directions[3] = {
+        cachedLocalRayDirection_.x,
+        cachedLocalRayDirection_.y,
+        cachedLocalRayDirection_.z
+      };
+      for (int axis = 0; axis < 3; ++axis) {
+        cachedRayParallel_[axis] = std::fabs(directions[axis]) < 1e-7f;
+        cachedRayInverse_[axis] = cachedRayParallel_[axis] ? 0.0f : 1.0f / directions[axis];
+      }
+      rayDirectionCacheValid_ = true;
+    }
+
+    const Vec3& localDirection = cachedLocalRayDirection_;
     float nearT = minimum;
     float farT = maximum;
     int nearAxis = -1;
     float nearSign = 0.0f;
     const float origins[3] = {localOrigin.x, localOrigin.y, localOrigin.z};
-    const float directions[3] = {localDirection.x, localDirection.y, localDirection.z};
     const float mins[3] = {hitBox.minimum.x, hitBox.minimum.y, hitBox.minimum.z};
     const float maxs[3] = {hitBox.maximum.x, hitBox.maximum.y, hitBox.maximum.z};
 
     for (int axis = 0; axis < 3; ++axis) {
-      if (std::fabs(directions[axis]) < 1e-7f) {
+      if (cachedRayParallel_[axis]) {
         if (origins[axis] < mins[axis] || origins[axis] > maxs[axis]) return false;
         continue;
       }
-      const float inverse = 1.0f / directions[axis];
+      const float inverse = cachedRayInverse_[axis];
       float t0 = (mins[axis] - origins[axis]) * inverse;
       float t1 = (maxs[axis] - origins[axis]) * inverse;
       float sign = -1.0f;
@@ -301,6 +323,12 @@ private:
   mutable float cachedForwardY_ = 0.0f;
   mutable Vec3 cachedFacing_ = {0.0f, 1.0f, 0.0f};
   mutable Vec3 cachedRight_ = {1.0f, 0.0f, 0.0f};
+
+  mutable bool rayDirectionCacheValid_ = false;
+  mutable Vec3 cachedRayDirection_;
+  mutable Vec3 cachedLocalRayDirection_;
+  mutable float cachedRayInverse_[3] = {0.0f, 0.0f, 0.0f};
+  mutable bool cachedRayParallel_[3] = {false, false, false};
 };
 
 } // namespace engine
