@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -32,8 +33,25 @@ public:
   bool worldPointToPixel(const Vec3& point, float& px, float& py) const;
 
 private:
+  struct StaticSample {
+    Vec3 colour;
+    float environmentDistance = 0.0f;
+  };
+
+  struct StaticCacheKey {
+    int width = 0;
+    int height = 0;
+    std::size_t level = 0;
+    int yawStep = 0;
+    int zoomPreset = 0;
+    float panX = 0.0f;
+    float panY = 0.0f;
+    float viewHeight = 0.0f;
+  };
+
   static std::uint8_t toByte(float value);
   void ensureFrame();
+  bool staticCacheMatches(const StaticCacheKey& key) const;
 
   const IWorld& world_;
   Camera& camera_;
@@ -44,6 +62,10 @@ private:
   int allocatedFrameHeight_ = 0;
   dsr::OrderedImageRgbaU8 frame_;
   std::vector<std::uint8_t> rgba_;
+
+  std::vector<StaticSample> staticSamples_;
+  StaticCacheKey staticCacheKey_;
+  bool staticCacheValid_ = false;
 };
 
 } // namespace engine
