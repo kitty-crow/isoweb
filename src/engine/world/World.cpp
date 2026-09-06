@@ -203,7 +203,6 @@ World::World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defau
     levelIds_.push_back(std::to_string(index));
     levels_[index]->setResident(index == defaultLevelIndex_);
   }
-  levelLights_.resize(levels_.size());
 }
 
 const IWorldLevel& World::activeLevel() const {
@@ -360,29 +359,11 @@ bool World::renderPositionFor(const Character& character, Vec3& position) const 
   return mapLiminalPosition(character.location, activeLevelId(), position);
 }
 
-bool World::setLevelLight(
-  const std::string& levelId,
-  const Vec3& position,
-  float ambient,
-  float attenuation,
-  float directScale
-) {
-  const std::size_t index = levelIndex(levelId);
-  if (index >= levelLights_.size()) return false;
-  LevelLight& light = levelLights_[index];
-  light.configured = true;
-  light.position = position;
-  light.ambient = std::max(0.0f, std::min(1.0f, ambient));
-  light.attenuation = std::max(0.0f, attenuation);
-  light.directScale = std::max(0.0f, directScale);
-  return true;
-}
-
 float World::runtimeLightVisibility(const std::string& levelId, const Vec3& point) const {
   const std::size_t index = levelIndex(levelId);
-  if (index >= levelLights_.size() || !levelLights_[index].configured) return 1.0f;
+  if (index >= levels_.size()) return 1.0f;
 
-  const LevelLight& light = levelLights_[index];
+  const LevelLight& light = levels_[index]->light();
   const Vec3 toLight = light.position - point;
   const float distance = length(toLight);
   if (distance < 1e-6f) return 1.0f;
@@ -401,9 +382,9 @@ Vec3 World::shadeRuntimeSurface(
   const Vec3& colour
 ) const {
   const std::size_t index = levelIndex(levelId);
-  if (index >= levelLights_.size() || !levelLights_[index].configured) return colour;
+  if (index >= levels_.size()) return colour;
 
-  const LevelLight& light = levelLights_[index];
+  const LevelLight& light = levels_[index]->light();
   const Vec3 toLight = light.position - point;
   const float distance = length(toLight);
   if (distance < 1e-6f) return colour;
@@ -421,8 +402,8 @@ Vec3 World::shadeRuntimeSurface(
 
 float World::runtimeSpriteLightFactor(const std::string& levelId, const Vec3& point) const {
   const std::size_t index = levelIndex(levelId);
-  if (index >= levelLights_.size() || !levelLights_[index].configured) return 1.0f;
-  const LevelLight& light = levelLights_[index];
+  if (index >= levels_.size()) return 1.0f;
+  const LevelLight& light = levels_[index]->light();
   const float visibility = runtimeLightVisibility(levelId, point);
   return light.ambient + visibility * (1.0f - light.ambient);
 }
