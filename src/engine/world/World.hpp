@@ -13,6 +13,7 @@ namespace isoweb {
 namespace engine {
 
 class CharacterSystem;
+class CollisionPolicy;
 
 struct NavigationLink {
   std::string fromLevelId;
@@ -65,6 +66,7 @@ public:
   void setNavigationLinks(std::vector<NavigationLink> links) { navigationLinks_ = std::move(links); }
 
   void setCharacterSystem(const CharacterSystem* system) { characterSystem_ = system; }
+  void setCollisionPolicy(const CollisionPolicy* policy) { collisionPolicy_ = policy; }
 
   bool canMoveLevelUp() const;
   bool canMoveLevelDown() const;
@@ -85,6 +87,7 @@ private:
   EntityStore entities_;
   std::vector<NavigationLink> navigationLinks_;
   const CharacterSystem* characterSystem_ = nullptr;
+  const CollisionPolicy* collisionPolicy_ = nullptr;
 };
 
 } // namespace engine
