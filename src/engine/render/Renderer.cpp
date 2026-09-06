@@ -38,22 +38,6 @@ void Renderer::resize(int width, int height) {
   frameHeight_ = std::max(160, std::min(1600, height));
 }
 
-bool Renderer::canPan() const {
-  return camera_.canPan(frameWidth_, frameHeight_, world_.bounds());
-}
-
-CameraControlState Renderer::cameraControlState() const {
-  return camera_.controlState(frameWidth_, frameHeight_, world_.bounds());
-}
-
-float Renderer::viewHeight() const {
-  return camera_.viewHeight(frameWidth_, frameHeight_, world_.bounds());
-}
-
-float Renderer::wholeZoomScale() const {
-  return camera_.wholeZoomScale(frameWidth_, frameHeight_, world_.bounds());
-}
-
 std::uint8_t Renderer::toByte(float value) {
   if (value <= 0.0f) return 0;
   if (value >= 1.0f) return 255;
@@ -91,13 +75,13 @@ Ray Renderer::rayForPixel(float px, float py) const {
   const Vec3 right = normalise(cross(forward, {0.0f, 0.0f, 1.0f}));
   const Vec3 up = normalise(cross(right, forward));
   const float aspect = static_cast<float>(frameWidth_) / frameHeight_;
-  const float height = viewHeight();
+  const float height = frameViewHeight_;
   const float width = height * aspect;
   const float screenX = (px / frameWidth_ - 0.5f) * width;
   const float screenY = (0.5f - py / frameHeight_) * height;
 
   const WorldBounds& bounds = world_.bounds();
-  const Vec3 focus = canPan()
+  const Vec3 focus = frameCanPan_
     ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
     : bounds.focus;
 
@@ -118,12 +102,12 @@ bool Renderer::worldPointToPixel(const Vec3& point, float& px, float& py) const 
   const Vec3 right = normalise(cross(forward, {0.0f, 0.0f, 1.0f}));
   const Vec3 up = normalise(cross(right, forward));
   const float aspect = static_cast<float>(frameWidth_) / frameHeight_;
-  const float height = viewHeight();
+  const float height = frameViewHeight_;
   const float width = height * aspect;
   if (width <= 0.0f || height <= 0.0f) return false;
 
   const WorldBounds& bounds = world_.bounds();
-  const Vec3 focus = canPan()
+  const Vec3 focus = frameCanPan_
     ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
     : bounds.focus;
   const Vec3 delta = point - focus;
@@ -150,22 +134,29 @@ void Renderer::render() {
     ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
     : bounds.focus;
 
+  // These values are needed again immediately by the browser presenter. Keep
+  // the exact metrics from this render rather than rescanning bounds and
+  // rebuilding camera state after the expensive frame has already completed.
+  frameViewHeight_ = height;
+  frameCanPan_ = panEnabled;
+  frameWholeZoomScale_ = camera_.wholeZoomScale(frameWidth_, frameHeight_, bounds);
+
   world_.prepareRenderFrame(forward);
 
   const std::size_t pixelCount =
     static_cast<std::size_t>(frameWidth_) * static_cast<std::size_t>(frameHeight_);
   const bool useStaticCache =
     world_.supportsStaticSampleCache() && pixelCount <= MAX_STATIC_CACHE_PIXELS;
-  const StaticCacheKey nextStaticKey{
-    frameWidth_,
-    frameHeight_,
-    world_.activeLevelIndex(),
-    camera_.yawStep(),
-    camera_.zoomPreset(),
-    camera_.panX(),
-    camera_.panY(),
-    height
-  };
+  StaticCacheKey nextStaticKey;
+  nextStaticKey.width = frameWidth_;
+  nextStaticKey.height = frameHeight_;
+  nextStaticKey.level = world_.activeLevelIndex();
+  nextStaticKey.yawStep = camera_.yawStep();
+  nextStaticKey.zoomPreset = camera_.zoomPreset();
+  nextStaticKey.panX = camera_.panX();
+  nextStaticKey.panY = camera_.panY();
+  nextStaticKey.viewHeight = height;
+
   const bool rebuildStaticCache = useStaticCache && !staticCacheMatches(nextStaticKey);
   if (useStaticCache) {
     const std::size_t sampleCount = pixelCount * 4;
@@ -238,12 +229,12 @@ void Renderer::render() {
     staticCacheValid_ = true;
   }
 
-  const CameraControlState cameraState = camera_.controlState(frameWidth_, frameHeight_, bounds);
+  frameCameraState_ = camera_.controlState(frameWidth_, frameHeight_, bounds);
   LevelControlState levelState;
   levelState.canMoveUp = world_.activeLevelIndex() + 1 < world_.levelCount();
   levelState.canMoveDown = world_.activeLevelIndex() > 0;
   levelState.atDefault = world_.activeLevelIndex() == world_.defaultLevelIndex();
-  controls_.draw(frame_, frameWidth_, frameHeight_, cameraState, levelState);
+  controls_.draw(frame_, frameWidth_, frameHeight_, frameCameraState_, levelState);
 
   // OrderedImageRgbaU8 guarantees RGBA byte order on every platform. Copy
   // whole visible rows from DFPSR's padded image buffer instead of performing
