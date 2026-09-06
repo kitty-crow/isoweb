@@ -30,6 +30,7 @@ CharacterSystem::CharacterSystem(World& world)
   interactionPolicy_ = &defaultInteractionPolicy_;
   presentationPolicy_ = &defaultPresentationPolicy_;
   world_.setCharacterSystem(this);
+  world_.setCollisionPolicy(collisionPolicy_);
 }
 
 Character* CharacterSystem::pick(const Ray& ray, float maximumDistance) const {
