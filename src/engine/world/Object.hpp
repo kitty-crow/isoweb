@@ -148,17 +148,34 @@ public:
   }
 
   void horizontalBasis(Vec3& facing, Vec3& right) const {
-    facing = normalisedHorizontal(forward);
-    right = {facing.y, -facing.x, 0.0f};
+    // Forward is public because entities are intentionally lightweight, so
+    // cache against the source components instead of relying on an explicit
+    // invalidation call. Movement can change facing at any time; the next
+    // access refreshes once and subsequent ray/collision operations are free
+    // of normalisation until x/y changes again.
+    if (!basisCacheValid_ || cachedForwardX_ != forward.x || cachedForwardY_ != forward.y) {
+      cachedFacing_ = normalisedHorizontal(forward);
+      cachedRight_ = {cachedFacing_.y, -cachedFacing_.x, 0.0f};
+      cachedForwardX_ = forward.x;
+      cachedForwardY_ = forward.y;
+      basisCacheValid_ = true;
+    }
+    facing = cachedFacing_;
+    right = cachedRight_;
   }
 
   Vec3 horizontalForward() const {
-    return normalisedHorizontal(forward);
+    Vec3 facing;
+    Vec3 right;
+    horizontalBasis(facing, right);
+    return facing;
   }
 
   Vec3 horizontalRight() const {
-    const Vec3 facing = normalisedHorizontal(forward);
-    return {facing.y, -facing.x, 0.0f};
+    Vec3 facing;
+    Vec3 right;
+    horizontalBasis(facing, right);
+    return right;
   }
 
   Vec3 localToWorld(const Vec3& local) const {
@@ -278,6 +295,12 @@ private:
       Vec3(0.0f, 0.0f, localCentre.z);
     return box;
   }
+
+  mutable bool basisCacheValid_ = false;
+  mutable float cachedForwardX_ = 0.0f;
+  mutable float cachedForwardY_ = 0.0f;
+  mutable Vec3 cachedFacing_ = {0.0f, 1.0f, 0.0f};
+  mutable Vec3 cachedRight_ = {1.0f, 0.0f, 0.0f};
 };
 
 } // namespace engine
