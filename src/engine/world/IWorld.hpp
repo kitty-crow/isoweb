@@ -15,6 +15,12 @@ struct WorldBounds {
   std::vector<Vec3> points;
 };
 
+struct WorldSurfaceSample {
+  Vec3 colour;
+  float distance = 0.0f;
+  bool hit = false;
+};
+
 class IWorld {
 public:
   virtual ~IWorld() = default;
