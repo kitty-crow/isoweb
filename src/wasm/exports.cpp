@@ -89,6 +89,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_reset_camera() {
   application().resetCamera();
 }
 
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_set_control_stick(int control, float x, float y) {
+  application().setControlStick(control, x, y);
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_level_up() {
   application().levelUp();
 }
