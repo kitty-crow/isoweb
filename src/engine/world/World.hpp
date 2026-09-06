@@ -30,6 +30,18 @@ class IWorldLevel {
 public:
   virtual ~IWorldLevel() = default;
 
+  // Exactly one level is render-resident at a time. Implementations with
+  // heavyweight assets/resources should release them when residency becomes
+  // false and reacquire them when it becomes true. Lightweight simulation
+  // topology may remain available so off-view Characters can keep simulating.
+  void setResident(bool resident) {
+    if (resident_ == resident) return;
+    resident_ = resident;
+    onResidencyChanged(resident_);
+  }
+
+  bool isResident() const { return resident_; }
+
   virtual const WorldBounds& bounds() const = 0;
   virtual Vec3 sample(const Ray& ray, float backgroundY) const = 0;
   virtual bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const = 0;
@@ -37,6 +49,12 @@ public:
   virtual const std::vector<Object>& objects() const = 0;
   virtual bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const = 0;
   virtual bool intersectsSolid(const HitBox& hitBox) const = 0;
+
+protected:
+  virtual void onResidencyChanged(bool) {}
+
+private:
+  bool resident_ = false;
 };
 
 class World : public IWorld {
@@ -59,6 +77,10 @@ public:
   std::size_t levelIndex(const std::string& levelId) const;
   const WorldBounds& bounds(const std::string& levelId) const;
   const std::vector<Object>& objects(const std::string& levelId) const;
+
+  bool isLevelResident(std::size_t index) const;
+  bool isLevelResident(const std::string& levelId) const;
+  std::size_t residentLevelCount() const;
 
   EntityStore& entities() { return entities_; }
   const EntityStore& entities() const { return entities_; }

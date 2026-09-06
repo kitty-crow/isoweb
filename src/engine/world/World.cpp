@@ -199,7 +199,10 @@ World::World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defau
   if (levels_.empty() || defaultLevelIndex_ >= levels_.size()) std::abort();
   activeLevelIndex_ = defaultLevelIndex_;
   levelIds_.reserve(levels_.size());
-  for (std::size_t index = 0; index < levels_.size(); ++index) levelIds_.push_back(std::to_string(index));
+  for (std::size_t index = 0; index < levels_.size(); ++index) {
+    levelIds_.push_back(std::to_string(index));
+    levels_[index]->setResident(index == defaultLevelIndex_);
+  }
   levelLights_.resize(levels_.size());
 }
 
@@ -518,6 +521,22 @@ const std::vector<Object>& World::objects(const std::string& levelId) const {
   return levelFor(levelId).objects();
 }
 
+bool World::isLevelResident(std::size_t index) const {
+  return index < levels_.size() && levels_[index] && levels_[index]->isResident();
+}
+
+bool World::isLevelResident(const std::string& levelId) const {
+  return isLevelResident(levelIndex(levelId));
+}
+
+std::size_t World::residentLevelCount() const {
+  std::size_t count = 0;
+  for (const std::unique_ptr<IWorldLevel>& level : levels_) {
+    if (level && level->isResident()) ++count;
+  }
+  return count;
+}
+
 bool World::intersectsSolid(const HitBox& hitBox) const {
   return activeLevel().intersectsSolid(hitBox);
 }
@@ -641,7 +660,9 @@ bool World::isDefaultLevel() const {
 
 bool World::setActiveLevel(std::size_t index) {
   if (index >= levels_.size() || index == activeLevelIndex_) return false;
+  levels_[activeLevelIndex_]->setResident(false);
   activeLevelIndex_ = index;
+  levels_[activeLevelIndex_]->setResident(true);
   return true;
 }
 

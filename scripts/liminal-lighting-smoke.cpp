@@ -25,6 +25,9 @@ int main() {
 
   isoweb::demo::DemoWorld world;
   if (world.liminalObjects().size() != 2) return 1;
+  if (world.residentLevelCount() != 1) return 26;
+  if (!world.isLevelResident("middle")) return 27;
+  if (world.isLevelResident("lower") || world.isLevelResident("upper")) return 28;
 
   const LiminalObject& stairs = world.liminalObjects().front();
   if (stairs.category != "liminal" || stairs.id.empty()) return 2;
@@ -54,9 +57,14 @@ int main() {
   if (distance(renderPosition, expected) > 0.002f) return 9;
 
   // Looking at an unrelated level must not project this connector into it.
+  // Only that newly requested level may remain render-resident.
   if (!world.levelUp()) return 10;
   if (world.renderPositionFor(character, renderPosition)) return 11;
+  if (world.residentLevelCount() != 1) return 29;
+  if (!world.isLevelResident("upper") || world.isLevelResident("middle")) return 30;
   if (!world.levelDown()) return 12;
+  if (world.residentLevelCount() != 1) return 31;
+  if (!world.isLevelResident("middle") || world.isLevelResident("upper")) return 32;
 
   world.setLevelLight("middle", {-3.60f, -4.20f, 6.50f});
 
@@ -109,10 +117,12 @@ int main() {
     enteredLiminal = true;
     if (!world.renderPositionFor(*runner, renderPosition)) return 17;
 
-    // Change only the viewed level. Simulation stays on the connector and the
-    // previous level is not composited into the new view.
+    // Change only the viewed level. Simulation stays on the connector. The
+    // middle render level loses residency and only lower becomes resident.
     if (!world.levelDown()) return 18;
     if (world.activeLevelId() != "lower") return 19;
+    if (world.residentLevelCount() != 1) return 33;
+    if (!world.isLevelResident("lower") || world.isLevelResident("middle")) return 34;
     if (!world.renderPositionFor(*runner, renderPosition)) return 20;
     break;
   }
@@ -127,7 +137,8 @@ int main() {
   if (runner->location.levelId != "lower") return 23;
   if (!runner->location.liminalObjectId.empty()) return 24;
   if (!world.renderPositionFor(*runner, renderPosition)) return 25;
+  if (world.residentLevelCount() != 1 || !world.isLevelResident("lower")) return 35;
 
-  std::cout << "Liminal-space and runtime-lighting smoke test passed.\n";
+  std::cout << "Liminal-space, single-level residency, and runtime-lighting smoke test passed.\n";
   return 0;
 }
