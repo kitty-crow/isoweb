@@ -17,6 +17,15 @@ Vec3 horizontalDirection(const Vec3& from, const Vec3& to, const Vec3& fallback)
   return magnitude > 1e-6f ? delta / magnitude : fallback;
 }
 
+float staticPickDistance(const World& world, const Ray& ray, float maximumDistance) {
+  float closest = maximumDistance;
+  for (const Object& object : world.objects()) {
+    ObjectRayHit hit;
+    if (object.intersectRay(ray, 0.001f, closest, hit)) closest = hit.distance;
+  }
+  return closest;
+}
+
 } // namespace
 
 CharacterSystem::CharacterSystem(World& world)
@@ -35,7 +44,7 @@ CharacterSystem::CharacterSystem(World& world)
 
 Character* CharacterSystem::pick(const Ray& ray, float maximumDistance) const {
   Character* closest = nullptr;
-  float closestDistance = maximumDistance;
+  float closestDistance = staticPickDistance(world_, ray, maximumDistance);
   for (Character* character : const_cast<EntityStore&>(world_.entities()).characters()) {
     if (!character || character->location.levelId != world_.activeLevelId()) continue;
     ObjectRayHit hit;
@@ -92,8 +101,8 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
     return;
   }
 
+  character.moving = true;
   float remaining = effectiveSpeed(character) * std::max(0.0f, deltaSeconds);
-  character.moving = remaining > 0.0f;
 
   while (remaining > 0.0f && character.movement.nextWaypoint < character.movement.route.size()) {
     const CharacterWaypoint& waypoint = character.movement.route[character.movement.nextWaypoint];
@@ -144,42 +153,54 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
   }
 }
 
-const SpriteAnimation* CharacterSystem::currentAnimation(
-  const Character& character,
-  const Camera& camera,
-  bool* mirror
-) const {
-  const CharacterPresentation presentation = resolveCharacterPresentation(
-    character,
-    camera,
-    *presentationPolicy_,
-    effectiveSpeed(character),
-    defaults_.baseMovementSpeed
-  );
-  if (mirror) *mirror = presentation.mirror;
-  return presentation.animation;
+void CharacterSystem::updatePresentation(const Camera& camera) {
+  for (Character* character : world_.entities().characters()) {
+    if (!character) continue;
+    const CharacterPresentation presentation = resolveCharacterPresentation(
+      *character,
+      camera,
+      *presentationPolicy_,
+      effectiveSpeed(*character),
+      defaults_.baseMovementSpeed
+    );
+    character->animation.facing = presentation.facing;
+    character->animation.mirror = presentation.mirror;
+    if (!presentation.animation) {
+      character->animation.reset();
+      continue;
+    }
+    if (character->animation.resource != presentation.animation->resource) {
+      character->animation.reset(presentation.animation->resource);
+      character->animation.facing = presentation.facing;
+      character->animation.mirror = presentation.mirror;
+    }
+  }
 }
 
 void CharacterSystem::tick(float deltaSeconds, const Camera& camera) {
   for (Character* character : world_.entities().characters()) {
-    if (!character) continue;
-    advance(*character, deltaSeconds);
+    if (character) advance(*character, deltaSeconds);
+  }
 
-    const SpriteAnimation* animation = currentAnimation(*character, camera);
-    if (!animation) {
-      character->animation.reset();
-      continue;
-    }
-    if (character->animation.resource != animation->resource) {
-      character->animation.reset(animation->resource);
-    }
-    const float fps = presentationPolicy_->framesPerSecond(
+  updatePresentation(camera);
+
+  for (Character* character : world_.entities().characters()) {
+    if (!character || character->animation.resource.empty()) continue;
+    const CharacterPresentation presentation = resolveCharacterPresentation(
       *character,
-      *animation,
+      camera,
+      *presentationPolicy_,
       effectiveSpeed(*character),
       defaults_.baseMovementSpeed
     );
-    advanceCharacterAnimation(*character, deltaSeconds, animation, fps);
+    if (!presentation.animation) continue;
+    const float fps = presentationPolicy_->framesPerSecond(
+      *character,
+      *presentation.animation,
+      effectiveSpeed(*character),
+      defaults_.baseMovementSpeed
+    );
+    advanceCharacterAnimation(*character, deltaSeconds, presentation.animation, fps);
   }
 }
 
