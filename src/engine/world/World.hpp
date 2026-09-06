@@ -29,10 +29,8 @@ class IWorldLevel {
 public:
   virtual ~IWorldLevel() = default;
 
-  virtual const std::string& id() const = 0;
   virtual const WorldBounds& bounds() const = 0;
   virtual Vec3 sample(const Ray& ray, float backgroundY) const = 0;
-  virtual float distance(const Ray& ray) const = 0;
   virtual const std::vector<Object>& objects() const = 0;
   virtual bool intersectsSolid(const HitBox& hitBox) const = 0;
 };
@@ -52,7 +50,8 @@ public:
   std::size_t defaultLevelIndex() const override { return defaultLevelIndex_; }
 
   const std::string& activeLevelId() const;
-  const IWorldLevel* level(const std::string& levelId) const;
+  bool setLevelId(std::size_t index, const std::string& id);
+  std::size_t levelIndex(const std::string& levelId) const;
   const WorldBounds& bounds(const std::string& levelId) const;
   const std::vector<Object>& objects(const std::string& levelId) const;
 
@@ -80,8 +79,10 @@ public:
 private:
   const IWorldLevel& activeLevel() const;
   Vec3 sampleRuntimeEntities(const Ray& ray, float backgroundY, float staticDistance, bool& found) const;
+  float staticOccluderDistance(const Ray& ray) const;
 
   std::vector<std::unique_ptr<IWorldLevel>> levels_;
+  std::vector<std::string> levelIds_;
   std::size_t activeLevelIndex_ = 0;
   std::size_t defaultLevelIndex_ = 0;
   EntityStore entities_;
