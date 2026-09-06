@@ -47,6 +47,7 @@ public:
   }
   void setDestinationPolicy(DestinationPolicy& policy) { destinationPolicy_ = &policy; }
   void setNavigationPolicy(NavigationPolicy& policy) { navigationPolicy_ = &policy; }
+  void setLevelTransitionPolicy(LevelTransitionPolicy& policy) { levelTransitionPolicy_ = &policy; }
   void setMovementPolicy(MovementPolicy& policy) { movementPolicy_ = &policy; }
   void setInteractionPolicy(InteractionPolicy& policy) { interactionPolicy_ = &policy; }
   void setPresentationPolicy(CharacterPresentationPolicy& policy) { presentationPolicy_ = &policy; }
@@ -62,6 +63,7 @@ private:
   CharacterSelection selection_;
   DestinationPolicy defaultDestinationPolicy_;
   DefaultNavigationPolicy defaultNavigationPolicy_;
+  LevelTransitionPolicy defaultLevelTransitionPolicy_;
   MovementPolicy defaultMovementPolicy_;
   InteractionPolicy defaultInteractionPolicy_;
   DefaultCharacterPresentationPolicy defaultPresentationPolicy_;
@@ -71,6 +73,7 @@ private:
   CollisionPolicy* collisionPolicy_ = nullptr;
   DestinationPolicy* destinationPolicy_ = nullptr;
   NavigationPolicy* navigationPolicy_ = nullptr;
+  LevelTransitionPolicy* levelTransitionPolicy_ = nullptr;
   MovementPolicy* movementPolicy_ = nullptr;
   InteractionPolicy* interactionPolicy_ = nullptr;
   CharacterPresentationPolicy* presentationPolicy_ = nullptr;
