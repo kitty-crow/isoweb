@@ -36,8 +36,8 @@ DemoApplication::DemoApplication()
   world_.setLevelLight("upper", {3.80f, 4.40f, 7.20f});
 }
 
-void DemoApplication::redraw() {
-  characters_.updatePresentation(camera_);
+void DemoApplication::redraw(bool refreshPresentation) {
+  if (refreshPresentation) characters_.updatePresentation(camera_);
   renderer_.render();
   presenter_.present(
     renderer_.rgba(),
@@ -57,7 +57,9 @@ void DemoApplication::render() {
 
 void DemoApplication::tick(float deltaSeconds) {
   characters_.tick(std::max(0.0f, std::min(0.10f, deltaSeconds)), camera_);
-  redraw();
+  // CharacterSystem::tick already resolved camera-relative presentation for
+  // this exact camera. Rendering it again here was a third redundant pass.
+  redraw(false);
 }
 
 void DemoApplication::resize(int width, int height) {
