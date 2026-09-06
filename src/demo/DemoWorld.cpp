@@ -10,7 +10,10 @@ namespace demo {
 namespace {
 
 using engine::HitBox;
+using engine::NavigationLink;
 using engine::Ray;
+using engine::SceneSurfaceHit;
+using engine::SceneSurfaceKind;
 using engine::Vec3;
 using engine::WorldBounds;
 using engine::WorldObject;
@@ -70,6 +73,16 @@ struct Staircase {
   float width;
 };
 
+struct StairConnection {
+  float centreX;
+  float lowY;
+  float highY;
+  float rise;
+  float width;
+  const char* lowerLevelId;
+  const char* upperLevelId;
+};
+
 struct FloorProxy {
   float z;
   Vec3 dark;
@@ -92,7 +105,97 @@ struct Hit {
   Vec3 point;
   Vec3 normal;
   Vec3 colour;
+  SceneSurfaceKind kind = SceneSurfaceKind::Object;
+  bool walkable = false;
 };
+
+const StairConnection LOWER_MIDDLE_STAIR = {
+  LOWER_MIDDLE_STAIR_X,
+  STAIR_LOW_Y,
+  STAIR_HIGH_Y,
+  STAIR_RISE,
+  STAIR_WIDTH,
+  "lower",
+  "middle"
+};
+
+const StairConnection MIDDLE_UPPER_STAIR = {
+  MIDDLE_UPPER_STAIR_X,
+  STAIR_LOW_Y,
+  STAIR_HIGH_Y,
+  STAIR_RISE,
+  STAIR_WIDTH,
+  "middle",
+  "upper"
+};
+
+Staircase ascendingStaircase(const StairConnection& connection) {
+  return {
+    connection.centreX,
+    connection.lowY,
+    connection.highY,
+    0.0f,
+    connection.rise,
+    connection.width
+  };
+}
+
+Staircase descendingStaircase(const StairConnection& connection) {
+  return {
+    connection.centreX,
+    connection.highY,
+    connection.lowY,
+    0.0f,
+    -connection.rise,
+    connection.width
+  };
+}
+
+FloorHole stairHole(const StairConnection& connection) {
+  return {
+    connection.centreX - connection.width * 0.5f + STAIR_HOLE_INSET,
+    connection.centreX + connection.width * 0.5f - STAIR_HOLE_INSET,
+    connection.lowY + STAIR_HOLE_INSET,
+    connection.highY - STAIR_HOLE_INSET
+  };
+}
+
+std::vector<Vec3> staircaseTraversal(const Staircase& staircase) {
+  std::vector<Vec3> result;
+  result.reserve(STAIR_STEP_COUNT);
+  const float lowerZ = std::min(staircase.startZ, staircase.endZ);
+  const bool ascending = staircase.endZ > staircase.startZ;
+
+  for (int index = 0; index < STAIR_STEP_COUNT; ++index) {
+    const float y0 = staircase.startY +
+      (staircase.endY - staircase.startY) * static_cast<float>(index) / STAIR_STEP_COUNT;
+    const float y1 = staircase.startY +
+      (staircase.endY - staircase.startY) * static_cast<float>(index + 1) / STAIR_STEP_COUNT;
+    const float fraction = ascending
+      ? static_cast<float>(index + 1) / STAIR_STEP_COUNT
+      : static_cast<float>(index) / STAIR_STEP_COUNT;
+    const float topZ = staircase.startZ +
+      (staircase.endZ - staircase.startZ) * fraction;
+    result.push_back({
+      staircase.centreX,
+      (y0 + y1) * 0.5f,
+      std::max(topZ, lowerZ + 0.025f)
+    });
+  }
+  return result;
+}
+
+NavigationLink navigationLink(const StairConnection& connection) {
+  NavigationLink link;
+  link.fromLevelId = connection.lowerLevelId;
+  link.toLevelId = connection.upperLevelId;
+  link.fromPosition = {connection.centreX, connection.lowY, 0.0f};
+  link.toPosition = {connection.centreX, connection.highY, 0.0f};
+  link.forwardTraversal = staircaseTraversal(ascendingStaircase(connection));
+  link.reverseTraversal = staircaseTraversal(descendingStaircase(connection));
+  link.bidirectional = true;
+  return link;
+}
 
 float triangleIntersection(
   const Ray& ray,
@@ -166,13 +269,14 @@ const std::vector<Vec3>& icosahedronNormals() {
   return normals;
 }
 
-FloorHole stairHole(float centreX) {
-  return {
-    centreX - STAIR_WIDTH * 0.5f + STAIR_HOLE_INSET,
-    centreX + STAIR_WIDTH * 0.5f - STAIR_HOLE_INSET,
-    STAIR_LOW_Y + STAIR_HOLE_INSET,
-    STAIR_HIGH_Y - STAIR_HOLE_INSET
-  };
+void copySurface(const Hit& source, SceneSurfaceHit& destination) {
+  destination.found = source.found;
+  destination.distance = source.t;
+  destination.point = source.point;
+  destination.normal = source.normal;
+  destination.colour = source.colour;
+  destination.kind = source.kind;
+  destination.walkable = source.walkable;
 }
 
 class DemoLevel final : public engine::IWorldLevel {
@@ -190,6 +294,37 @@ public:
   Vec3 sample(const Ray& ray, float backgroundY) const override {
     const Hit hit = traceClosest(ray, EPSILON, FAR_DISTANCE);
     return hit.found ? shade(hit) : background(backgroundY);
+  }
+
+  bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const override {
+    const Hit traced = traceClosest(ray, EPSILON, FAR_DISTANCE);
+    if (!traced.found) return false;
+    copySurface(traced, hit);
+    return true;
+  }
+
+  bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const override {
+    const Ray ray{{x, y, 100.0f}, {0.0f, 0.0f, -1.0f}};
+    Hit closest;
+    float maximum = FAR_DISTANCE;
+
+    for (const Staircase& staircase : definition_.staircases) {
+      Hit candidate;
+      if (intersectStaircase(ray, staircase, EPSILON, maximum, candidate) && candidate.walkable) {
+        closest = candidate;
+        maximum = candidate.t;
+      }
+    }
+
+    Hit ground;
+    if (intersectGround(ray, EPSILON, maximum, ground)) {
+      closest = ground;
+      maximum = ground.t;
+    }
+
+    if (!closest.found) return false;
+    copySurface(closest, hit);
+    return true;
   }
 
   const std::vector<WorldObject>& objects() const override {
@@ -486,21 +621,32 @@ private:
   }
 
   bool intersectObject(const Ray& ray, const RenderObject& object, float minimum, float maximum, Hit& hit) const {
+    bool found = false;
     switch (object.kind) {
       case ShapeKind::Cube:
-        return intersectCube(ray, object, minimum, maximum, hit);
+        found = intersectCube(ray, object, minimum, maximum, hit);
+        break;
       case ShapeKind::Sphere:
-        return intersectSphere(ray, object, minimum, maximum, hit);
+        found = intersectSphere(ray, object, minimum, maximum, hit);
+        break;
       case ShapeKind::Cone:
-        return intersectCone(ray, object, minimum, maximum, hit);
+        found = intersectCone(ray, object, minimum, maximum, hit);
+        break;
       case ShapeKind::Pyramid:
-        return intersectPyramid(ray, object, minimum, maximum, hit);
+        found = intersectPyramid(ray, object, minimum, maximum, hit);
+        break;
       case ShapeKind::Dodecahedron:
-        return intersectPolyhedron(ray, object, dodecahedronNormals(), minimum, maximum, hit);
+        found = intersectPolyhedron(ray, object, dodecahedronNormals(), minimum, maximum, hit);
+        break;
       case ShapeKind::Icosahedron:
-        return intersectPolyhedron(ray, object, icosahedronNormals(), minimum, maximum, hit);
+        found = intersectPolyhedron(ray, object, icosahedronNormals(), minimum, maximum, hit);
+        break;
     }
-    return false;
+    if (found) {
+      hit.kind = SceneSurfaceKind::Object;
+      hit.walkable = false;
+    }
+    return found;
   }
 
   Vec3 floorColour(
@@ -626,6 +772,8 @@ private:
         closest = candidate.t;
         hit = candidate;
         hit.colour = floorColour(hit.point);
+        hit.kind = SceneSurfaceKind::Stair;
+        hit.walkable = hit.normal.z > 0.5f;
       }
     }
     return found;
@@ -650,6 +798,8 @@ private:
     hit.point = point;
     hit.normal = {0.0f, 0.0f, 1.0f};
     hit.colour = floorColour(point, floor.dark, floor.light);
+    hit.kind = SceneSurfaceKind::Proxy;
+    hit.walkable = false;
     return true;
   }
 
@@ -667,6 +817,8 @@ private:
     hit.point = point;
     hit.normal = {0.0f, 0.0f, 1.0f};
     hit.colour = floorColour(point);
+    hit.kind = SceneSurfaceKind::Ground;
+    hit.walkable = true;
     return true;
   }
 
@@ -742,14 +894,7 @@ LevelDefinition lowerLevel() {
   level.floorLight = LOWER_FLOOR_LIGHT;
   level.objects.push_back({ShapeKind::Cone, {-1.30f, -0.80f, 0.82f}, 0.86f, 1.64f, {0.62f, 0.25f, 0.82f}, true});
   level.objects.push_back({ShapeKind::Pyramid, {1.20f, 0.85f, 0.83f}, 0.92f, 1.66f, {0.96f, 0.78f, 0.16f}, true});
-  level.staircases.push_back({
-    LOWER_MIDDLE_STAIR_X,
-    STAIR_LOW_Y,
-    STAIR_HIGH_Y,
-    0.0f,
-    STAIR_RISE,
-    STAIR_WIDTH
-  });
+  level.staircases.push_back(ascendingStaircase(LOWER_MIDDLE_STAIR));
   return level;
 }
 
@@ -761,29 +906,15 @@ LevelDefinition middleLevel() {
   level.objects.push_back({ShapeKind::Cube, {-1.05f, 0.65f, 0.775f}, 0.80f, 1.55f, {0.18f, 0.48f, 0.88f}, true});
   level.objects.push_back({ShapeKind::Sphere, {1.05f, -0.25f, 0.90f}, 0.90f, 1.80f, {0.95f, 0.43f, 0.12f}, true});
 
-  level.floorHoles.push_back(stairHole(LOWER_MIDDLE_STAIR_X));
-  level.staircases.push_back({
-    LOWER_MIDDLE_STAIR_X,
-    STAIR_HIGH_Y,
-    STAIR_LOW_Y,
-    0.0f,
-    -STAIR_RISE,
-    STAIR_WIDTH
-  });
+  level.floorHoles.push_back(stairHole(LOWER_MIDDLE_STAIR));
+  level.staircases.push_back(descendingStaircase(LOWER_MIDDLE_STAIR));
   level.floorProxies.push_back({
     -STAIR_RISE,
     LOWER_FLOOR_DARK,
     LOWER_FLOOR_LIGHT
   });
 
-  level.staircases.push_back({
-    MIDDLE_UPPER_STAIR_X,
-    STAIR_LOW_Y,
-    STAIR_HIGH_Y,
-    0.0f,
-    STAIR_RISE,
-    STAIR_WIDTH
-  });
+  level.staircases.push_back(ascendingStaircase(MIDDLE_UPPER_STAIR));
   return level;
 }
 
@@ -795,15 +926,8 @@ LevelDefinition upperLevel() {
   level.objects.push_back({ShapeKind::Dodecahedron, {-1.35f, 0.95f, 1.00f}, 0.72f, 0.0f, {0.18f, 0.50f, 0.94f}, true});
   level.objects.push_back({ShapeKind::Icosahedron, {1.30f, -0.95f, 1.10f}, 0.78f, 0.0f, {0.90f, 0.16f, 0.14f}, true});
 
-  level.floorHoles.push_back(stairHole(MIDDLE_UPPER_STAIR_X));
-  level.staircases.push_back({
-    MIDDLE_UPPER_STAIR_X,
-    STAIR_HIGH_Y,
-    STAIR_LOW_Y,
-    0.0f,
-    -STAIR_RISE,
-    STAIR_WIDTH
-  });
+  level.floorHoles.push_back(stairHole(MIDDLE_UPPER_STAIR));
+  level.staircases.push_back(descendingStaircase(MIDDLE_UPPER_STAIR));
   level.floorProxies.push_back({
     -STAIR_RISE,
     MIDDLE_FLOOR_DARK,
@@ -824,7 +948,15 @@ std::vector<std::unique_ptr<engine::IWorldLevel>> DemoWorld::makeLevels() {
 }
 
 DemoWorld::DemoWorld()
-    : engine::World(makeLevels(), 1) {}
+    : engine::World(makeLevels(), 1) {
+  setLevelId(0, "lower");
+  setLevelId(1, "middle");
+  setLevelId(2, "upper");
+  setNavigationLinks({
+    navigationLink(LOWER_MIDDLE_STAIR),
+    navigationLink(MIDDLE_UPPER_STAIR)
+  });
+}
 
 } // namespace demo
 } // namespace isoweb
