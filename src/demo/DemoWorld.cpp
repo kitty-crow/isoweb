@@ -1,6 +1,7 @@
 #include "demo/DemoWorld.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <memory>
 #include <utility>
@@ -72,6 +73,11 @@ struct Staircase {
   float startZ;
   float endZ;
   float width;
+};
+
+struct StairStep {
+  Vec3 centre;
+  Vec3 halfExtent;
 };
 
 struct StairConnection {
@@ -166,17 +172,14 @@ std::vector<Vec3> staircaseTraversal(const Staircase& staircase) {
   result.reserve(STAIR_STEP_COUNT);
   const float lowerZ = std::min(staircase.startZ, staircase.endZ);
   const bool ascending = staircase.endZ > staircase.startZ;
+  const float inverseStepCount = 1.0f / static_cast<float>(STAIR_STEP_COUNT);
+  const float yStep = (staircase.endY - staircase.startY) * inverseStepCount;
 
   for (int index = 0; index < STAIR_STEP_COUNT; ++index) {
-    const float y0 = staircase.startY +
-      (staircase.endY - staircase.startY) * static_cast<float>(index) / STAIR_STEP_COUNT;
-    const float y1 = staircase.startY +
-      (staircase.endY - staircase.startY) * static_cast<float>(index + 1) / STAIR_STEP_COUNT;
-    const float fraction = ascending
-      ? static_cast<float>(index + 1) / STAIR_STEP_COUNT
-      : static_cast<float>(index) / STAIR_STEP_COUNT;
-    const float topZ = staircase.startZ +
-      (staircase.endZ - staircase.startZ) * fraction;
+    const float y0 = staircase.startY + yStep * index;
+    const float y1 = y0 + yStep;
+    const float fraction = (ascending ? index + 1 : index) * inverseStepCount;
+    const float topZ = staircase.startZ + (staircase.endZ - staircase.startZ) * fraction;
     result.push_back({
       staircase.centreX,
       (y0 + y1) * 0.5f,
@@ -359,18 +362,18 @@ Vec3 supportRenderObject(const RenderObject& object, const Vec3& direction) {
         direction.z >= 0.0f ? object.height * 0.5f : -object.height * 0.5f
       );
     case ShapeKind::Sphere: {
-      const float magnitude = engine::length(direction);
-      return magnitude > 1e-7f
-        ? object.position + direction * (object.size / magnitude)
-        : object.position;
+      const float magnitudeSquared = lengthSquared(direction);
+      if (magnitudeSquared <= 1e-14f) return object.position;
+      return object.position + direction * (object.size / std::sqrt(magnitudeSquared));
     }
     case ShapeKind::Cone: {
-      const float horizontal = std::sqrt(direction.x * direction.x + direction.y * direction.y);
+      const float horizontalSquared = direction.x * direction.x + direction.y * direction.y;
       const Vec3 apex = object.position + Vec3(0.0f, 0.0f, object.height * 0.5f);
       Vec3 base = object.position + Vec3(0.0f, 0.0f, -object.height * 0.5f);
-      if (horizontal > 1e-7f) {
-        base.x += object.size * direction.x / horizontal;
-        base.y += object.size * direction.y / horizontal;
+      if (horizontalSquared > 1e-14f) {
+        const float inverseHorizontal = 1.0f / std::sqrt(horizontalSquared);
+        base.x += object.size * direction.x * inverseHorizontal;
+        base.y += object.size * direction.y * inverseHorizontal;
       }
       return engine::dot(apex, direction) >= engine::dot(base, direction) ? apex : base;
     }
@@ -539,6 +542,7 @@ public:
   explicit DemoLevel(LevelDefinition definition)
       : definition_(std::move(definition)) {
     buildCollisionObjects();
+    buildStairSteps();
     buildBounds();
   }
 
@@ -551,6 +555,16 @@ public:
     return hit.found ? shade(hit) : background(backgroundY);
   }
 
+  Vec3 sampleWithHit(const Ray& ray, float backgroundY, SceneSurfaceHit& surface) const override {
+    const Hit hit = traceClosest(ray, EPSILON, FAR_DISTANCE);
+    if (!hit.found) {
+      surface = SceneSurfaceHit();
+      return background(backgroundY);
+    }
+    copySurface(hit, surface);
+    return shade(hit);
+  }
+
   bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const override {
     const Hit traced = traceClosest(ray, EPSILON, FAR_DISTANCE);
     if (!traced.found) return false;
@@ -558,14 +572,18 @@ public:
     return true;
   }
 
+  bool rayOccluded(const Ray& ray, float maximumDistance) const override {
+    return maximumDistance > EPSILON && traceAny(ray, EPSILON, maximumDistance);
+  }
+
   bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const override {
     const Ray ray{{x, y, 100.0f}, {0.0f, 0.0f, -1.0f}};
     Hit closest;
     float maximum = FAR_DISTANCE;
 
-    for (const Staircase& staircase : definition_.staircases) {
+    for (std::size_t index = 0; index < stairSteps_.size(); ++index) {
       Hit candidate;
-      if (intersectStaircase(ray, staircase, EPSILON, maximum, candidate) && candidate.walkable) {
+      if (intersectStaircase(ray, index, EPSILON, maximum, candidate) && candidate.walkable) {
         closest = candidate;
         maximum = candidate.t;
       }
@@ -621,6 +639,41 @@ private:
       worldObject.hitBox.minimum = object.position - extent;
       worldObject.hitBox.maximum = object.position + extent;
       worldObjects_.push_back(worldObject);
+    }
+  }
+
+  void buildStairSteps() {
+    stairSteps_.clear();
+    stairSteps_.reserve(definition_.staircases.size());
+    const float inverseStepCount = 1.0f / static_cast<float>(STAIR_STEP_COUNT);
+
+    for (const Staircase& staircase : definition_.staircases) {
+      std::array<StairStep, STAIR_STEP_COUNT> steps;
+      const float lowerZ = std::min(staircase.startZ, staircase.endZ);
+      const bool ascending = staircase.endZ > staircase.startZ;
+      const float yStep = (staircase.endY - staircase.startY) * inverseStepCount;
+      const float halfY = std::fabs(yStep) * 0.5f;
+      const float halfX = staircase.width * 0.5f;
+
+      for (int index = 0; index < STAIR_STEP_COUNT; ++index) {
+        const float y0 = staircase.startY + yStep * index;
+        const float y1 = y0 + yStep;
+        const float fraction = (ascending ? index + 1 : index) * inverseStepCount;
+        const float topZ = staircase.startZ +
+          (staircase.endZ - staircase.startZ) * fraction;
+        const float boxMaximumZ = std::max(topZ, lowerZ + 0.025f);
+        steps[index].centre = {
+          staircase.centreX,
+          (y0 + y1) * 0.5f,
+          (lowerZ + boxMaximumZ) * 0.5f
+        };
+        steps[index].halfExtent = {
+          halfX,
+          halfY,
+          (boxMaximumZ - lowerZ) * 0.5f
+        };
+      }
+      stairSteps_.push_back(steps);
     }
   }
 
@@ -761,7 +814,8 @@ private:
 
     if (std::fabs(a) > 1e-7f && discriminant >= 0.0f) {
       const float root = std::sqrt(discriminant);
-      const float roots[2] = {(-b - root) / (2.0f * a), (-b + root) / (2.0f * a)};
+      const float inverse2A = 0.5f / a;
+      const float roots[2] = {(-b - root) * inverse2A, (-b + root) * inverse2A};
       for (float t : roots) {
         if (t < minimum || t > closest) continue;
         const Vec3 point = origin + direction * t;
@@ -996,41 +1050,18 @@ private:
 
   bool intersectStaircase(
     const Ray& ray,
-    const Staircase& staircase,
+    std::size_t staircaseIndex,
     float minimum,
     float maximum,
     Hit& hit
   ) const {
+    if (staircaseIndex >= stairSteps_.size()) return false;
     bool found = false;
     float closest = maximum;
-    const float lowerZ = std::min(staircase.startZ, staircase.endZ);
-    const bool ascending = staircase.endZ > staircase.startZ;
 
-    for (int index = 0; index < STAIR_STEP_COUNT; ++index) {
-      const float y0 = staircase.startY +
-        (staircase.endY - staircase.startY) * static_cast<float>(index) / STAIR_STEP_COUNT;
-      const float y1 = staircase.startY +
-        (staircase.endY - staircase.startY) * static_cast<float>(index + 1) / STAIR_STEP_COUNT;
-      const float fraction = ascending
-        ? static_cast<float>(index + 1) / STAIR_STEP_COUNT
-        : static_cast<float>(index) / STAIR_STEP_COUNT;
-      const float topZ = staircase.startZ +
-        (staircase.endZ - staircase.startZ) * fraction;
-      const float boxMinimumZ = lowerZ;
-      const float boxMaximumZ = std::max(topZ, lowerZ + 0.025f);
-      const Vec3 centre(
-        staircase.centreX,
-        (y0 + y1) * 0.5f,
-        (boxMinimumZ + boxMaximumZ) * 0.5f
-      );
-      const Vec3 halfExtent(
-        staircase.width * 0.5f,
-        std::fabs(y1 - y0) * 0.5f,
-        (boxMaximumZ - boxMinimumZ) * 0.5f
-      );
-
+    for (const StairStep& step : stairSteps_[staircaseIndex]) {
       Hit candidate;
-      if (intersectAxisAlignedBox(ray, centre, halfExtent, minimum, closest, candidate)) {
+      if (intersectAxisAlignedBox(ray, step.centre, step.halfExtent, minimum, closest, candidate)) {
         found = true;
         closest = candidate.t;
         hit = candidate;
@@ -1095,9 +1126,9 @@ private:
       }
     }
 
-    for (const Staircase& staircase : definition_.staircases) {
+    for (std::size_t index = 0; index < stairSteps_.size(); ++index) {
       Hit hit;
-      if (intersectStaircase(ray, staircase, minimum, maximum, hit)) {
+      if (intersectStaircase(ray, index, minimum, maximum, hit)) {
         result = hit;
         maximum = hit.t;
       }
@@ -1116,22 +1147,33 @@ private:
     return result;
   }
 
-  bool occluded(Vec3 point, Vec3 normal) const {
-    const Vec3 toLight = definition_.lightPosition - point;
-    const float distance = engine::length(toLight);
-    return traceClosest(
-      {point + normal * EPSILON, toLight / distance},
-      EPSILON,
-      distance - EPSILON
-    ).found;
+  bool traceAny(const Ray& ray, float minimum, float maximum) const {
+    Hit hit;
+    for (const RenderObject& object : definition_.objects) {
+      if (intersectObject(ray, object, minimum, maximum, hit)) return true;
+    }
+    for (std::size_t index = 0; index < stairSteps_.size(); ++index) {
+      if (intersectStaircase(ray, index, minimum, maximum, hit)) return true;
+    }
+    for (const FloorProxy& floor : definition_.floorProxies) {
+      if (intersectFloorProxy(ray, floor, minimum, maximum, hit)) return true;
+    }
+    return intersectGround(ray, minimum, maximum, hit);
   }
 
   Vec3 shade(const Hit& hit) const {
     const Vec3 toLight = definition_.lightPosition - hit.point;
-    const float distance = engine::length(toLight);
-    const float diffuse = std::max(0.0f, engine::dot(hit.normal, toLight / distance));
-    const float attenuation = 1.0f / (1.0f + 0.018f * distance * distance);
-    const float visibility = occluded(hit.point, hit.normal) ? 0.0f : 1.0f;
+    const float distanceSquaredValue = engine::dot(toLight, toLight);
+    if (distanceSquaredValue < 1e-12f) return hit.colour;
+    const float distance = std::sqrt(distanceSquaredValue);
+    const Vec3 lightDirection = toLight / distance;
+    const float diffuse = std::max(0.0f, engine::dot(hit.normal, lightDirection));
+    const float attenuation = 1.0f / (1.0f + 0.018f * distanceSquaredValue);
+    const float visibility = traceAny(
+      {hit.point + hit.normal * EPSILON, lightDirection},
+      EPSILON,
+      distance - EPSILON
+    ) ? 0.0f : 1.0f;
     const Vec3 colour = hit.colour * (0.19f + visibility * diffuse * attenuation * 1.18f);
     return {
       std::min(colour.x, 1.0f),
@@ -1148,6 +1190,7 @@ private:
   LevelDefinition definition_;
   WorldBounds bounds_;
   std::vector<WorldObject> worldObjects_;
+  std::vector<std::array<StairStep, STAIR_STEP_COUNT>> stairSteps_;
 };
 
 LevelDefinition lowerLevel() {
