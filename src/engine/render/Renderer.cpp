@@ -241,6 +241,7 @@ void Renderer::render() {
   if (rebuildStaticCache) {
     staticCacheKey_ = nextStaticKey;
     staticCacheValid_ = true;
+    ++staticCacheBuildCount_;
   }
 
   LevelControlState levelState;
