@@ -3,6 +3,7 @@
 #include <cstddef>
 
 #include "engine/camera/Camera.hpp"
+#include "engine/character/CharacterAnimation.hpp"
 #include "engine/world/Character.hpp"
 
 namespace isoweb {
@@ -24,6 +25,23 @@ public:
 class DefaultCharacterPresentationPolicy final : public CharacterPresentationPolicy {
 public:
   CharacterFacing facing(const Character& character, const Camera& camera) const override;
+
+  // Compatibility helper for callers that previously asked the default
+  // presentation object for timing. CharacterSystem itself routes timing
+  // through the independently replaceable CharacterAnimationPolicy.
+  float framesPerSecond(
+    const Character& character,
+    const SpriteAnimation& animation,
+    float effectiveMovementSpeed,
+    float baseMovementSpeed
+  ) const {
+    return DefaultCharacterAnimationPolicy().framesPerSecond(
+      character,
+      animation,
+      effectiveMovementSpeed,
+      baseMovementSpeed
+    );
+  }
 };
 
 CharacterPresentation resolveCharacterPresentation(
