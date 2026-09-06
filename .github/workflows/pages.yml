@@ -3,6 +3,8 @@ name: Check and deploy
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -11,7 +13,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -40,7 +42,7 @@ jobs:
       - name: Build static site
         run: bun run build
 
-      - name: Test world-object hitboxes
+      - name: Test world-object and character systems
         run: bun run test:hitboxes
 
       - name: Set up Emscripten
@@ -66,14 +68,17 @@ jobs:
         run: bun run audit:mobile
 
       - name: Configure Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
   deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
