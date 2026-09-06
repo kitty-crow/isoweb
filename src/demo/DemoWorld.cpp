@@ -11,6 +11,7 @@ namespace {
 
 using engine::HitBox;
 using engine::NavigationLink;
+using engine::Object;
 using engine::Ray;
 using engine::SceneSurfaceHit;
 using engine::SceneSurfaceKind;
@@ -269,6 +270,260 @@ const std::vector<Vec3>& icosahedronNormals() {
   return normals;
 }
 
+Vec3 negated(const Vec3& value) {
+  return {-value.x, -value.y, -value.z};
+}
+
+float lengthSquared(const Vec3& value) {
+  return engine::dot(value, value);
+}
+
+std::vector<Vec3> convexVertices(const std::vector<Vec3>& normals) {
+  std::vector<Vec3> vertices;
+  for (std::size_t a = 0; a < normals.size(); ++a) {
+    for (std::size_t b = a + 1; b < normals.size(); ++b) {
+      for (std::size_t c = b + 1; c < normals.size(); ++c) {
+        const Vec3 bc = engine::cross(normals[b], normals[c]);
+        const float determinant = engine::dot(normals[a], bc);
+        if (std::fabs(determinant) < 1e-6f) continue;
+        const Vec3 point = (
+          bc +
+          engine::cross(normals[c], normals[a]) +
+          engine::cross(normals[a], normals[b])
+        ) / determinant;
+
+        bool inside = true;
+        for (const Vec3& normal : normals) {
+          if (engine::dot(point, normal) > 1.0005f) {
+            inside = false;
+            break;
+          }
+        }
+        if (!inside) continue;
+
+        bool duplicate = false;
+        for (const Vec3& existing : vertices) {
+          if (lengthSquared(existing - point) < 1e-6f) {
+            duplicate = true;
+            break;
+          }
+        }
+        if (!duplicate) vertices.push_back(point);
+      }
+    }
+  }
+  return vertices;
+}
+
+const std::vector<Vec3>& dodecahedronVertices() {
+  static const std::vector<Vec3> vertices = convexVertices(dodecahedronNormals());
+  return vertices;
+}
+
+const std::vector<Vec3>& icosahedronVertices() {
+  static const std::vector<Vec3> vertices = convexVertices(icosahedronNormals());
+  return vertices;
+}
+
+Vec3 supportObjectBox(const Object& object, const Vec3& direction) {
+  const Vec3 half = object.hitBox.halfExtent();
+  const Vec3 centre = object.localToWorld(object.hitBox.centre());
+  const Vec3 right = object.horizontalRight();
+  const Vec3 forward = object.horizontalForward();
+  return centre +
+    right * (engine::dot(direction, right) >= 0.0f ? std::fabs(half.x) : -std::fabs(half.x)) +
+    forward * (engine::dot(direction, forward) >= 0.0f ? std::fabs(half.y) : -std::fabs(half.y)) +
+    Vec3(0.0f, 0.0f, direction.z >= 0.0f ? std::fabs(half.z) : -std::fabs(half.z));
+}
+
+Vec3 supportVertices(const RenderObject& object, const std::vector<Vec3>& vertices, const Vec3& direction) {
+  Vec3 best = object.position;
+  float bestProjection = -FAR_DISTANCE;
+  for (const Vec3& vertex : vertices) {
+    const Vec3 point = object.position + vertex * object.size;
+    const float projection = engine::dot(point, direction);
+    if (projection > bestProjection) {
+      bestProjection = projection;
+      best = point;
+    }
+  }
+  return best;
+}
+
+Vec3 supportRenderObject(const RenderObject& object, const Vec3& direction) {
+  switch (object.kind) {
+    case ShapeKind::Cube:
+      return object.position + Vec3(
+        direction.x >= 0.0f ? object.size : -object.size,
+        direction.y >= 0.0f ? object.size : -object.size,
+        direction.z >= 0.0f ? object.height * 0.5f : -object.height * 0.5f
+      );
+    case ShapeKind::Sphere: {
+      const float magnitude = engine::length(direction);
+      return magnitude > 1e-7f
+        ? object.position + direction * (object.size / magnitude)
+        : object.position;
+    }
+    case ShapeKind::Cone: {
+      const float horizontal = std::sqrt(direction.x * direction.x + direction.y * direction.y);
+      const Vec3 apex = object.position + Vec3(0.0f, 0.0f, object.height * 0.5f);
+      Vec3 base = object.position + Vec3(0.0f, 0.0f, -object.height * 0.5f);
+      if (horizontal > 1e-7f) {
+        base.x += object.size * direction.x / horizontal;
+        base.y += object.size * direction.y / horizontal;
+      }
+      return engine::dot(apex, direction) >= engine::dot(base, direction) ? apex : base;
+    }
+    case ShapeKind::Pyramid: {
+      const float z0 = object.position.z - object.height * 0.5f;
+      const Vec3 vertices[5] = {
+        {object.position.x - object.size, object.position.y - object.size, z0},
+        {object.position.x + object.size, object.position.y - object.size, z0},
+        {object.position.x + object.size, object.position.y + object.size, z0},
+        {object.position.x - object.size, object.position.y + object.size, z0},
+        {object.position.x, object.position.y, object.position.z + object.height * 0.5f}
+      };
+      Vec3 best = vertices[0];
+      float bestProjection = engine::dot(best, direction);
+      for (int index = 1; index < 5; ++index) {
+        const float projection = engine::dot(vertices[index], direction);
+        if (projection > bestProjection) {
+          bestProjection = projection;
+          best = vertices[index];
+        }
+      }
+      return best;
+    }
+    case ShapeKind::Dodecahedron:
+      return supportVertices(object, dodecahedronVertices(), direction);
+    case ShapeKind::Icosahedron:
+      return supportVertices(object, icosahedronVertices(), direction);
+  }
+  return object.position;
+}
+
+Vec3 minkowskiSupport(const Object& candidate, const RenderObject& object, const Vec3& direction) {
+  return supportObjectBox(candidate, direction) - supportRenderObject(object, negated(direction));
+}
+
+bool sameDirection(const Vec3& direction, const Vec3& toward) {
+  return engine::dot(direction, toward) > 1e-7f;
+}
+
+Vec3 perpendicularToward(const Vec3& edge, const Vec3& toward) {
+  Vec3 result = engine::cross(engine::cross(edge, toward), edge);
+  if (lengthSquared(result) > 1e-10f) return result;
+  result = engine::cross(edge, Vec3(0.0f, 0.0f, 1.0f));
+  if (lengthSquared(result) > 1e-10f) return result;
+  return engine::cross(edge, Vec3(0.0f, 1.0f, 0.0f));
+}
+
+bool handleLine(std::vector<Vec3>& simplex, Vec3& direction) {
+  const Vec3 a = simplex.back();
+  const Vec3 b = simplex[simplex.size() - 2];
+  const Vec3 ab = b - a;
+  const Vec3 ao = negated(a);
+  if (sameDirection(ab, ao)) {
+    simplex = {b, a};
+    direction = perpendicularToward(ab, ao);
+  } else {
+    simplex = {a};
+    direction = ao;
+  }
+  return lengthSquared(direction) < 1e-12f;
+}
+
+bool handleTriangle(std::vector<Vec3>& simplex, Vec3& direction) {
+  const Vec3 a = simplex[2];
+  const Vec3 b = simplex[1];
+  const Vec3 c = simplex[0];
+  const Vec3 ab = b - a;
+  const Vec3 ac = c - a;
+  const Vec3 ao = negated(a);
+  Vec3 abc = engine::cross(ab, ac);
+
+  if (sameDirection(engine::cross(abc, ac), ao)) {
+    if (sameDirection(ac, ao)) {
+      simplex = {c, a};
+      direction = perpendicularToward(ac, ao);
+      return lengthSquared(direction) < 1e-12f;
+    }
+    simplex = {b, a};
+    return handleLine(simplex, direction);
+  }
+
+  if (sameDirection(engine::cross(ab, abc), ao)) {
+    simplex = {b, a};
+    return handleLine(simplex, direction);
+  }
+
+  if (sameDirection(abc, ao)) {
+    direction = abc;
+    simplex = {c, b, a};
+  } else {
+    direction = negated(abc);
+    simplex = {b, c, a};
+  }
+  return lengthSquared(direction) < 1e-12f;
+}
+
+bool handleTetrahedron(std::vector<Vec3>& simplex, Vec3& direction) {
+  const Vec3 a = simplex[3];
+  const Vec3 b = simplex[2];
+  const Vec3 c = simplex[1];
+  const Vec3 d = simplex[0];
+  const Vec3 ao = negated(a);
+
+  Vec3 abc = engine::cross(b - a, c - a);
+  if (engine::dot(abc, d - a) > 0.0f) abc = negated(abc);
+  if (sameDirection(abc, ao)) {
+    simplex = {c, b, a};
+    return handleTriangle(simplex, direction);
+  }
+
+  Vec3 acd = engine::cross(c - a, d - a);
+  if (engine::dot(acd, b - a) > 0.0f) acd = negated(acd);
+  if (sameDirection(acd, ao)) {
+    simplex = {d, c, a};
+    return handleTriangle(simplex, direction);
+  }
+
+  Vec3 adb = engine::cross(d - a, b - a);
+  if (engine::dot(adb, c - a) > 0.0f) adb = negated(adb);
+  if (sameDirection(adb, ao)) {
+    simplex = {b, d, a};
+    return handleTriangle(simplex, direction);
+  }
+
+  return true;
+}
+
+bool handleSimplex(std::vector<Vec3>& simplex, Vec3& direction) {
+  if (simplex.size() == 2) return handleLine(simplex, direction);
+  if (simplex.size() == 3) return handleTriangle(simplex, direction);
+  if (simplex.size() == 4) return handleTetrahedron(simplex, direction);
+  return false;
+}
+
+bool overlapsConvexObject(const Object& candidate, const RenderObject& object) {
+  Vec3 direction = candidate.localToWorld(candidate.hitBox.centre()) - object.position;
+  if (lengthSquared(direction) < 1e-10f) direction = {1.0f, 0.0f, 0.0f};
+
+  std::vector<Vec3> simplex;
+  simplex.reserve(4);
+  simplex.push_back(minkowskiSupport(candidate, object, direction));
+  direction = negated(simplex.back());
+  if (lengthSquared(direction) < 1e-12f) return true;
+
+  for (int iteration = 0; iteration < 40; ++iteration) {
+    const Vec3 point = minkowskiSupport(candidate, object, direction);
+    if (engine::dot(point, direction) <= 1e-6f) return false;
+    simplex.push_back(point);
+    if (handleSimplex(simplex, direction)) return true;
+  }
+  return false;
+}
+
 void copySurface(const Hit& source, SceneSurfaceHit& destination) {
   destination.found = source.found;
   destination.distance = source.t;
@@ -331,9 +586,17 @@ public:
     return worldObjects_;
   }
 
+  bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const override {
+    if (objectIndex >= definition_.objects.size()) return false;
+    const RenderObject& object = definition_.objects[objectIndex];
+    return object.solid && overlapsConvexObject(candidate, object);
+  }
+
   bool intersectsSolid(const HitBox& hitBox) const override {
-    for (const WorldObject& object : worldObjects_) {
-      if (object.blocks(hitBox)) return true;
+    Object candidate;
+    candidate.hitBox = hitBox;
+    for (std::size_t index = 0; index < definition_.objects.size(); ++index) {
+      if (overlapsStatic(index, candidate)) return true;
     }
     return false;
   }
