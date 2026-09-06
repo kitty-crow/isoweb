@@ -107,9 +107,8 @@ bool labelPixel(const Character& character, const ObjectRayHit& hit) {
   const char* text = faceLabel(hit.face);
   const int count = text[1] == '\0' ? 1 : 2;
   const int virtualWidth = count == 1 ? 7 : 11;
-  const int virtualHeight = 9;
   const int px = static_cast<int>(u * virtualWidth);
-  const int py = static_cast<int>(v * virtualHeight);
+  const int py = static_cast<int>(v * 9);
   if (py < 2 || py >= 7) return false;
 
   if (count == 1) return glyph(text[0], px - 2, py - 2);
@@ -138,10 +137,15 @@ bool spriteSample(
   if (!animation || !animation->assigned() || !atlases.contains(animation->resource)) return false;
   artworkReady = true;
 
-  const Vec3 horizontalRay(ray.direction.x, ray.direction.y, 0.0f);
-  const float horizontalLength = length(horizontalRay);
-  if (horizontalLength < 1e-7f) return false;
-  const Vec3 planeNormal = horizontalRay / horizontalLength;
+  const float horizontalLengthSquared =
+    ray.direction.x * ray.direction.x + ray.direction.y * ray.direction.y;
+  if (horizontalLengthSquared < 1e-14f) return false;
+  const float inverseHorizontalLength = 1.0f / std::sqrt(horizontalLengthSquared);
+  const Vec3 planeNormal(
+    ray.direction.x * inverseHorizontalLength,
+    ray.direction.y * inverseHorizontalLength,
+    0.0f
+  );
   const float denominator = dot(ray.direction, planeNormal);
   if (std::fabs(denominator) < 1e-7f) return false;
 
@@ -157,7 +161,7 @@ bool spriteSample(
   if (t <= 0.001f || t >= maximumDistance) return false;
 
   const Vec3 point = ray.origin + ray.direction * t;
-  const Vec3 screenRight = normalise(cross(ray.direction, Vec3(0.0f, 0.0f, 1.0f)));
+  const Vec3 screenRight(-planeNormal.y, planeNormal.x, 0.0f);
   const Vec3 delta = point - centre;
   const float u = dot(delta, screenRight) / width + 0.5f;
   const float v = 0.5f - delta.z / height;
@@ -199,9 +203,26 @@ World::World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defau
   if (levels_.empty() || defaultLevelIndex_ >= levels_.size()) std::abort();
   activeLevelIndex_ = defaultLevelIndex_;
   levelIds_.reserve(levels_.size());
+  levelXYBounds_.resize(levels_.size());
+
   for (std::size_t index = 0; index < levels_.size(); ++index) {
     levelIds_.push_back(std::to_string(index));
+    levelLookup_[levelIds_.back()] = index;
     levels_[index]->setResident(index == defaultLevelIndex_);
+
+    const WorldBounds& bounds = levels_[index]->bounds();
+    LevelXYBounds& cached = levelXYBounds_[index];
+    if (!bounds.points.empty()) {
+      cached.unrestricted = false;
+      cached.minimumX = cached.minimumY = std::numeric_limits<float>::max();
+      cached.maximumX = cached.maximumY = -std::numeric_limits<float>::max();
+      for (const Vec3& point : bounds.points) {
+        cached.minimumX = std::min(cached.minimumX, point.x);
+        cached.minimumY = std::min(cached.minimumY, point.y);
+        cached.maximumX = std::max(cached.maximumX, point.x);
+        cached.maximumY = std::max(cached.maximumY, point.y);
+      }
+    }
   }
   levelLights_.resize(levels_.size());
 }
@@ -221,18 +242,19 @@ const std::string& World::activeLevelId() const {
 
 bool World::setLevelId(std::size_t index, const std::string& id) {
   if (index >= levelIds_.size() || id.empty()) return false;
-  for (std::size_t other = 0; other < levelIds_.size(); ++other) {
-    if (other != index && levelIds_[other] == id) return false;
-  }
+  const auto existing = levelLookup_.find(id);
+  if (existing != levelLookup_.end() && existing->second != index) return false;
+
+  levelLookup_.erase(levelIds_[index]);
   levelIds_[index] = id;
+  levelLookup_[id] = index;
+  runtimeRenderCachePrepared_ = false;
   return true;
 }
 
 std::size_t World::levelIndex(const std::string& levelId) const {
-  for (std::size_t index = 0; index < levelIds_.size(); ++index) {
-    if (levelIds_[index] == levelId) return index;
-  }
-  return levels_.size();
+  const auto found = levelLookup_.find(levelId);
+  return found == levelLookup_.end() ? levels_.size() : found->second;
 }
 
 const WorldBounds& World::bounds() const {
@@ -280,6 +302,7 @@ void World::setNavigationLinks(std::vector<NavigationLink> links) {
     }
   }
   liminalObjects_ = std::move(links);
+  runtimeRenderCachePrepared_ = false;
 }
 
 const LiminalObject* World::liminalObject(const std::string& id) const {
@@ -360,6 +383,27 @@ bool World::renderPositionFor(const Character& character, Vec3& position) const 
   return mapLiminalPosition(character.location, activeLevelId(), position);
 }
 
+void World::prepareRenderFrame(const Vec3&) const {
+  runtimeRenderEntries_.clear();
+  const auto& characters = entities_.characters();
+  runtimeRenderEntries_.reserve(characters.size());
+  const std::string& levelId = activeLevelId();
+
+  for (const Character* character : characters) {
+    if (!character) continue;
+    Vec3 renderPosition;
+    if (!renderPositionFor(*character, renderPosition)) continue;
+
+    RuntimeRenderEntry entry;
+    entry.character = character;
+    entry.renderPosition = renderPosition;
+    entry.proxy = renderProxy(*character, renderPosition, levelId);
+    entry.selected = characterSystem_ && characterSystem_->isSelected(character->id);
+    runtimeRenderEntries_.push_back(std::move(entry));
+  }
+  runtimeRenderCachePrepared_ = true;
+}
+
 bool World::setLevelLight(
   const std::string& levelId,
   const Vec3& position,
@@ -378,38 +422,47 @@ bool World::setLevelLight(
   return true;
 }
 
-float World::runtimeLightVisibility(const std::string& levelId, const Vec3& point) const {
-  const std::size_t index = levelIndex(levelId);
+float World::runtimeLightVisibility(std::size_t index, const Vec3& point) const {
   if (index >= levelLights_.size() || !levelLights_[index].configured) return 1.0f;
 
   const LevelLight& light = levelLights_[index];
   const Vec3 toLight = light.position - point;
-  const float distance = length(toLight);
-  if (distance < 1e-6f) return 1.0f;
+  const float distanceSquaredValue = dot(toLight, toLight);
+  if (distanceSquaredValue < 1e-12f) return 1.0f;
+  const float distance = std::sqrt(distanceSquaredValue);
   const Vec3 direction = toLight / distance;
+  const float maximumDistance = distance - 0.006f;
+  if (maximumDistance <= 0.0f) return 1.0f;
 
-  SceneSurfaceHit blocker;
   const Ray shadowRay{point + direction * 0.003f, direction};
-  if (!traceEnvironment(levelId, shadowRay, blocker)) return 1.0f;
-  return blocker.distance < distance - 0.006f ? 0.0f : 1.0f;
+  return levels_[index]->rayOccluded(shadowRay, maximumDistance) ? 0.0f : 1.0f;
+}
+
+float World::runtimeLightVisibility(const std::string& levelId, const Vec3& point) const {
+  return runtimeLightVisibility(levelIndex(levelId), point);
 }
 
 Vec3 World::shadeRuntimeSurface(
-  const std::string& levelId,
+  std::size_t index,
   const Vec3& point,
   const Vec3& normal,
   const Vec3& colour
 ) const {
-  const std::size_t index = levelIndex(levelId);
   if (index >= levelLights_.size() || !levelLights_[index].configured) return colour;
 
   const LevelLight& light = levelLights_[index];
   const Vec3 toLight = light.position - point;
-  const float distance = length(toLight);
-  if (distance < 1e-6f) return colour;
-  const float diffuse = std::max(0.0f, dot(normal, toLight / distance));
-  const float attenuation = 1.0f / (1.0f + light.attenuation * distance * distance);
-  const float visibility = runtimeLightVisibility(levelId, point);
+  const float distanceSquaredValue = dot(toLight, toLight);
+  if (distanceSquaredValue < 1e-12f) return colour;
+  const float distance = std::sqrt(distanceSquaredValue);
+  const Vec3 direction = toLight / distance;
+  const float diffuse = std::max(0.0f, dot(normal, direction));
+  const float attenuation = 1.0f / (1.0f + light.attenuation * distanceSquaredValue);
+  const float maximumDistance = distance - 0.006f;
+  const float visibility = maximumDistance > 0.0f &&
+      levels_[index]->rayOccluded({point + direction * 0.003f, direction}, maximumDistance)
+    ? 0.0f
+    : 1.0f;
   const float factor = light.ambient + visibility * diffuse * attenuation * light.directScale;
   const Vec3 shaded = colour * factor;
   return {
@@ -419,34 +472,52 @@ Vec3 World::shadeRuntimeSurface(
   };
 }
 
-float World::runtimeSpriteLightFactor(const std::string& levelId, const Vec3& point) const {
-  const std::size_t index = levelIndex(levelId);
+Vec3 World::shadeRuntimeSurface(
+  const std::string& levelId,
+  const Vec3& point,
+  const Vec3& normal,
+  const Vec3& colour
+) const {
+  return shadeRuntimeSurface(levelIndex(levelId), point, normal, colour);
+}
+
+float World::runtimeSpriteLightFactor(std::size_t index, const Vec3& point) const {
   if (index >= levelLights_.size() || !levelLights_[index].configured) return 1.0f;
   const LevelLight& light = levelLights_[index];
-  const float visibility = runtimeLightVisibility(levelId, point);
+  const float visibility = runtimeLightVisibility(index, point);
   return light.ambient + visibility * (1.0f - light.ambient);
 }
 
+float World::runtimeSpriteLightFactor(const std::string& levelId, const Vec3& point) const {
+  return runtimeSpriteLightFactor(levelIndex(levelId), point);
+}
+
 Vec3 World::sample(const Ray& ray, float backgroundY) const {
-  const float environmentHitDistance = environmentDistance(ray);
+  SceneSurfaceHit environmentHit;
+  const Vec3 environmentColour = activeLevel().sampleWithHit(ray, backgroundY, environmentHit);
+  const float environmentHitDistance = environmentHit.found
+    ? environmentHit.distance
+    : std::numeric_limits<float>::max();
+
   bool runtimeFound = false;
-  const Vec3 runtime = sampleRuntimeEntities(ray, backgroundY, environmentHitDistance, runtimeFound);
-  return runtimeFound ? runtime : activeLevel().sample(ray, backgroundY);
+  const Vec3 runtime = sampleRuntimeEntities(
+    ray,
+    environmentColour,
+    environmentHitDistance,
+    runtimeFound
+  );
+  return runtimeFound ? runtime : environmentColour;
 }
 
 Vec3 World::sampleRuntimeEntities(
   const Ray& ray,
-  float backgroundY,
+  const Vec3& environmentColour,
   float environmentHitDistance,
   bool& found
 ) const {
   std::vector<RuntimeSample> samples;
 
-  for (const Character* character : entities_.characters()) {
-    if (!character) continue;
-    Vec3 renderPosition;
-    if (!renderPositionFor(*character, renderPosition)) continue;
-
+  auto process = [&](const Character* character, const Vec3& renderPosition, const Object& proxy, bool selected) {
     RuntimeSample sample;
     bool sampleFound = false;
     bool artworkReady = false;
@@ -464,35 +535,50 @@ Vec3 World::sampleRuntimeEntities(
 
       if (artworkReady) {
         if (sampleFound) {
-          if (characterSystem_ && characterSystem_->isSelected(character->id)) {
+          if (selected && characterSystem_) {
             sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
           }
-          sample.colour = sample.colour * runtimeSpriteLightFactor(activeLevelId(), sample.point);
+          sample.colour = sample.colour * runtimeSpriteLightFactor(activeLevelIndex_, sample.point);
           samples.push_back(sample);
         }
-        continue;
+        return;
       }
     }
 
-    const Object proxy = renderProxy(*character, renderPosition, activeLevelId());
     ObjectRayHit hit;
-    if (!proxy.intersectRay(ray, 0.001f, environmentHitDistance, hit)) continue;
+    if (!proxy.intersectRay(ray, 0.001f, environmentHitDistance, hit)) return;
     sample.distance = hit.distance;
     sample.point = hit.worldPoint;
     sample.colour = labelPixel(*character, hit)
       ? Vec3(0.96f, 0.97f, 1.0f)
       : faceColour(hit.face);
     sample.alpha = 1.0f;
-    if (characterSystem_ && characterSystem_->isSelected(character->id)) {
+    if (selected && characterSystem_) {
       sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
     }
     sample.colour = shadeRuntimeSurface(
-      activeLevelId(),
+      activeLevelIndex_,
       sample.point,
       hit.worldNormal,
       sample.colour
     );
     samples.push_back(sample);
+  };
+
+  if (runtimeRenderCachePrepared_) {
+    for (const RuntimeRenderEntry& entry : runtimeRenderEntries_) {
+      process(entry.character, entry.renderPosition, entry.proxy, entry.selected);
+    }
+  } else {
+    const std::string& levelId = activeLevelId();
+    for (const Character* character : entities_.characters()) {
+      if (!character) continue;
+      Vec3 renderPosition;
+      if (!renderPositionFor(*character, renderPosition)) continue;
+      const Object proxy = renderProxy(*character, renderPosition, levelId);
+      const bool selected = characterSystem_ && characterSystem_->isSelected(character->id);
+      process(character, renderPosition, proxy, selected);
+    }
   }
 
   if (samples.empty()) {
@@ -500,11 +586,13 @@ Vec3 World::sampleRuntimeEntities(
     return Vec3();
   }
 
-  std::sort(samples.begin(), samples.end(), [](const RuntimeSample& a, const RuntimeSample& b) {
-    return a.distance > b.distance;
-  });
+  if (samples.size() > 1) {
+    std::sort(samples.begin(), samples.end(), [](const RuntimeSample& a, const RuntimeSample& b) {
+      return a.distance > b.distance;
+    });
+  }
 
-  Vec3 colour = activeLevel().sample(ray, backgroundY);
+  Vec3 colour = environmentColour;
   for (const RuntimeSample& sample : samples) {
     const float alpha = std::max(0.0f, std::min(1.0f, sample.alpha));
     colour = sample.colour * alpha + colour * (1.0f - alpha);
@@ -587,19 +675,13 @@ bool World::collidesWith(const Object& candidate, const Object* ignored) const {
 }
 
 bool World::containsPosition(const std::string& levelId, const Vec3& position) const {
-  const WorldBounds& targetBounds = bounds(levelId);
-  if (targetBounds.points.empty()) return true;
-  float minX = std::numeric_limits<float>::max();
-  float minY = std::numeric_limits<float>::max();
-  float maxX = -std::numeric_limits<float>::max();
-  float maxY = -std::numeric_limits<float>::max();
-  for (const Vec3& point : targetBounds.points) {
-    minX = std::min(minX, point.x);
-    minY = std::min(minY, point.y);
-    maxX = std::max(maxX, point.x);
-    maxY = std::max(maxY, point.y);
-  }
-  return position.x >= minX && position.x <= maxX && position.y >= minY && position.y <= maxY;
+  std::size_t index = levelIndex(levelId);
+  if (index >= levelXYBounds_.size()) index = activeLevelIndex_;
+  const LevelXYBounds& bounds = levelXYBounds_[index];
+  return bounds.unrestricted || (
+    position.x >= bounds.minimumX && position.x <= bounds.maximumX &&
+    position.y >= bounds.minimumY && position.y <= bounds.maximumY
+  );
 }
 
 bool World::pickWalkableSurface(const Ray& ray, SceneSurfaceHit& hit) const {
@@ -663,6 +745,7 @@ bool World::setActiveLevel(std::size_t index) {
   levels_[activeLevelIndex_]->setResident(false);
   activeLevelIndex_ = index;
   levels_[activeLevelIndex_]->setResident(true);
+  runtimeRenderCachePrepared_ = false;
   return true;
 }
 
