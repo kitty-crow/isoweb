@@ -15,11 +15,11 @@ struct EntityLocation {
   std::string worldId;
   std::string timelineId;
   std::string levelId;
+  Vec3 position;
   // Non-empty while the entity physically occupies a connector between
   // levels/worlds. levelId remains the coordinate frame currently used for
   // simulation; liminalObjectId is the authoritative spatial membership.
   std::string liminalObjectId;
-  Vec3 position;
 
   bool sharesSpaceWith(const EntityLocation& other) const {
     const auto compatible = [](const std::string& left, const std::string& right) {
