@@ -34,7 +34,10 @@ public:
   void tick(float deltaSeconds, const Camera& camera);
   float effectiveSpeed(const Character& character) const;
 
-  void setCollisionPolicy(CollisionPolicy& policy) { collisionPolicy_ = &policy; }
+  void setCollisionPolicy(CollisionPolicy& policy) {
+    collisionPolicy_ = &policy;
+    world_.setCollisionPolicy(collisionPolicy_);
+  }
   void setDestinationPolicy(DestinationPolicy& policy) { destinationPolicy_ = &policy; }
   void setNavigationPolicy(NavigationPolicy& policy) { navigationPolicy_ = &policy; }
   void setMovementPolicy(MovementPolicy& policy) { movementPolicy_ = &policy; }
