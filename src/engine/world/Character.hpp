@@ -27,6 +27,8 @@ struct SpriteAnimation {
   std::size_t columns = 1;
   std::size_t rows = 1;
   float nominalFramesPerSecond = 6.0f;
+  float worldWidth = 0.0f;
+  float worldHeight = 0.0f;
   bool loop = true;
 
   bool assigned() const { return !resource.empty(); }
@@ -100,6 +102,8 @@ struct CharacterMovementState {
 
 struct CharacterAnimationState {
   std::string resource;
+  CharacterFacing facing = CharacterFacing::Front;
+  bool mirror = false;
   float elapsedSeconds = 0.0f;
   std::size_t frame = 0;
 
