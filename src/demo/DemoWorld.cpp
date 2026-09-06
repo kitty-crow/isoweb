@@ -538,6 +538,7 @@ class DemoLevel final : public engine::IWorldLevel {
 public:
   explicit DemoLevel(LevelDefinition definition)
       : definition_(std::move(definition)) {
+    light_.position = definition_.lightPosition;
     buildCollisionObjects();
     buildBounds();
   }
@@ -580,6 +581,10 @@ public:
     if (!closest.found) return false;
     copySurface(closest, hit);
     return true;
+  }
+
+  const engine::LevelLight& light() const override {
+    return light_;
   }
 
   const std::vector<WorldObject>& objects() const override {
@@ -1117,7 +1122,7 @@ private:
   }
 
   bool occluded(Vec3 point, Vec3 normal) const {
-    const Vec3 toLight = definition_.lightPosition - point;
+    const Vec3 toLight = light_.position - point;
     const float distance = engine::length(toLight);
     return traceClosest(
       {point + normal * EPSILON, toLight / distance},
@@ -1127,12 +1132,14 @@ private:
   }
 
   Vec3 shade(const Hit& hit) const {
-    const Vec3 toLight = definition_.lightPosition - hit.point;
+    const Vec3 toLight = light_.position - hit.point;
     const float distance = engine::length(toLight);
     const float diffuse = std::max(0.0f, engine::dot(hit.normal, toLight / distance));
-    const float attenuation = 1.0f / (1.0f + 0.018f * distance * distance);
+    const float attenuation = 1.0f / (1.0f + light_.attenuation * distance * distance);
     const float visibility = occluded(hit.point, hit.normal) ? 0.0f : 1.0f;
-    const Vec3 colour = hit.colour * (0.19f + visibility * diffuse * attenuation * 1.18f);
+    const Vec3 colour = hit.colour * (
+      light_.ambient + visibility * diffuse * attenuation * light_.directScale
+    );
     return {
       std::min(colour.x, 1.0f),
       std::min(colour.y, 1.0f),
@@ -1146,6 +1153,7 @@ private:
   }
 
   LevelDefinition definition_;
+  engine::LevelLight light_;
   WorldBounds bounds_;
   std::vector<WorldObject> worldObjects_;
 };
