@@ -128,6 +128,18 @@ public:
 
   bool hasArtwork() const { return sprites.hasAnyArtwork(); }
   bool hasRequiredMovementArtwork() const { return sprites.hasRequiredMovementArtwork(); }
+
+  const DirectionalSpriteSet& activeSpriteSet() const {
+    if (!activeAction.empty()) {
+      const auto action = sprites.actions.find(activeAction);
+      if (action != sprites.actions.end()) return action->second;
+    }
+    return moving ? sprites.moving : sprites.still;
+  }
+
+  const SpriteAnimation* currentSpriteAnimation(bool* mirror = nullptr) const {
+    return activeSpriteSet().animation(animation.facing, mirror);
+  }
 };
 
 } // namespace engine
