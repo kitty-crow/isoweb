@@ -29,13 +29,8 @@ struct SpriteAnimation {
   float nominalFramesPerSecond = 6.0f;
   bool loop = true;
 
-  bool assigned() const {
-    return !resource.empty();
-  }
-
-  bool animated() const {
-    return assigned() && frameCount > 1;
-  }
+  bool assigned() const { return !resource.empty(); }
+  bool animated() const { return assigned() && frameCount > 1; }
 };
 
 struct DirectionalSpriteSet {
@@ -44,14 +39,8 @@ struct DirectionalSpriteSet {
   SpriteAnimation left;
   SpriteAnimation right;
 
-  bool hasExplicitRight() const {
-    return right.assigned();
-  }
-
-  bool hasBaselineDirections() const {
-    return front.assigned() && back.assigned() && left.assigned();
-  }
-
+  bool hasExplicitRight() const { return right.assigned(); }
+  bool hasBaselineDirections() const { return front.assigned() && back.assigned() && left.assigned(); }
   bool hasAnyArtwork() const {
     return front.assigned() || back.assigned() || left.assigned() || right.assigned();
   }
@@ -85,9 +74,7 @@ struct CharacterSpriteSet {
 
   bool hasAnyArtwork() const {
     if (still.hasAnyArtwork() || moving.hasAnyArtwork()) return true;
-    for (const auto& action : actions) {
-      if (action.second.hasAnyArtwork()) return true;
-    }
+    for (const auto& action : actions) if (action.second.hasAnyArtwork()) return true;
     return false;
   }
 };
@@ -112,10 +99,12 @@ struct CharacterMovementState {
 };
 
 struct CharacterAnimationState {
+  std::string resource;
   float elapsedSeconds = 0.0f;
   std::size_t frame = 0;
 
-  void reset() {
+  void reset(const std::string& nextResource = std::string()) {
+    resource = nextResource;
     elapsedSeconds = 0.0f;
     frame = 0;
   }
@@ -133,13 +122,8 @@ public:
   CharacterMovementState movement;
   CharacterAnimationState animation;
 
-  bool hasArtwork() const {
-    return sprites.hasAnyArtwork();
-  }
-
-  bool hasRequiredMovementArtwork() const {
-    return sprites.hasRequiredMovementArtwork();
-  }
+  bool hasArtwork() const { return sprites.hasAnyArtwork(); }
+  bool hasRequiredMovementArtwork() const { return sprites.hasRequiredMovementArtwork(); }
 };
 
 } // namespace engine
