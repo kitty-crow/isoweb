@@ -31,6 +31,7 @@ public:
   void setDetailedMode(bool enabled);
   void pan(float right, float down);
   void resetCamera();
+  void setControlStick(int control, float x, float y);
 
   void levelUp();
   void levelDown();
@@ -38,6 +39,7 @@ public:
   std::size_t levelCount() const { return world_.levelCount(); }
   std::size_t activeLevelIndex() const { return world_.activeLevelIndex(); }
   std::size_t defaultLevelIndex() const { return world_.defaultLevelIndex(); }
+  std::size_t staticCacheBuildCount() const { return renderer_.staticCacheBuildCount(); }
 
   bool pointerTap(float x, float y, bool additive);
   bool pointerWalkable(float x, float y) const;
@@ -81,7 +83,7 @@ public:
   engine::World& world() { return world_; }
 
 private:
-  void redraw();
+  void redraw(bool refreshPresentation = true);
 
   DemoWorld world_;
   engine::Camera camera_;

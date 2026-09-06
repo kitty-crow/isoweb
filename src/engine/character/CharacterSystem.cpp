@@ -15,8 +15,9 @@ float horizontalDistance(const Vec3& a, const Vec3& b) {
 
 Vec3 horizontalDirection(const Vec3& from, const Vec3& to, const Vec3& fallback) {
   const Vec3 delta(to.x - from.x, to.y - from.y, 0.0f);
-  const float magnitude = std::sqrt(delta.x * delta.x + delta.y * delta.y);
-  return magnitude > 1e-6f ? delta / magnitude : fallback;
+  const float magnitudeSquared = delta.x * delta.x + delta.y * delta.y;
+  if (magnitudeSquared <= 1e-12f) return fallback;
+  return delta * (1.0f / std::sqrt(magnitudeSquared));
 }
 
 Object renderProxy(const Character& character, const Vec3& position, const std::string& levelId) {
@@ -37,6 +38,20 @@ void refreshLiminalMembership(World& world, Character& character, float toleranc
     character.location.position,
     tolerance
   );
+}
+
+void applyPresentation(Character& character, const CharacterPresentation& presentation) {
+  character.animation.facing = presentation.facing;
+  character.animation.mirror = presentation.mirror;
+  if (!presentation.animation) {
+    character.animation.reset();
+    return;
+  }
+  if (character.animation.resource != presentation.animation->resource) {
+    character.animation.reset(presentation.animation->resource);
+    character.animation.facing = presentation.facing;
+    character.animation.mirror = presentation.mirror;
+  }
 }
 
 } // namespace
@@ -249,35 +264,26 @@ void CharacterSystem::updatePresentation(const Camera& camera) {
       camera,
       *presentationPolicy_
     );
-    character->animation.facing = presentation.facing;
-    character->animation.mirror = presentation.mirror;
-    if (!presentation.animation) {
-      character->animation.reset();
-      continue;
-    }
-    if (character->animation.resource != presentation.animation->resource) {
-      character->animation.reset(presentation.animation->resource);
-      character->animation.facing = presentation.facing;
-      character->animation.mirror = presentation.mirror;
-    }
+    applyPresentation(*character, presentation);
   }
 }
 
 void CharacterSystem::tick(float deltaSeconds, const Camera& camera) {
+  // Movement, camera-relative presentation and animation timing are all
+  // Character-local. Resolve presentation once after movement and reuse that
+  // exact result for animation instead of making three passes over the store.
   for (Character* character : world_.entities().characters()) {
-    if (character) advance(*character, deltaSeconds);
-  }
+    if (!character) continue;
+    advance(*character, deltaSeconds);
 
-  updatePresentation(camera);
-
-  for (Character* character : world_.entities().characters()) {
-    if (!character || character->animation.resource.empty()) continue;
     const CharacterPresentation presentation = resolveCharacterPresentation(
       *character,
       camera,
       *presentationPolicy_
     );
-    if (!presentation.animation) continue;
+    applyPresentation(*character, presentation);
+
+    if (!presentation.animation || character->animation.resource.empty()) continue;
     const float fps = animationPolicy_->framesPerSecond(
       *character,
       *presentation.animation,

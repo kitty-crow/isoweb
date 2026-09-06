@@ -89,6 +89,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_reset_camera() {
   application().resetCamera();
 }
 
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_set_control_stick(int control, float x, float y) {
+  application().setControlStick(control, x, y);
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_level_up() {
   application().levelUp();
 }
@@ -111,6 +115,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_active_level_index() {
 
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_default_level_index() {
   return static_cast<int>(application().defaultLevelIndex());
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_static_cache_build_count() {
+  return static_cast<int>(application().staticCacheBuildCount());
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_pointer_tap(float x, float y, int additive) {

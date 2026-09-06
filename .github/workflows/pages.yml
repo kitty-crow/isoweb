@@ -51,6 +51,12 @@ jobs:
       - name: Test liminal spaces and runtime lighting
         run: bun run test:liminal
 
+      - name: Test performance architecture
+        run: bun run test:performance
+
+      - name: Test centre joystick quantisation
+        run: bun run test:joystick
+
       - name: Set up Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
@@ -69,6 +75,9 @@ jobs:
 
       - name: Smoke-test WASM browser boot
         run: bun run test:runtime
+
+      - name: Exercise centre joysticks in Chromium
+        run: bun run test:joystick-browser
 
       - name: Audit mobile responsiveness
         run: bun run audit:mobile

@@ -2,8 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "engine/math/Vec3.hpp"
@@ -46,7 +46,25 @@ private:
     std::vector<std::uint8_t> rgba;
   };
 
-  std::map<std::string, Atlas> atlases_;
+  struct LayoutCache {
+    const SpriteAnimation* animation = nullptr;
+    const Atlas* atlas = nullptr;
+    std::size_t columns = 1;
+    std::size_t rows = 1;
+    std::size_t count = 1;
+    int atlasWidth = 0;
+    int atlasHeight = 0;
+    int frameWidth = 0;
+    int frameHeight = 0;
+  };
+
+  const Atlas* resolve(const std::string& resource) const;
+  void invalidateCaches() const;
+
+  std::unordered_map<std::string, Atlas> atlases_;
+  mutable std::string cachedResource_;
+  mutable const Atlas* cachedAtlas_ = nullptr;
+  mutable LayoutCache layoutCache_;
 };
 
 } // namespace engine

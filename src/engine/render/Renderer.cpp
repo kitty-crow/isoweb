@@ -1,10 +1,34 @@
 #include "engine/render/Renderer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstring>
 
 namespace isoweb {
 namespace engine {
+namespace {
+
+constexpr std::size_t MAX_STATIC_CACHE_PIXELS = 600000;
+
+const std::array<float, 255>& gammaThresholds() {
+  // The old conversion was round(pow(linear, 1/2.2) * 255). The boundary at
+  // which output N becomes selected is therefore ((N - 0.5) / 255)^2.2.
+  // Computing these 255 boundaries once removes three pow() calls per pixel
+  // while preserving the same 8-bit transfer curve and sample quality.
+  static const std::array<float, 255> thresholds = [] {
+    std::array<float, 255> values{};
+    for (std::size_t output = 1; output <= 255; ++output) {
+      const float encodedBoundary =
+        (static_cast<float>(output) - 0.5f) * (1.0f / 255.0f);
+      values[output - 1] = std::pow(encodedBoundary, 2.2f);
+    }
+    return values;
+  }();
+  return thresholds;
+}
+
+} // namespace
 
 Renderer::Renderer(const IWorld& world, Camera& camera, ControlSprites& controls)
     : world_(world), camera_(camera), controls_(controls) {}
@@ -14,25 +38,25 @@ void Renderer::resize(int width, int height) {
   frameHeight_ = std::max(160, std::min(1600, height));
 }
 
-bool Renderer::canPan() const {
-  return camera_.canPan(frameWidth_, frameHeight_, world_.bounds());
-}
-
-CameraControlState Renderer::cameraControlState() const {
-  return camera_.controlState(frameWidth_, frameHeight_, world_.bounds());
-}
-
-float Renderer::viewHeight() const {
-  return camera_.viewHeight(frameWidth_, frameHeight_, world_.bounds());
-}
-
-float Renderer::wholeZoomScale() const {
-  return camera_.wholeZoomScale(frameWidth_, frameHeight_, world_.bounds());
-}
-
 std::uint8_t Renderer::toByte(float value) {
-  value = std::pow(std::max(0.0f, std::min(1.0f, value)), 1.0f / 2.2f);
-  return static_cast<std::uint8_t>(value * 255.0f + 0.5f);
+  if (value <= 0.0f) return 0;
+  if (value >= 1.0f) return 255;
+  const auto& thresholds = gammaThresholds();
+  return static_cast<std::uint8_t>(
+    std::upper_bound(thresholds.begin(), thresholds.end(), value) - thresholds.begin()
+  );
+}
+
+bool Renderer::staticCacheMatches(const StaticCacheKey& key) const {
+  return staticCacheValid_ &&
+    staticCacheKey_.width == key.width &&
+    staticCacheKey_.height == key.height &&
+    staticCacheKey_.level == key.level &&
+    staticCacheKey_.yawStep == key.yawStep &&
+    staticCacheKey_.zoomPreset == key.zoomPreset &&
+    staticCacheKey_.panX == key.panX &&
+    staticCacheKey_.panY == key.panY &&
+    staticCacheKey_.viewHeight == key.viewHeight;
 }
 
 void Renderer::ensureFrame() {
@@ -48,16 +72,16 @@ void Renderer::ensureFrame() {
 
 Ray Renderer::rayForPixel(float px, float py) const {
   const Vec3 forward = camera_.forward();
-  const Vec3 right = normalise(cross(forward, {0.0f, 0.0f, 1.0f}));
+  const Vec3 right = camera_.groundRight();
   const Vec3 up = normalise(cross(right, forward));
   const float aspect = static_cast<float>(frameWidth_) / frameHeight_;
-  const float height = viewHeight();
+  const float height = frameViewHeight_;
   const float width = height * aspect;
   const float screenX = (px / frameWidth_ - 0.5f) * width;
   const float screenY = (0.5f - py / frameHeight_) * height;
 
   const WorldBounds& bounds = world_.bounds();
-  const Vec3 focus = canPan()
+  const Vec3 focus = frameCanPan_
     ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
     : bounds.focus;
 
@@ -75,15 +99,15 @@ bool Renderer::groundPointForPixel(float px, float py, float groundZ, Vec3& poin
 
 bool Renderer::worldPointToPixel(const Vec3& point, float& px, float& py) const {
   const Vec3 forward = camera_.forward();
-  const Vec3 right = normalise(cross(forward, {0.0f, 0.0f, 1.0f}));
+  const Vec3 right = camera_.groundRight();
   const Vec3 up = normalise(cross(right, forward));
   const float aspect = static_cast<float>(frameWidth_) / frameHeight_;
-  const float height = viewHeight();
+  const float height = frameViewHeight_;
   const float width = height * aspect;
   if (width <= 0.0f || height <= 0.0f) return false;
 
   const WorldBounds& bounds = world_.bounds();
-  const Vec3 focus = canPan()
+  const Vec3 focus = frameCanPan_
     ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
     : bounds.focus;
   const Vec3 delta = point - focus;
@@ -97,44 +121,144 @@ bool Renderer::worldPointToPixel(const Vec3& point, float& px, float& py) const 
 
 void Renderer::render() {
   ensureFrame();
-  const float offsets[2] = {0.25f, 0.75f};
 
+  const WorldBounds& bounds = world_.bounds();
+  const Vec3 forward = camera_.forward();
+  const Vec3 right = camera_.groundRight();
+  const Vec3 up = normalise(cross(right, forward));
+  const float aspect = static_cast<float>(frameWidth_) / frameHeight_;
+
+  // Project the static bounds once. The old path independently asked for
+  // viewHeight, canPan, wholeZoomScale and then controlState, each of which
+  // could repeat this bounds scan.
+  const float wholeHeight = camera_.wholeViewHeight(aspect, bounds);
+  const float baseHeight = camera_.baseViewHeight(aspect);
+  const float height = camera_.zoomPreset() == 0
+    ? wholeHeight
+    : camera_.viewHeight(frameWidth_, frameHeight_, bounds);
+  const float width = height * aspect;
+  const bool panEnabled = height + 0.0001f < wholeHeight;
+  const Vec3 focus = panEnabled
+    ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
+    : bounds.focus;
+
+  frameViewHeight_ = height;
+  frameCanPan_ = panEnabled;
+  frameWholeZoomScale_ = baseHeight / wholeHeight;
+  frameCameraState_ = camera_.controlState(
+    frameWidth_,
+    frameHeight_,
+    bounds,
+    panEnabled,
+    frameWholeZoomScale_
+  );
+
+  world_.prepareRenderFrame(forward);
+
+  const std::size_t pixelCount =
+    static_cast<std::size_t>(frameWidth_) * static_cast<std::size_t>(frameHeight_);
+  const bool useStaticCache =
+    world_.supportsStaticSampleCache() && pixelCount <= MAX_STATIC_CACHE_PIXELS;
+  StaticCacheKey nextStaticKey;
+  nextStaticKey.width = frameWidth_;
+  nextStaticKey.height = frameHeight_;
+  nextStaticKey.level = world_.activeLevelIndex();
+  nextStaticKey.yawStep = camera_.yawStep();
+  nextStaticKey.zoomPreset = camera_.zoomPreset();
+  nextStaticKey.panX = camera_.panX();
+  nextStaticKey.panY = camera_.panY();
+  nextStaticKey.viewHeight = height;
+
+  const bool rebuildStaticCache = useStaticCache && !staticCacheMatches(nextStaticKey);
+  if (useStaticCache) {
+    const std::size_t sampleCount = pixelCount * 4;
+    if (staticSamples_.size() != sampleCount) staticSamples_.resize(sampleCount);
+  } else {
+    staticCacheValid_ = false;
+  }
+
+  const float inverseFrameWidth = 1.0f / static_cast<float>(frameWidth_);
+  const float inverseFrameHeight = 1.0f / static_cast<float>(frameHeight_);
+  const Vec3 rightStep = right * (width * inverseFrameWidth);
+  const Vec3 downStep = up * (-height * inverseFrameHeight);
+  const Vec3 cornerOrigin = focus - forward * 9.0f - right * (width * 0.5f) + up * (height * 0.5f);
+
+  const Vec3 sampleOffsets[4] = {
+    rightStep * 0.25f + downStep * 0.25f,
+    rightStep * 0.75f + downStep * 0.25f,
+    rightStep * 0.25f + downStep * 0.75f,
+    rightStep * 0.75f + downStep * 0.75f
+  };
+
+  Vec3 rowOrigin = cornerOrigin;
+  std::size_t pixelIndex = 0;
   for (int y = 0; y < frameHeight_; ++y) {
-    for (int x = 0; x < frameWidth_; ++x) {
+    Vec3 pixelOrigin = rowOrigin;
+    const float backgroundY[2] = {
+      (static_cast<float>(y) + 0.25f) * inverseFrameHeight,
+      (static_cast<float>(y) + 0.75f) * inverseFrameHeight
+    };
+    std::uint8_t* frameRow = reinterpret_cast<std::uint8_t*>(
+      &dsr::image_accessPixel(frame_, 0, y)
+    );
+
+    for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
       Vec3 colour;
-      for (int sampleY = 0; sampleY < 2; ++sampleY) {
-        for (int sampleX = 0; sampleX < 2; ++sampleX) {
-          const float px = x + offsets[sampleX];
-          const float py = y + offsets[sampleY];
-          colour = colour + world_.sample(rayForPixel(px, py), py / frameHeight_);
+      for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+        const Ray ray{pixelOrigin + sampleOffsets[sampleIndex], forward};
+        const float sampleBackgroundY = backgroundY[sampleIndex >> 1];
+
+        if (useStaticCache) {
+          StaticSample& staticSample = staticSamples_[pixelIndex * 4 + sampleIndex];
+          if (rebuildStaticCache) {
+            staticSample.colour = world_.sampleEnvironment(
+              ray,
+              sampleBackgroundY,
+              staticSample.environmentDistance
+            );
+          }
+          colour = colour + world_.compositeRuntime(
+            ray,
+            staticSample.colour,
+            staticSample.environmentDistance
+          );
+        } else {
+          colour = colour + world_.sample(ray, sampleBackgroundY);
         }
       }
       colour = colour * 0.25f;
-      dsr::image_writePixel(
-        frame_,
-        x,
-        y,
-        {toByte(colour.x), toByte(colour.y), toByte(colour.z), 255}
-      );
+
+      const std::size_t offset = static_cast<std::size_t>(x) * 4;
+      frameRow[offset] = toByte(colour.x);
+      frameRow[offset + 1] = toByte(colour.y);
+      frameRow[offset + 2] = toByte(colour.z);
+      frameRow[offset + 3] = 255;
+      pixelOrigin = pixelOrigin + rightStep;
     }
+    rowOrigin = rowOrigin + downStep;
   }
 
-  const CameraControlState cameraState = cameraControlState();
+  if (rebuildStaticCache) {
+    staticCacheKey_ = nextStaticKey;
+    staticCacheValid_ = true;
+    ++staticCacheBuildCount_;
+  }
+
   LevelControlState levelState;
   levelState.canMoveUp = world_.activeLevelIndex() + 1 < world_.levelCount();
   levelState.canMoveDown = world_.activeLevelIndex() > 0;
   levelState.atDefault = world_.activeLevelIndex() == world_.defaultLevelIndex();
-  controls_.draw(frame_, frameWidth_, frameHeight_, cameraState, levelState);
+  controls_.draw(frame_, frameWidth_, frameHeight_, frameCameraState_, levelState);
 
+  // OrderedImageRgbaU8 guarantees RGBA byte order on every platform. Copy
+  // whole visible rows from DFPSR's padded image buffer instead of performing
+  // width*height safe pixel reads, unpacking, and four channel assignments.
+  const std::size_t rowBytes = static_cast<std::size_t>(frameWidth_) * 4;
   for (int y = 0; y < frameHeight_; ++y) {
-    for (int x = 0; x < frameWidth_; ++x) {
-      const auto colour = dsr::image_readPixel_border(frame_, x, y);
-      const std::size_t index = static_cast<std::size_t>((y * frameWidth_ + x) * 4);
-      rgba_[index] = colour.red;
-      rgba_[index + 1] = colour.green;
-      rgba_[index + 2] = colour.blue;
-      rgba_[index + 3] = 255;
-    }
+    const std::uint8_t* source = reinterpret_cast<const std::uint8_t*>(
+      &dsr::image_accessPixel(frame_, 0, y)
+    );
+    std::memcpy(rgba_.data() + static_cast<std::size_t>(y) * rowBytes, source, rowBytes);
   }
 }
 

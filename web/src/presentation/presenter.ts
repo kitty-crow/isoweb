@@ -16,6 +16,20 @@ function enabled(mask: number, flag: number): boolean {
 }
 
 export function installPresenter(): void {
+  let elements: ReturnType<typeof getAppElements> | null = null;
+  let context: CanvasRenderingContext2D | null = null;
+  let frameImage: ImageData | null = null;
+  let frameBuffer: ArrayBufferLike | null = null;
+  let framePointer = -1;
+  let frameWidth = 0;
+  let frameHeight = 0;
+  let lastControlMask = -1;
+  let lastActiveLevel = -1;
+  let levelCount = -1;
+  let defaultLevel = -1;
+  let lastStatus = '';
+  let readyPresented = false;
+
   const present: PresentFrame = (
     heap,
     pointer,
@@ -31,38 +45,78 @@ export function installPresenter(): void {
     wholeZoomScale,
     controlMask
   ) => {
-    const { canvas, loading, status, controls } = getAppElements();
+    if (!elements) elements = getAppElements();
+    const { canvas, loading, status, controls } = elements;
 
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
 
-    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) context = canvas.getContext('2d', { alpha: false });
     if (!context) return;
 
-    const image = context.createImageData(width, height);
-    image.data.set(heap.subarray(pointer, pointer + width * height * 4));
-    context.putImageData(image, 0, 0);
+    // Emscripten's HEAPU8 and the renderer RGBA vector live in the same WASM
+    // memory. ImageData can reference that memory directly, eliminating a
+    // width*height*4 JavaScript copy and allocation on every frame. Rebuild
+    // only when resize/reallocation or ALLOW_MEMORY_GROWTH changes the buffer.
+    if (
+      !frameImage ||
+      frameBuffer !== heap.buffer ||
+      framePointer !== pointer ||
+      frameWidth !== width ||
+      frameHeight !== height
+    ) {
+      const byteLength = width * height * 4;
+      const view = new Uint8ClampedArray(heap.buffer, heap.byteOffset + pointer, byteLength);
+      frameImage = new ImageData(view, width, height);
+      frameBuffer = heap.buffer;
+      framePointer = pointer;
+      frameWidth = width;
+      frameHeight = height;
+    }
+    context.putImageData(frameImage, 0, 0);
 
     window.isowebViewHeightWorld = viewHeight;
     window.isowebCameraCanPan = canPan;
     window.isowebWholeZoomScale = wholeZoomScale;
 
-    controls.zoomIn.disabled = !enabled(controlMask, CONTROL_ZOOM_IN);
-    controls.zoomOut.disabled = !enabled(controlMask, CONTROL_ZOOM_OUT);
-    controls.resetZoom.disabled = !enabled(controlMask, CONTROL_RESET_ZOOM);
-    controls.resetYaw.disabled = !enabled(controlMask, CONTROL_RESET_YAW);
+    if (controlMask !== lastControlMask) {
+      controls.zoomIn.disabled = !enabled(controlMask, CONTROL_ZOOM_IN);
+      controls.zoomOut.disabled = !enabled(controlMask, CONTROL_ZOOM_OUT);
+      controls.counterClockwise.disabled = false;
+      controls.clockwise.disabled = false;
+      controls.panUp.disabled = !enabled(controlMask, CONTROL_PAN_UP);
+      controls.panDown.disabled = !enabled(controlMask, CONTROL_PAN_DOWN);
+      controls.panLeft.disabled = !enabled(controlMask, CONTROL_PAN_LEFT);
+      controls.panRight.disabled = !enabled(controlMask, CONTROL_PAN_RIGHT);
 
-    controls.counterClockwise.disabled = false;
-    controls.clockwise.disabled = false;
+      // Centre discs are controls even at their reset position, so they must
+      // remain pointer-interactive while reset availability is separate state.
+      controls.resetZoom.disabled = false;
+      controls.resetYaw.disabled = false;
+      controls.resetCamera.disabled = false;
+      controls.resetZoom.dataset.resetEnabled = enabled(controlMask, CONTROL_RESET_ZOOM) ? 'true' : 'false';
+      controls.resetYaw.dataset.resetEnabled = enabled(controlMask, CONTROL_RESET_YAW) ? 'true' : 'false';
+      controls.resetCamera.dataset.resetEnabled = enabled(controlMask, CONTROL_RESET_PAN) ? 'true' : 'false';
+      lastControlMask = controlMask;
+    }
 
-    controls.panUp.disabled = !enabled(controlMask, CONTROL_PAN_UP);
-    controls.panDown.disabled = !enabled(controlMask, CONTROL_PAN_DOWN);
-    controls.panLeft.disabled = !enabled(controlMask, CONTROL_PAN_LEFT);
-    controls.panRight.disabled = !enabled(controlMask, CONTROL_PAN_RIGHT);
-    controls.resetCamera.disabled = !enabled(controlMask, CONTROL_RESET_PAN);
+    const module = globalThis.Module;
+    if (levelCount < 0) levelCount = module._isoweb_level_count();
+    if (defaultLevel < 0) defaultLevel = module._isoweb_default_level_index();
+    const activeLevel = module._isoweb_active_level_index();
+    if (activeLevel !== lastActiveLevel) {
+      controls.levelUp.disabled = activeLevel + 1 >= levelCount;
+      controls.levelDown.disabled = activeLevel <= 0;
+      controls.resetLevel.disabled = false;
+      controls.resetLevel.dataset.resetEnabled = activeLevel === defaultLevel ? 'false' : 'true';
+      lastActiveLevel = activeLevel;
+    }
 
-    document.documentElement.classList.add('wasm-ready');
-    loading.hidden = true;
+    if (!readyPresented) {
+      document.documentElement.classList.add('wasm-ready');
+      loading.hidden = true;
+      readyPresented = true;
+    }
 
     let zoomLabel = '1x';
     if (zoomPreset === 0) zoomLabel = 'whole';
@@ -71,10 +125,14 @@ export function installPresenter(): void {
     else if (zoomPreset === 4) zoomLabel = '2x';
     else if (zoomPreset === 5) zoomLabel = '4x';
 
-    status.textContent =
+    const nextStatus =
       `Camera ${yaw} degrees around Z; pan X ${panX.toFixed(2)}; Y ${panY.toFixed(2)}; zoom ${zoomLabel}` +
       `${detailed ? ' detailed' : ' regular'}` +
       `${canPan ? '' : '; panning disabled'}`;
+    if (nextStatus !== lastStatus) {
+      status.textContent = nextStatus;
+      lastStatus = nextStatus;
+    }
   };
 
   globalThis.isowebPresent = present;

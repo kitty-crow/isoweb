@@ -64,6 +64,9 @@ async function runtimeDiagnostics(): Promise<unknown> {
       needsTick: typeof module?._isoweb_needs_tick === 'function'
         ? module._isoweb_needs_tick()
         : null,
+      staticCacheBuilds: typeof module?._isoweb_static_cache_build_count === 'function'
+        ? module._isoweb_static_cache_build_count()
+        : null,
       loadingHidden: (document.getElementById('loading') as HTMLElement | null)?.hidden ?? null,
       canvas: (() => {
         const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
@@ -112,15 +115,46 @@ try {
     return {
       ok: loading.hidden && canvas.width > 0 && canvas.height > 0 && samples.every(pixel => !pixel.endsWith(',0')),
       reason: loading.hidden ? '' : 'Loading indicator never hid.',
-      resetYawDisabled: resetYaw.disabled,
-      resetZoomDisabled: resetZoom.disabled,
-      resetCameraDisabled: resetCamera.disabled
+      resetYawJoystick: !resetYaw.disabled && resetYaw.dataset.joystick === 'true',
+      resetZoomJoystick: !resetZoom.disabled && resetZoom.dataset.joystick === 'true',
+      resetCameraJoystick: !resetCamera.disabled && resetCamera.dataset.joystick === 'true'
     };
   });
 
   if (!bootState.ok) throw new Error(bootState.reason || 'WASM boot state is invalid.');
-  if (!bootState.resetYawDisabled || !bootState.resetZoomDisabled || !bootState.resetCameraDisabled) {
-    throw new Error('Default camera reset controls are not disabled after the first rendered frame.');
+  if (!bootState.resetYawJoystick || !bootState.resetZoomJoystick || !bootState.resetCameraJoystick) {
+    throw new Error('Centre camera discs are not interactive joysticks after the first rendered frame.');
+  }
+
+  console.log('[runtime-smoke] verifying exact static scene cache reuse');
+  const cacheState = await page.evaluate(() => {
+    const module = (globalThis as any).Module;
+    const initial = module._isoweb_static_cache_build_count();
+    module._isoweb_render();
+    const unchangedRedraw = module._isoweb_static_cache_build_count();
+    module._isoweb_rotate_clockwise();
+    const afterRotate = module._isoweb_static_cache_build_count();
+    module._isoweb_render();
+    const unchangedRotatedRedraw = module._isoweb_static_cache_build_count();
+    module._isoweb_reset_yaw();
+    const afterReset = module._isoweb_static_cache_build_count();
+    return { initial, unchangedRedraw, afterRotate, unchangedRotatedRedraw, afterReset };
+  });
+
+  if (cacheState.initial < 1) {
+    throw new Error(`Static scene cache was never built: ${JSON.stringify(cacheState)}`);
+  }
+  if (cacheState.unchangedRedraw !== cacheState.initial) {
+    throw new Error(`Unchanged redraw rebuilt the static scene: ${JSON.stringify(cacheState)}`);
+  }
+  if (cacheState.afterRotate !== cacheState.initial + 1) {
+    throw new Error(`Camera rotation did not invalidate static scene exactly once: ${JSON.stringify(cacheState)}`);
+  }
+  if (cacheState.unchangedRotatedRedraw !== cacheState.afterRotate) {
+    throw new Error(`Repeated rotated redraw rebuilt static scene: ${JSON.stringify(cacheState)}`);
+  }
+  if (cacheState.afterReset !== cacheState.afterRotate + 1) {
+    throw new Error(`Yaw reset did not invalidate static scene exactly once: ${JSON.stringify(cacheState)}`);
   }
 
   console.log('[runtime-smoke] waiting for bundled JSON Character');
@@ -292,7 +326,7 @@ try {
   );
 
   const resetYawEnabled = await page.locator('#reset-yaw').isEnabled();
-  if (!resetYawEnabled) throw new Error('Yaw reset did not become enabled after rotating the camera.');
+  if (!resetYawEnabled) throw new Error('Yaw centre joystick became disabled after rotating the camera.');
 
   await page.goto(`http://127.0.0.1:${server.port}/?dyaw=1`, { waitUntil: 'domcontentloaded' });
   await waitForWasmReady();
@@ -315,7 +349,7 @@ try {
     throw new Error(`Browser page error(s):\n${pageErrors.join('\n\n')}`);
   }
 
-  console.log('Browser WASM boot, JSON Character load, exact picking, real-surface movement, persistent selected redirects, yaw, detailed yaw, and detailed zoom smoke test passed.');
+  console.log('Browser WASM boot, exact static cache reuse, JSON Character load, exact picking, real-surface movement, persistent selected redirects, centre joystick availability, yaw, detailed yaw, and detailed zoom smoke test passed.');
 } finally {
   await browser.close();
   server.stop(true);

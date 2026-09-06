@@ -20,12 +20,14 @@ export interface IsowebModule {
   _isoweb_set_detailed_mode(enabled: number): void;
   _isoweb_pan(right: number, down: number): void;
   _isoweb_reset_camera(): void;
+  _isoweb_set_control_stick(control: number, x: number, y: number): void;
   _isoweb_level_up(): void;
   _isoweb_level_down(): void;
   _isoweb_reset_level(): void;
   _isoweb_level_count(): number;
   _isoweb_active_level_index(): number;
   _isoweb_default_level_index(): number;
+  _isoweb_static_cache_build_count(): number;
 
   _isoweb_pointer_tap(x: number, y: number, additive: number): number;
   _isoweb_drag_select(x0: number, y0: number, x1: number, y1: number, additive: number): number;

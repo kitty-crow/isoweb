@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -22,18 +23,36 @@ public:
   int height() const { return frameHeight_; }
   const std::vector<std::uint8_t>& rgba() const { return rgba_; }
 
-  bool canPan() const;
-  CameraControlState cameraControlState() const;
-  float viewHeight() const;
-  float wholeZoomScale() const;
+  bool canPan() const { return frameCanPan_; }
+  CameraControlState cameraControlState() const { return frameCameraState_; }
+  float viewHeight() const { return frameViewHeight_; }
+  float wholeZoomScale() const { return frameWholeZoomScale_; }
+  std::size_t staticCacheBuildCount() const { return staticCacheBuildCount_; }
 
   Ray rayForPixel(float px, float py) const;
   bool groundPointForPixel(float px, float py, float groundZ, Vec3& point) const;
   bool worldPointToPixel(const Vec3& point, float& px, float& py) const;
 
 private:
+  struct StaticSample {
+    Vec3 colour;
+    float environmentDistance = 0.0f;
+  };
+
+  struct StaticCacheKey {
+    int width = 0;
+    int height = 0;
+    std::size_t level = 0;
+    int yawStep = 0;
+    int zoomPreset = 0;
+    float panX = 0.0f;
+    float panY = 0.0f;
+    float viewHeight = 0.0f;
+  };
+
   static std::uint8_t toByte(float value);
   void ensureFrame();
+  bool staticCacheMatches(const StaticCacheKey& key) const;
 
   const IWorld& world_;
   Camera& camera_;
@@ -44,6 +63,16 @@ private:
   int allocatedFrameHeight_ = 0;
   dsr::OrderedImageRgbaU8 frame_;
   std::vector<std::uint8_t> rgba_;
+
+  std::vector<StaticSample> staticSamples_;
+  StaticCacheKey staticCacheKey_;
+  bool staticCacheValid_ = false;
+  std::size_t staticCacheBuildCount_ = 0;
+
+  CameraControlState frameCameraState_;
+  bool frameCanPan_ = false;
+  float frameViewHeight_ = 6.15f;
+  float frameWholeZoomScale_ = 1.0f;
 };
 
 } // namespace engine

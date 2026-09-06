@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -44,7 +45,25 @@ public:
 
   virtual const WorldBounds& bounds() const = 0;
   virtual Vec3 sample(const Ray& ray, float backgroundY) const = 0;
+
+  // Renderers that can return the resolved surface together with its shaded
+  // colour should override this. The default preserves compatibility but may
+  // perform two traversals; optimized levels can do both from one traversal.
+  virtual Vec3 sampleWithHit(const Ray& ray, float backgroundY, SceneSurfaceHit& hit) const {
+    const bool found = traceEnvironment(ray, hit);
+    if (!found) hit = SceneSurfaceHit();
+    return sample(ray, backgroundY);
+  }
+
   virtual bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const = 0;
+
+  // Exact any-hit query for shadow rays. The default is correct for existing
+  // levels; optimized levels can terminate on the first blocker.
+  virtual bool rayOccluded(const Ray& ray, float maximumDistance) const {
+    SceneSurfaceHit hit;
+    return traceEnvironment(ray, hit) && hit.distance < maximumDistance;
+  }
+
   virtual bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const = 0;
   virtual const std::vector<Object>& objects() const = 0;
   virtual bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const = 0;
@@ -63,10 +82,47 @@ public:
 
   const WorldBounds& bounds() const override;
   Vec3 sample(const Ray& ray, float backgroundY) const override;
+  bool supportsStaticSampleCache() const override { return true; }
+
+  Vec3 sampleEnvironment(
+    const Ray& ray,
+    float backgroundY,
+    float& environmentDistance
+  ) const override {
+    SceneSurfaceHit hit;
+    const Vec3 colour = activeLevel().sampleWithHit(ray, backgroundY, hit);
+    environmentDistance = hit.found
+      ? hit.distance
+      : std::numeric_limits<float>::max();
+    return colour;
+  }
+
+  Vec3 compositeRuntime(
+    const Ray& ray,
+    const Vec3& environmentColour,
+    float environmentDistance
+  ) const override {
+    // Renderer always prepares the frame first. This makes the overwhelmingly
+    // common no-runtime-entity case a single branch per supersample instead of
+    // entering the compositor and clearing scratch storage.
+    if (runtimeRenderCachePrepared_ && runtimeRenderEntries_.empty()) {
+      return environmentColour;
+    }
+    bool found = false;
+    const Vec3 runtime = sampleRuntimeEntities(
+      ray,
+      environmentColour,
+      environmentDistance,
+      found
+    );
+    return found ? runtime : environmentColour;
+  }
+
   bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const override;
   const std::vector<Object>& objects() const override;
   bool intersectsSolid(const HitBox& hitBox) const override;
   bool collidesWith(const Object& candidate) const override;
+  void prepareRenderFrame(const Vec3& viewDirection) const override;
 
   std::size_t levelCount() const override { return levels_.size(); }
   std::size_t activeLevelIndex() const override { return activeLevelIndex_; }
@@ -157,12 +213,59 @@ public:
   bool resetLevel();
 
 private:
+  struct LevelXYBounds {
+    bool unrestricted = true;
+    float minimumX = 0.0f;
+    float minimumY = 0.0f;
+    float maximumX = 0.0f;
+    float maximumY = 0.0f;
+  };
+
+  struct RuntimeSample {
+    float distance = 0.0f;
+    Vec3 point;
+    Vec3 colour;
+    float alpha = 1.0f;
+  };
+
+  struct RuntimeRenderEntry {
+    const Character* character = nullptr;
+    Vec3 renderPosition;
+    Object proxy;
+    bool selected = false;
+
+    // Sprite state and geometry are fixed for one render pass. Cache them once
+    // so supersample rays only perform the plane intersection and texel lookup.
+    bool artworkReady = false;
+    const SpriteAnimation* animation = nullptr;
+    std::size_t spriteFrame = 0;
+    bool spriteMirror = false;
+    Vec3 spriteCentre;
+    float spriteInverseWidth = 0.0f;
+    float spriteInverseHeight = 0.0f;
+  };
+
   const IWorldLevel& activeLevel() const;
   const IWorldLevel& levelFor(const std::string& levelId) const;
-  Vec3 sampleRuntimeEntities(const Ray& ray, float backgroundY, float environmentDistance, bool& found) const;
+  Vec3 sampleRuntimeEntities(
+    const Ray& ray,
+    const Vec3& environmentColour,
+    float environmentDistance,
+    bool& found
+  ) const;
+  float runtimeLightVisibility(std::size_t levelIndex, const Vec3& point) const;
+  Vec3 shadeRuntimeSurface(
+    std::size_t levelIndex,
+    const Vec3& point,
+    const Vec3& normal,
+    const Vec3& colour
+  ) const;
+  float runtimeSpriteLightFactor(std::size_t levelIndex, const Vec3& point) const;
 
   std::vector<std::unique_ptr<IWorldLevel>> levels_;
   std::vector<std::string> levelIds_;
+  std::unordered_map<std::string, std::size_t> levelLookup_;
+  std::vector<LevelXYBounds> levelXYBounds_;
   std::vector<LevelLight> levelLights_;
   std::size_t activeLevelIndex_ = 0;
   std::size_t defaultLevelIndex_ = 0;
@@ -171,6 +274,14 @@ private:
   std::vector<LiminalObject> liminalObjects_;
   const CharacterSystem* characterSystem_ = nullptr;
   const CollisionPolicy* collisionPolicy_ = nullptr;
+
+  mutable std::vector<RuntimeRenderEntry> runtimeRenderEntries_;
+  mutable std::vector<RuntimeSample> runtimeSampleScratch_;
+  mutable Vec3 runtimeSpritePlaneNormal_;
+  mutable Vec3 runtimeSpriteScreenRight_;
+  mutable float runtimeSpriteInverseDenominator_ = 0.0f;
+  mutable bool runtimeSpritePlaneValid_ = false;
+  mutable bool runtimeRenderCachePrepared_ = false;
 };
 
 } // namespace engine

@@ -31,16 +31,13 @@ DemoApplication::DemoApplication()
     : camera_(engine::CameraConfig(3.25f, 6.15f, 5.50f)),
       renderer_(world_, camera_, controls_),
       characters_(world_) {
-  // Keep runtime Characters under the same point lights used by the demo
-  // geometry renderer. World shadow rays then use the exact active level
-  // geometry, so Characters receive object/stair shadows too.
   world_.setLevelLight("lower", {4.20f, -3.20f, 5.60f});
   world_.setLevelLight("middle", {-3.60f, -4.20f, 6.50f});
   world_.setLevelLight("upper", {3.80f, 4.40f, 7.20f});
 }
 
-void DemoApplication::redraw() {
-  characters_.updatePresentation(camera_);
+void DemoApplication::redraw(bool refreshPresentation) {
+  if (refreshPresentation) characters_.updatePresentation(camera_);
   renderer_.render();
   presenter_.present(
     renderer_.rgba(),
@@ -60,7 +57,9 @@ void DemoApplication::render() {
 
 void DemoApplication::tick(float deltaSeconds) {
   characters_.tick(std::max(0.0f, std::min(0.10f, deltaSeconds)), camera_);
-  redraw();
+  // CharacterSystem::tick already resolved camera-relative presentation for
+  // this exact camera. Rendering it again here was a third redundant pass.
+  redraw(false);
 }
 
 void DemoApplication::resize(int width, int height) {
@@ -116,6 +115,11 @@ void DemoApplication::pan(float right, float down) {
 void DemoApplication::resetCamera() {
   camera_.resetPan();
   redraw();
+}
+
+void DemoApplication::setControlStick(int control, float x, float y) {
+  if (control < 0 || control > 3) return;
+  controls_.setStickOffset(static_cast<engine::ControlStick>(control), x, y);
 }
 
 void DemoApplication::levelUp() {

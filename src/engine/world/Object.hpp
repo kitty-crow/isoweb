@@ -147,46 +147,97 @@ public:
     return solid && hitBox.intersects(other);
   }
 
+  void horizontalBasis(Vec3& facing, Vec3& right) const {
+    // Forward is public because entities are intentionally lightweight, so
+    // cache against the source components instead of relying on an explicit
+    // invalidation call. Movement can change facing at any time; the next
+    // access refreshes once and subsequent ray/collision operations are free
+    // of normalisation until x/y changes again.
+    if (!basisCacheValid_ || cachedForwardX_ != forward.x || cachedForwardY_ != forward.y) {
+      cachedFacing_ = normalisedHorizontal(forward);
+      cachedRight_ = {cachedFacing_.y, -cachedFacing_.x, 0.0f};
+      cachedForwardX_ = forward.x;
+      cachedForwardY_ = forward.y;
+      basisCacheValid_ = true;
+      rayDirectionCacheValid_ = false;
+    }
+    facing = cachedFacing_;
+    right = cachedRight_;
+  }
+
   Vec3 horizontalForward() const {
-    return normalisedHorizontal(forward);
+    Vec3 facing;
+    Vec3 right;
+    horizontalBasis(facing, right);
+    return facing;
   }
 
   Vec3 horizontalRight() const {
-    const Vec3 facing = horizontalForward();
-    return {facing.y, -facing.x, 0.0f};
+    Vec3 facing;
+    Vec3 right;
+    horizontalBasis(facing, right);
+    return right;
   }
 
   Vec3 localToWorld(const Vec3& local) const {
-    return location.position + horizontalRight() * local.x + horizontalForward() * local.y + Vec3(0.0f, 0.0f, local.z);
+    Vec3 facing;
+    Vec3 right;
+    horizontalBasis(facing, right);
+    return location.position + right * local.x + facing * local.y + Vec3(0.0f, 0.0f, local.z);
   }
 
   Vec3 worldToLocal(const Vec3& world) const {
+    Vec3 facing;
+    Vec3 right;
+    horizontalBasis(facing, right);
     const Vec3 delta = world - location.position;
-    return {dot2(delta, horizontalRight()), dot2(delta, horizontalForward()), delta.z};
+    return {dot2(delta, right), dot2(delta, facing), delta.z};
   }
 
   bool intersectRay(const Ray& ray, float minimum, float maximum, ObjectRayHit& hit) const {
-    const Vec3 right = horizontalRight();
-    const Vec3 facing = horizontalForward();
+    Vec3 facing;
+    Vec3 right;
+    horizontalBasis(facing, right);
     const Vec3 relativeOrigin = ray.origin - location.position;
     const Vec3 localOrigin(dot2(relativeOrigin, right), dot2(relativeOrigin, facing), relativeOrigin.z);
-    const Vec3 localDirection(dot2(ray.direction, right), dot2(ray.direction, facing), ray.direction.z);
 
+    if (!rayDirectionCacheValid_ ||
+        cachedRayDirection_.x != ray.direction.x ||
+        cachedRayDirection_.y != ray.direction.y ||
+        cachedRayDirection_.z != ray.direction.z) {
+      cachedRayDirection_ = ray.direction;
+      cachedLocalRayDirection_ = {
+        dot2(ray.direction, right),
+        dot2(ray.direction, facing),
+        ray.direction.z
+      };
+      const float directions[3] = {
+        cachedLocalRayDirection_.x,
+        cachedLocalRayDirection_.y,
+        cachedLocalRayDirection_.z
+      };
+      for (int axis = 0; axis < 3; ++axis) {
+        cachedRayParallel_[axis] = std::fabs(directions[axis]) < 1e-7f;
+        cachedRayInverse_[axis] = cachedRayParallel_[axis] ? 0.0f : 1.0f / directions[axis];
+      }
+      rayDirectionCacheValid_ = true;
+    }
+
+    const Vec3& localDirection = cachedLocalRayDirection_;
     float nearT = minimum;
     float farT = maximum;
     int nearAxis = -1;
     float nearSign = 0.0f;
     const float origins[3] = {localOrigin.x, localOrigin.y, localOrigin.z};
-    const float directions[3] = {localDirection.x, localDirection.y, localDirection.z};
     const float mins[3] = {hitBox.minimum.x, hitBox.minimum.y, hitBox.minimum.z};
     const float maxs[3] = {hitBox.maximum.x, hitBox.maximum.y, hitBox.maximum.z};
 
     for (int axis = 0; axis < 3; ++axis) {
-      if (std::fabs(directions[axis]) < 1e-7f) {
+      if (cachedRayParallel_[axis]) {
         if (origins[axis] < mins[axis] || origins[axis] > maxs[axis]) return false;
         continue;
       }
-      const float inverse = 1.0f / directions[axis];
+      const float inverse = cachedRayInverse_[axis];
       float t0 = (mins[axis] - origins[axis]) * inverse;
       float t1 = (maxs[axis] - origins[axis]) * inverse;
       float sign = -1.0f;
@@ -236,10 +287,10 @@ private:
   }
 
   static Vec3 normalisedHorizontal(const Vec3& value) {
-    const float magnitude = std::sqrt(value.x * value.x + value.y * value.y);
-    return magnitude > 1e-7f
-      ? Vec3(value.x / magnitude, value.y / magnitude, 0.0f)
-      : Vec3(0.0f, 1.0f, 0.0f);
+    const float magnitudeSquared = value.x * value.x + value.y * value.y;
+    if (magnitudeSquared <= 1e-14f) return {0.0f, 1.0f, 0.0f};
+    const float inverseMagnitude = 1.0f / std::sqrt(magnitudeSquared);
+    return {value.x * inverseMagnitude, value.y * inverseMagnitude, 0.0f};
   }
 
   static float projectionRadius(const OrientedBox& box, const Vec3& axis) {
@@ -248,8 +299,9 @@ private:
   }
 
   OrientedBox orientedBox() const {
-    const Vec3 facing = horizontalForward();
-    const Vec3 right = horizontalRight();
+    Vec3 facing;
+    Vec3 right;
+    horizontalBasis(facing, right);
     const Vec3 localCentre = hitBox.centre();
     const Vec3 half = hitBox.halfExtent();
 
@@ -265,6 +317,18 @@ private:
       Vec3(0.0f, 0.0f, localCentre.z);
     return box;
   }
+
+  mutable bool basisCacheValid_ = false;
+  mutable float cachedForwardX_ = 0.0f;
+  mutable float cachedForwardY_ = 0.0f;
+  mutable Vec3 cachedFacing_ = {0.0f, 1.0f, 0.0f};
+  mutable Vec3 cachedRight_ = {1.0f, 0.0f, 0.0f};
+
+  mutable bool rayDirectionCacheValid_ = false;
+  mutable Vec3 cachedRayDirection_;
+  mutable Vec3 cachedLocalRayDirection_;
+  mutable float cachedRayInverse_[3] = {0.0f, 0.0f, 0.0f};
+  mutable bool cachedRayParallel_[3] = {false, false, false};
 };
 
 } // namespace engine
