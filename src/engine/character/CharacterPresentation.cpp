@@ -1,6 +1,5 @@
 #include "engine/character/CharacterPresentation.hpp"
 
-#include <algorithm>
 #include <cmath>
 
 namespace isoweb {
@@ -24,7 +23,10 @@ const DirectionalSpriteSet& activeSet(const Character& character) {
 
 } // namespace
 
-CharacterFacing DefaultCharacterPresentationPolicy::facing(const Character& character, const Camera& camera) const {
+CharacterFacing DefaultCharacterPresentationPolicy::facing(
+  const Character& character,
+  const Camera& camera
+) const {
   const Vec3 characterForward = horizontal(character.forward);
   const Vec3 cameraForward = horizontal(camera.forward());
   const Vec3 towardsCamera = cameraForward * -1.0f;
@@ -38,26 +40,10 @@ CharacterFacing DefaultCharacterPresentationPolicy::facing(const Character& char
   return leftRight >= 0.0f ? CharacterFacing::Right : CharacterFacing::Left;
 }
 
-float DefaultCharacterPresentationPolicy::framesPerSecond(
-  const Character& character,
-  const SpriteAnimation& animation,
-  float effectiveMovementSpeed,
-  float baseMovementSpeed
-) const {
-  if (animation.frameCount <= 1) return 0.0f;
-  if (!character.moving || baseMovementSpeed <= 1e-6f) {
-    return std::max(0.0f, animation.nominalFramesPerSecond);
-  }
-  const float speedRatio = std::max(0.05f, effectiveMovementSpeed / baseMovementSpeed);
-  return std::max(0.0f, animation.nominalFramesPerSecond * speedRatio);
-}
-
 CharacterPresentation resolveCharacterPresentation(
   const Character& character,
   const Camera& camera,
-  const CharacterPresentationPolicy& policy,
-  float effectiveMovementSpeed,
-  float baseMovementSpeed
+  const CharacterPresentationPolicy& policy
 ) {
   CharacterPresentation result;
   result.facing = policy.facing(character, camera);
@@ -66,37 +52,7 @@ CharacterPresentation resolveCharacterPresentation(
   if (result.animation && result.animation->frameCount > 0) {
     result.frame = std::min(character.animation.frame, result.animation->frameCount - 1);
   }
-  (void)effectiveMovementSpeed;
-  (void)baseMovementSpeed;
   return result;
-}
-
-void advanceCharacterAnimation(
-  Character& character,
-  float deltaSeconds,
-  const SpriteAnimation* animation,
-  float framesPerSecond
-) {
-  if (!animation || animation->frameCount <= 1 || framesPerSecond <= 0.0f) {
-    character.animation.frame = 0;
-    character.animation.elapsedSeconds = 0.0f;
-    return;
-  }
-
-  const float secondsPerFrame = 1.0f / framesPerSecond;
-  character.animation.elapsedSeconds += std::max(0.0f, deltaSeconds);
-  while (character.animation.elapsedSeconds >= secondsPerFrame) {
-    character.animation.elapsedSeconds -= secondsPerFrame;
-    if (character.animation.frame + 1 < animation->frameCount) {
-      ++character.animation.frame;
-    } else if (animation->loop) {
-      character.animation.frame = 0;
-    } else {
-      character.animation.frame = animation->frameCount - 1;
-      character.animation.elapsedSeconds = 0.0f;
-      break;
-    }
-  }
 }
 
 } // namespace engine
