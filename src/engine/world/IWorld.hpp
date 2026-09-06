@@ -27,6 +27,10 @@ public:
   virtual bool intersectsSolid(const HitBox& hitBox) const = 0;
   virtual bool collidesWith(const Object& candidate) const = 0;
 
+  // Called once immediately before a render pass. Worlds can use this to cache
+  // frame-invariant entity projection/presentation state out of the ray loop.
+  virtual void prepareRenderFrame(const Vec3&) const {}
+
   virtual std::size_t levelCount() const = 0;
   virtual std::size_t activeLevelIndex() const = 0;
   virtual std::size_t defaultLevelIndex() const = 0;
