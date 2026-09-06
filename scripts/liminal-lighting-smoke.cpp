@@ -96,7 +96,15 @@ int main() {
   bool enteredLiminal = false;
   for (int tick = 0; tick < 1200 && runner->moving; ++tick) {
     characters.tick(0.05f, camera);
-    if (runner->location.liminalObjectId.empty()) continue;
+    // Do not accept the stair landing as proof. The runner must actually be
+    // below the middle floor while still using the middle coordinate frame.
+    if (
+      runner->location.liminalObjectId.empty() ||
+      runner->location.levelId != "middle" ||
+      runner->location.position.z >= -0.05f
+    ) {
+      continue;
+    }
 
     enteredLiminal = true;
     if (!world.renderPositionFor(*runner, renderPosition)) return 17;
