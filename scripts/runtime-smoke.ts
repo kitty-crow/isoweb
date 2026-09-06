@@ -220,6 +220,49 @@ try {
     );
   }
 
+  const selectedAfterFirstMove = await page.evaluate(
+    () => (globalThis as any).Module._isoweb_selected_character_count()
+  );
+  if (selectedAfterFirstMove !== 1) {
+    throw new Error('Character selection was lost after issuing a movement command.');
+  }
+
+  console.log('[runtime-smoke] redirecting still-selected moving Character without reselecting');
+  const redirectCandidates = [
+    [0.82, 0.32], [0.16, 0.34], [0.84, 0.78], [0.14, 0.78], [0.50, 0.82]
+  ];
+  let redirectAccepted = false;
+  for (const [x, y] of redirectCandidates) {
+    const result = await page.evaluate(({ x, y }) => {
+      const module = (globalThis as any).Module;
+      const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+      if (!canvas) return { accepted: false, selected: -1 };
+      const accepted = module._isoweb_pointer_tap(canvas.width * x, canvas.height * y, 0) !== 0;
+      return {
+        accepted,
+        selected: module._isoweb_selected_character_count()
+      };
+    }, { x, y });
+
+    if (result.accepted && result.selected === 1) {
+      redirectAccepted = true;
+      break;
+    }
+    if (result.selected !== 1) {
+      throw new Error('A destination tap unexpectedly deselected the Character during redirect.');
+    }
+  }
+  if (!redirectAccepted) {
+    throw new Error(`Still-selected Character did not accept a second destination. Diagnostics: ${JSON.stringify(await runtimeDiagnostics())}`);
+  }
+
+  const stillMovingAfterRedirect = await page.evaluate(
+    () => (globalThis as any).Module._isoweb_needs_tick() !== 0
+  );
+  if (!stillMovingAfterRedirect) {
+    throw new Error('Redirected Character stopped instead of following the replacement route.');
+  }
+
   console.log('[runtime-smoke] checking camera modes after Character interaction');
   await page.locator('#rotate-clockwise').click();
   await page.waitForFunction(
@@ -252,7 +295,7 @@ try {
     throw new Error(`Browser page error(s):\n${pageErrors.join('\n\n')}`);
   }
 
-  console.log('Browser WASM boot, JSON Character load, picking, click-to-move, yaw, detailed yaw, and detailed zoom smoke test passed.');
+  console.log('Browser WASM boot, JSON Character load, exact picking, persistent selected redirects, yaw, detailed yaw, and detailed zoom smoke test passed.');
 } finally {
   await browser.close();
   server.stop(true);
