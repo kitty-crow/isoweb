@@ -82,6 +82,35 @@ public:
 
   const WorldBounds& bounds() const override;
   Vec3 sample(const Ray& ray, float backgroundY) const override;
+
+  Vec3 sampleEnvironment(
+    const Ray& ray,
+    float backgroundY,
+    float& environmentDistance
+  ) const override {
+    SceneSurfaceHit hit;
+    const Vec3 colour = activeLevel().sampleWithHit(ray, backgroundY, hit);
+    environmentDistance = hit.found
+      ? hit.distance
+      : std::numeric_limits<float>::max();
+    return colour;
+  }
+
+  Vec3 compositeRuntime(
+    const Ray& ray,
+    const Vec3& environmentColour,
+    float environmentDistance
+  ) const override {
+    bool found = false;
+    const Vec3 runtime = sampleRuntimeEntities(
+      ray,
+      environmentColour,
+      environmentDistance,
+      found
+    );
+    return found ? runtime : environmentColour;
+  }
+
   bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const override;
   const std::vector<Object>& objects() const override;
   bool intersectsSolid(const HitBox& hitBox) const override;
