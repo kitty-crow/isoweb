@@ -14,13 +14,6 @@ namespace isoweb {
 namespace engine {
 namespace {
 
-struct RuntimeSample {
-  float distance = 0.0f;
-  Vec3 point;
-  Vec3 colour;
-  float alpha = 1.0f;
-};
-
 float distanceSquared(const Vec3& a, const Vec3& b) {
   const Vec3 delta = a - b;
   return dot(delta, delta);
@@ -120,67 +113,6 @@ bool labelPixel(const Character& character, const ObjectRayHit& hit) {
 Vec3 applyTint(const Vec3& colour, const SelectionStyle& style) {
   const float strength = std::max(0.0f, std::min(1.0f, style.strength));
   return colour * (1.0f - strength) + style.tint * strength;
-}
-
-bool spriteSample(
-  const Character& character,
-  const Vec3& renderPosition,
-  const Ray& ray,
-  const SpriteAtlasRegistry& atlases,
-  float maximumDistance,
-  bool& artworkReady,
-  RuntimeSample& result
-) {
-  artworkReady = false;
-  bool implicitMirror = false;
-  const SpriteAnimation* animation = character.currentSpriteAnimation(&implicitMirror);
-  if (!animation || !animation->assigned() || !atlases.contains(animation->resource)) return false;
-  artworkReady = true;
-
-  const float horizontalLengthSquared =
-    ray.direction.x * ray.direction.x + ray.direction.y * ray.direction.y;
-  if (horizontalLengthSquared < 1e-14f) return false;
-  const float inverseHorizontalLength = 1.0f / std::sqrt(horizontalLengthSquared);
-  const Vec3 planeNormal(
-    ray.direction.x * inverseHorizontalLength,
-    ray.direction.y * inverseHorizontalLength,
-    0.0f
-  );
-  const float denominator = dot(ray.direction, planeNormal);
-  if (std::fabs(denominator) < 1e-7f) return false;
-
-  const Vec3 hitSize = character.hitBox.size();
-  const float defaultWidth = std::max(std::fabs(hitSize.x), std::fabs(hitSize.y));
-  const float defaultHeight = std::fabs(hitSize.z);
-  const float width = animation->worldWidth > 0.0f ? animation->worldWidth : std::max(0.05f, defaultWidth);
-  const float height = animation->worldHeight > 0.0f ? animation->worldHeight : std::max(0.05f, defaultHeight);
-  const float bottom = renderPosition.z + character.hitBox.minimum.z;
-  const Vec3 centre(renderPosition.x, renderPosition.y, bottom + height * 0.5f);
-
-  const float t = dot(centre - ray.origin, planeNormal) / denominator;
-  if (t <= 0.001f || t >= maximumDistance) return false;
-
-  const Vec3 point = ray.origin + ray.direction * t;
-  const Vec3 screenRight(-planeNormal.y, planeNormal.x, 0.0f);
-  const Vec3 delta = point - centre;
-  const float u = dot(delta, screenRight) / width + 0.5f;
-  const float v = 0.5f - delta.z / height;
-  if (u < 0.0f || u >= 1.0f || v < 0.0f || v >= 1.0f) return false;
-
-  const SpritePixel pixel = atlases.sample(
-    *animation,
-    character.animation.frame,
-    u,
-    v,
-    character.animation.mirror || implicitMirror
-  );
-  if (pixel.alpha <= 0.01f) return false;
-
-  result.distance = t;
-  result.point = point;
-  result.colour = pixel.colour;
-  result.alpha = pixel.alpha;
-  return true;
 }
 
 Object renderProxy(const Object& object, const Vec3& position, const std::string& levelId) {
@@ -383,8 +315,31 @@ bool World::renderPositionFor(const Character& character, Vec3& position) const 
   return mapLiminalPosition(character.location, activeLevelId(), position);
 }
 
-void World::prepareRenderFrame(const Vec3&) const {
+void World::prepareRenderFrame(const Vec3& viewDirection) const {
   runtimeRenderEntries_.clear();
+  runtimeSpritePlaneValid_ = false;
+
+  const float horizontalLengthSquared =
+    viewDirection.x * viewDirection.x + viewDirection.y * viewDirection.y;
+  if (horizontalLengthSquared >= 1e-14f) {
+    const float inverseHorizontalLength = 1.0f / std::sqrt(horizontalLengthSquared);
+    runtimeSpritePlaneNormal_ = {
+      viewDirection.x * inverseHorizontalLength,
+      viewDirection.y * inverseHorizontalLength,
+      0.0f
+    };
+    const float denominator = dot(viewDirection, runtimeSpritePlaneNormal_);
+    if (std::fabs(denominator) >= 1e-7f) {
+      runtimeSpriteScreenRight_ = {
+        -runtimeSpritePlaneNormal_.y,
+        runtimeSpritePlaneNormal_.x,
+        0.0f
+      };
+      runtimeSpriteInverseDenominator_ = 1.0f / denominator;
+      runtimeSpritePlaneValid_ = true;
+    }
+  }
+
   const auto& characters = entities_.characters();
   runtimeRenderEntries_.reserve(characters.size());
   const std::string& levelId = activeLevelId();
@@ -399,7 +354,42 @@ void World::prepareRenderFrame(const Vec3&) const {
     entry.renderPosition = renderPosition;
     entry.proxy = renderProxy(*character, renderPosition, levelId);
     entry.selected = characterSystem_ && characterSystem_->isSelected(character->id);
+
+    if (character->hasArtwork() && runtimeSpritePlaneValid_) {
+      bool implicitMirror = false;
+      const SpriteAnimation* animation = character->currentSpriteAnimation(&implicitMirror);
+      if (animation && animation->assigned() && spriteAtlases_.contains(animation->resource)) {
+        const Vec3 hitSize = character->hitBox.size();
+        const float defaultWidth = std::max(std::fabs(hitSize.x), std::fabs(hitSize.y));
+        const float defaultHeight = std::fabs(hitSize.z);
+        const float width = animation->worldWidth > 0.0f
+          ? animation->worldWidth
+          : std::max(0.05f, defaultWidth);
+        const float height = animation->worldHeight > 0.0f
+          ? animation->worldHeight
+          : std::max(0.05f, defaultHeight);
+        const float bottom = renderPosition.z + character->hitBox.minimum.z;
+
+        entry.artworkReady = true;
+        entry.animation = animation;
+        entry.spriteFrame = character->animation.frame;
+        entry.spriteMirror = character->animation.mirror || implicitMirror;
+        entry.spriteCentre = {
+          renderPosition.x,
+          renderPosition.y,
+          bottom + height * 0.5f
+        };
+        entry.spriteInverseWidth = 1.0f / width;
+        entry.spriteInverseHeight = 1.0f / height;
+      }
+    }
+
     runtimeRenderEntries_.push_back(std::move(entry));
+  }
+
+  runtimeSampleScratch_.clear();
+  if (runtimeSampleScratch_.capacity() < runtimeRenderEntries_.size()) {
+    runtimeSampleScratch_.reserve(runtimeRenderEntries_.size());
   }
   runtimeRenderCachePrepared_ = true;
 }
@@ -499,6 +489,8 @@ Vec3 World::sample(const Ray& ray, float backgroundY) const {
     ? environmentHit.distance
     : std::numeric_limits<float>::max();
 
+  if (!runtimeRenderCachePrepared_) prepareRenderFrame(ray.direction);
+
   bool runtimeFound = false;
   const Vec3 runtime = sampleRuntimeEntities(
     ray,
@@ -515,45 +507,61 @@ Vec3 World::sampleRuntimeEntities(
   float environmentHitDistance,
   bool& found
 ) const {
-  std::vector<RuntimeSample> samples;
+  if (!runtimeRenderCachePrepared_) prepareRenderFrame(ray.direction);
 
-  auto process = [&](const Character* character, const Vec3& renderPosition, const Object& proxy, bool selected) {
+  std::vector<RuntimeSample>& samples = runtimeSampleScratch_;
+  samples.clear();
+
+  for (const RuntimeRenderEntry& entry : runtimeRenderEntries_) {
+    const Character* character = entry.character;
+    if (!character) continue;
+
     RuntimeSample sample;
-    bool sampleFound = false;
-    bool artworkReady = false;
 
-    if (character->hasArtwork()) {
-      sampleFound = spriteSample(
-        *character,
-        renderPosition,
-        ray,
-        spriteAtlases_,
-        environmentHitDistance,
-        artworkReady,
-        sample
-      );
+    if (entry.artworkReady && entry.animation && runtimeSpritePlaneValid_) {
+      const float t = dot(entry.spriteCentre - ray.origin, runtimeSpritePlaneNormal_) *
+        runtimeSpriteInverseDenominator_;
+      if (t > 0.001f && t < environmentHitDistance) {
+        const Vec3 point = ray.origin + ray.direction * t;
+        const Vec3 delta = point - entry.spriteCentre;
+        const float u = dot(delta, runtimeSpriteScreenRight_) * entry.spriteInverseWidth + 0.5f;
+        const float v = 0.5f - delta.z * entry.spriteInverseHeight;
 
-      if (artworkReady) {
-        if (sampleFound) {
-          if (selected && characterSystem_) {
-            sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
+        if (u >= 0.0f && u < 1.0f && v >= 0.0f && v < 1.0f) {
+          const SpritePixel pixel = spriteAtlases_.sample(
+            *entry.animation,
+            entry.spriteFrame,
+            u,
+            v,
+            entry.spriteMirror
+          );
+          if (pixel.alpha > 0.01f) {
+            sample.distance = t;
+            sample.point = point;
+            sample.colour = pixel.colour;
+            sample.alpha = pixel.alpha;
+            if (entry.selected && characterSystem_) {
+              sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
+            }
+            sample.colour = sample.colour * runtimeSpriteLightFactor(activeLevelIndex_, sample.point);
+            samples.push_back(sample);
           }
-          sample.colour = sample.colour * runtimeSpriteLightFactor(activeLevelIndex_, sample.point);
-          samples.push_back(sample);
         }
-        return;
       }
+      // Once artwork is resolved, transparent/missed sprite pixels must stay
+      // transparent rather than falling back to the Character's debug box.
+      continue;
     }
 
     ObjectRayHit hit;
-    if (!proxy.intersectRay(ray, 0.001f, environmentHitDistance, hit)) return;
+    if (!entry.proxy.intersectRay(ray, 0.001f, environmentHitDistance, hit)) continue;
     sample.distance = hit.distance;
     sample.point = hit.worldPoint;
     sample.colour = labelPixel(*character, hit)
       ? Vec3(0.96f, 0.97f, 1.0f)
       : faceColour(hit.face);
     sample.alpha = 1.0f;
-    if (selected && characterSystem_) {
+    if (entry.selected && characterSystem_) {
       sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
     }
     sample.colour = shadeRuntimeSurface(
@@ -563,22 +571,6 @@ Vec3 World::sampleRuntimeEntities(
       sample.colour
     );
     samples.push_back(sample);
-  };
-
-  if (runtimeRenderCachePrepared_) {
-    for (const RuntimeRenderEntry& entry : runtimeRenderEntries_) {
-      process(entry.character, entry.renderPosition, entry.proxy, entry.selected);
-    }
-  } else {
-    const std::string& levelId = activeLevelId();
-    for (const Character* character : entities_.characters()) {
-      if (!character) continue;
-      Vec3 renderPosition;
-      if (!renderPositionFor(*character, renderPosition)) continue;
-      const Object proxy = renderProxy(*character, renderPosition, levelId);
-      const bool selected = characterSystem_ && characterSystem_->isSelected(character->id);
-      process(character, renderPosition, proxy, selected);
-    }
   }
 
   if (samples.empty()) {
