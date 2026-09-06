@@ -54,6 +54,9 @@ jobs:
       - name: Test performance architecture
         run: bun run test:performance
 
+      - name: Test Character face skin orientation
+        run: bun run test:faces
+
       - name: Test centre joystick quantisation
         run: bun run test:joystick
 
