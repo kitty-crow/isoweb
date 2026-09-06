@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "engine/math/Vec3.hpp"
+#include "engine/render/Ray.hpp"
 
 namespace isoweb {
 namespace engine {
@@ -54,6 +55,23 @@ struct HitBox {
       point.y >= minimum.y && point.y <= maximum.y &&
       point.z >= minimum.z && point.z <= maximum.z;
   }
+};
+
+enum class ObjectFace {
+  Left,
+  Right,
+  Back,
+  Front,
+  Bottom,
+  Top
+};
+
+struct ObjectRayHit {
+  float distance = 0.0f;
+  Vec3 worldPoint;
+  Vec3 localPoint;
+  Vec3 worldNormal;
+  ObjectFace face = ObjectFace::Front;
 };
 
 class Object {
@@ -115,11 +133,82 @@ public:
     return collisionEnabledWith(other) && overlaps(other);
   }
 
-  // Compatibility helper for the existing demo collision query. New stateful
-  // entities should use Object-vs-Object collision so location, orientation,
-  // solidity, and must-collide overrides all participate.
   bool blocks(const HitBox& other) const {
     return solid && hitBox.intersects(other);
+  }
+
+  Vec3 horizontalForward() const {
+    return normalisedHorizontal(forward);
+  }
+
+  Vec3 horizontalRight() const {
+    const Vec3 facing = horizontalForward();
+    return {facing.y, -facing.x, 0.0f};
+  }
+
+  Vec3 localToWorld(const Vec3& local) const {
+    return location.position + horizontalRight() * local.x + horizontalForward() * local.y + Vec3(0.0f, 0.0f, local.z);
+  }
+
+  Vec3 worldToLocal(const Vec3& world) const {
+    const Vec3 delta = world - location.position;
+    return {dot2(delta, horizontalRight()), dot2(delta, horizontalForward()), delta.z};
+  }
+
+  bool intersectRay(const Ray& ray, float minimum, float maximum, ObjectRayHit& hit) const {
+    const Vec3 right = horizontalRight();
+    const Vec3 facing = horizontalForward();
+    const Vec3 relativeOrigin = ray.origin - location.position;
+    const Vec3 localOrigin(dot2(relativeOrigin, right), dot2(relativeOrigin, facing), relativeOrigin.z);
+    const Vec3 localDirection(dot2(ray.direction, right), dot2(ray.direction, facing), ray.direction.z);
+
+    float nearT = minimum;
+    float farT = maximum;
+    int nearAxis = -1;
+    float nearSign = 0.0f;
+    const float origins[3] = {localOrigin.x, localOrigin.y, localOrigin.z};
+    const float directions[3] = {localDirection.x, localDirection.y, localDirection.z};
+    const float mins[3] = {hitBox.minimum.x, hitBox.minimum.y, hitBox.minimum.z};
+    const float maxs[3] = {hitBox.maximum.x, hitBox.maximum.y, hitBox.maximum.z};
+
+    for (int axis = 0; axis < 3; ++axis) {
+      if (std::fabs(directions[axis]) < 1e-7f) {
+        if (origins[axis] < mins[axis] || origins[axis] > maxs[axis]) return false;
+        continue;
+      }
+      const float inverse = 1.0f / directions[axis];
+      float t0 = (mins[axis] - origins[axis]) * inverse;
+      float t1 = (maxs[axis] - origins[axis]) * inverse;
+      float sign = -1.0f;
+      if (t0 > t1) {
+        std::swap(t0, t1);
+        sign = 1.0f;
+      }
+      if (t0 > nearT) {
+        nearT = t0;
+        nearAxis = axis;
+        nearSign = sign;
+      }
+      farT = std::min(farT, t1);
+      if (farT < nearT) return false;
+    }
+
+    if (nearAxis < 0 || nearT < minimum || nearT > maximum) return false;
+
+    hit.distance = nearT;
+    hit.worldPoint = ray.origin + ray.direction * nearT;
+    hit.localPoint = localOrigin + localDirection * nearT;
+    if (nearAxis == 0) {
+      hit.worldNormal = right * nearSign;
+      hit.face = nearSign < 0.0f ? ObjectFace::Left : ObjectFace::Right;
+    } else if (nearAxis == 1) {
+      hit.worldNormal = facing * nearSign;
+      hit.face = nearSign < 0.0f ? ObjectFace::Back : ObjectFace::Front;
+    } else {
+      hit.worldNormal = {0.0f, 0.0f, nearSign};
+      hit.face = nearSign < 0.0f ? ObjectFace::Bottom : ObjectFace::Top;
+    }
+    return true;
   }
 
 private:
@@ -136,7 +225,7 @@ private:
     return a.x * b.x + a.y * b.y;
   }
 
-  static Vec3 horizontalForward(const Vec3& value) {
+  static Vec3 normalisedHorizontal(const Vec3& value) {
     const float magnitude = std::sqrt(value.x * value.x + value.y * value.y);
     return magnitude > 1e-7f
       ? Vec3(value.x / magnitude, value.y / magnitude, 0.0f)
@@ -149,8 +238,8 @@ private:
   }
 
   OrientedBox orientedBox() const {
-    const Vec3 facing = horizontalForward(forward);
-    const Vec3 right(facing.y, -facing.x, 0.0f);
+    const Vec3 facing = horizontalForward();
+    const Vec3 right = horizontalRight();
     const Vec3 localCentre = hitBox.centre();
     const Vec3 half = hitBox.halfExtent();
 
