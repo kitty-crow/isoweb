@@ -82,7 +82,7 @@ public:
   engine::World& world() { return world_; }
 
 private:
-  void redraw();
+  void redraw(bool refreshPresentation = true);
 
   DemoWorld world_;
   engine::Camera camera_;
