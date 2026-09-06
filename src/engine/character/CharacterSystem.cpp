@@ -94,6 +94,17 @@ float CharacterSystem::effectiveSpeed(const Character& character) const {
   return std::max(0.0f, movementPolicy_->effectiveSpeed(character, defaults_.baseMovementSpeed));
 }
 
+bool CharacterSystem::needsTick() const {
+  for (const Character* character : world_.entities().characters()) {
+    if (!character) continue;
+    if (character->moving || character->movement.hasDestination) return true;
+    bool mirror = false;
+    const SpriteAnimation* animation = character->currentSpriteAnimation(&mirror);
+    if (animation && animation->animated()) return true;
+  }
+  return false;
+}
+
 void CharacterSystem::advance(Character& character, float deltaSeconds) {
   if (!character.movement.hasDestination || character.movement.nextWaypoint >= character.movement.route.size()) {
     character.moving = false;
