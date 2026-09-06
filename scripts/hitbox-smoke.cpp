@@ -5,7 +5,7 @@
 
 #include "demo/DemoWorld.hpp"
 #include "engine/camera/Camera.hpp"
-#include "engine/character/CharacterPresentation.hpp"
+#include "engine/character/CharacterAnimation.hpp"
 #include "engine/character/CharacterSystem.hpp"
 #include "engine/character/SpriteAtlas.hpp"
 #include "engine/world/Character.hpp"
@@ -17,7 +17,7 @@ using isoweb::engine::CameraConfig;
 using isoweb::engine::Character;
 using isoweb::engine::CharacterFacing;
 using isoweb::engine::CharacterSystem;
-using isoweb::engine::DefaultCharacterPresentationPolicy;
+using isoweb::engine::DefaultCharacterAnimationPolicy;
 using isoweb::engine::EntityLocation;
 using isoweb::engine::HitBox;
 using isoweb::engine::NavigationLink;
@@ -218,8 +218,8 @@ int main() {
   assignAllDirections(runner->sprites.moving, walking);
   runner->moving = true;
   runner->movementSpeedMultiplier = 2.0f;
-  DefaultCharacterPresentationPolicy presentationPolicy;
-  const float scaledFps = presentationPolicy.framesPerSecond(
+  DefaultCharacterAnimationPolicy animationPolicy;
+  const float scaledFps = animationPolicy.framesPerSecond(
     *runner,
     walking,
     system.effectiveSpeed(*runner),
