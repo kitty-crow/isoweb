@@ -3,36 +3,10 @@
 #include <algorithm>
 #include <memory>
 #include <utility>
-#include <vector>
 
 namespace isoweb {
 namespace demo {
 namespace {
-
-constexpr int STAIR_STEPS = 7;
-constexpr float STAIR_RISE = 1.40f;
-constexpr float STAIR_LOW_Y = -3.30f;
-constexpr float STAIR_HIGH_Y = -1.20f;
-constexpr float LOWER_MIDDLE_STAIR_X = 2.15f;
-constexpr float MIDDLE_UPPER_STAIR_X = 3.20f;
-
-std::vector<engine::Vec3> ascendingStair(float x) {
-  std::vector<engine::Vec3> result;
-  for (int step = 1; step <= STAIR_STEPS; ++step) {
-    const float t = static_cast<float>(step) / STAIR_STEPS;
-    result.push_back({x, STAIR_LOW_Y + (STAIR_HIGH_Y - STAIR_LOW_Y) * t, STAIR_RISE * t});
-  }
-  return result;
-}
-
-std::vector<engine::Vec3> descendingStair(float x) {
-  std::vector<engine::Vec3> result;
-  for (int step = 1; step <= STAIR_STEPS; ++step) {
-    const float t = static_cast<float>(step) / STAIR_STEPS;
-    result.push_back({x, STAIR_HIGH_Y + (STAIR_LOW_Y - STAIR_HIGH_Y) * t, -STAIR_RISE * t});
-  }
-  return result;
-}
 
 engine::DirectionalSpriteSet* spriteSet(engine::Character& character, int state, const std::string& action) {
   if (state == 0) return &character.sprites.still;
@@ -56,33 +30,7 @@ engine::SpriteAnimation* directionalAnimation(engine::DirectionalSpriteSet& set,
 DemoApplication::DemoApplication()
     : camera_(engine::CameraConfig(3.25f, 6.15f, 5.50f)),
       renderer_(world_, camera_, controls_),
-      characters_(world_) {
-  configureDemoWorldNavigation();
-}
-
-void DemoApplication::configureDemoWorldNavigation() {
-  world_.setLevelId(0, "lower");
-  world_.setLevelId(1, "middle");
-  world_.setLevelId(2, "upper");
-
-  engine::NavigationLink lowerMiddle;
-  lowerMiddle.fromLevelId = "lower";
-  lowerMiddle.toLevelId = "middle";
-  lowerMiddle.fromPosition = {LOWER_MIDDLE_STAIR_X, STAIR_LOW_Y, 0.0f};
-  lowerMiddle.toPosition = {LOWER_MIDDLE_STAIR_X, STAIR_HIGH_Y, 0.0f};
-  lowerMiddle.forwardTraversal = ascendingStair(LOWER_MIDDLE_STAIR_X);
-  lowerMiddle.reverseTraversal = descendingStair(LOWER_MIDDLE_STAIR_X);
-
-  engine::NavigationLink middleUpper;
-  middleUpper.fromLevelId = "middle";
-  middleUpper.toLevelId = "upper";
-  middleUpper.fromPosition = {MIDDLE_UPPER_STAIR_X, STAIR_LOW_Y, 0.0f};
-  middleUpper.toPosition = {MIDDLE_UPPER_STAIR_X, STAIR_HIGH_Y, 0.0f};
-  middleUpper.forwardTraversal = ascendingStair(MIDDLE_UPPER_STAIR_X);
-  middleUpper.reverseTraversal = descendingStair(MIDDLE_UPPER_STAIR_X);
-
-  world_.setNavigationLinks({lowerMiddle, middleUpper});
-}
+      characters_(world_) {}
 
 void DemoApplication::redraw() {
   characters_.updatePresentation(camera_);
@@ -178,27 +126,20 @@ void DemoApplication::resetLevel() {
 bool DemoApplication::pointerTap(float x, float y, bool additive) {
   const engine::Ray ray = renderer_.rayForPixel(x, y);
   if (engine::Character* hit = characters_.pick(ray)) {
-    if (hit->moving && characters_.selection().selected(hit->id)) {
-      movementCommandArmed_ = true;
-    } else {
-      characters_.selection().toggle(*hit, additive);
-      movementCommandArmed_ = characters_.selection().selected(hit->id);
-    }
+    characters_.selection().toggle(*hit, additive);
     redraw();
     return true;
   }
 
-  if (!movementCommandArmed_ || characters_.selection().ids().empty()) return false;
+  if (characters_.selection().ids().empty()) return false;
 
-  engine::Vec3 destinationPoint;
-  if (!renderer_.groundPointForPixel(x, y, 0.0f, destinationPoint)) return false;
-  if (!world_.containsPosition(world_.activeLevelId(), destinationPoint)) return false;
+  engine::SceneSurfaceHit surface;
+  if (!world_.pickWalkableSurface(ray, surface)) return false;
 
   engine::EntityLocation destination;
   destination.levelId = world_.activeLevelId();
-  destination.position = destinationPoint;
+  destination.position = surface.point;
   const std::size_t commanded = characters_.commandSelected(destination);
-  movementCommandArmed_ = false;
   if (commanded > 0) redraw();
   return commanded > 0;
 }
@@ -221,21 +162,18 @@ std::size_t DemoApplication::dragSelect(float x0, float y0, float x1, float y1, 
     if (characters_.selection().select(*character, true)) ++count;
   }
 
-  movementCommandArmed_ = !characters_.selection().ids().empty();
   redraw();
   return count;
 }
 
 void DemoApplication::clearSelection() {
   characters_.clearSelection();
-  movementCommandArmed_ = false;
   redraw();
 }
 
 bool DemoApplication::clearEntities() {
   characters_.clearSelection();
   world_.entities().clear();
-  movementCommandArmed_ = false;
   return true;
 }
 
@@ -305,7 +243,6 @@ bool DemoApplication::registerSpriteAtlas(
 
 void DemoApplication::setSelectionMode(engine::SelectionMode mode) {
   characters_.setSelectionMode(mode);
-  movementCommandArmed_ = false;
 }
 
 } // namespace demo
