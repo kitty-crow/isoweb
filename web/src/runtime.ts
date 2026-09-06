@@ -25,6 +25,7 @@ export interface IsowebModule {
   _isoweb_default_level_index(): number;
 
   _isoweb_pointer_tap(x: number, y: number, additive: number): number;
+  _isoweb_drag_select(x0: number, y0: number, x1: number, y1: number, additive: number): number;
   _isoweb_clear_selection(): void;
   _isoweb_clear_entities(): void;
   _isoweb_create_character(id: number, world: number, timeline: number, level: number, x: number, y: number, z: number): number;
