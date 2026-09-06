@@ -27,6 +27,7 @@ public:
   CameraControlState cameraControlState() const { return frameCameraState_; }
   float viewHeight() const { return frameViewHeight_; }
   float wholeZoomScale() const { return frameWholeZoomScale_; }
+  std::size_t staticCacheBuildCount() const { return staticCacheBuildCount_; }
 
   Ray rayForPixel(float px, float py) const;
   bool groundPointForPixel(float px, float py, float groundZ, Vec3& point) const;
@@ -66,6 +67,7 @@ private:
   std::vector<StaticSample> staticSamples_;
   StaticCacheKey staticCacheKey_;
   bool staticCacheValid_ = false;
+  std::size_t staticCacheBuildCount_ = 0;
 
   CameraControlState frameCameraState_;
   bool frameCanPan_ = false;
