@@ -76,6 +76,9 @@ jobs:
       - name: Smoke-test WASM browser boot
         run: bun run test:runtime
 
+      - name: Exercise centre joysticks in Chromium
+        run: bun run test:joystick-browser
+
       - name: Audit mobile responsiveness
         run: bun run audit:mobile
 
