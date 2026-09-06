@@ -1,5 +1,14 @@
 export interface IsowebModule {
+  ccall(
+    ident: string,
+    returnType: 'number' | null,
+    argTypes: Array<'number' | 'string' | 'array'>,
+    args: unknown[]
+  ): number | void;
+
   _isoweb_render(): void;
+  _isoweb_tick(deltaSeconds: number): void;
+  _isoweb_needs_tick(): number;
   _isoweb_resize(width: number, height: number): void;
   _isoweb_rotate_clockwise(): void;
   _isoweb_rotate_counterclockwise(): void;
@@ -17,6 +26,17 @@ export interface IsowebModule {
   _isoweb_level_count(): number;
   _isoweb_active_level_index(): number;
   _isoweb_default_level_index(): number;
+
+  _isoweb_pointer_tap(x: number, y: number, additive: number): number;
+  _isoweb_drag_select(x0: number, y0: number, x1: number, y1: number, additive: number): number;
+  _isoweb_clear_selection(): void;
+  _isoweb_clear_entities(): void;
+  _isoweb_character_count(): number;
+  _isoweb_selected_character_count(): number;
+  _isoweb_set_base_movement_speed(speed: number): void;
+  _isoweb_set_selection_mode(mode: number): void;
+  _isoweb_set_selection_style(red: number, green: number, blue: number, strength: number): void;
+
   onRuntimeInitialized?: () => void;
 }
 

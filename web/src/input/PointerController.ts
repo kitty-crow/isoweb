@@ -5,11 +5,15 @@ import { ViewportController } from '../viewport/ViewportController';
 
 type Point = { x: number; y: number };
 
+const TAP_THRESHOLD_PX = 8;
+
 export class PointerController {
   private readonly pointers = new Map<number, Point>();
+  private readonly starts = new Map<number, Point>();
   private pinchDistance = 0;
   private rotationAngle = 0;
   private rotationAccumulator = 0;
+  private hadMultiTouch = false;
 
   constructor(
     private readonly viewport: HTMLElement,
@@ -21,8 +25,8 @@ export class PointerController {
   bind(): void {
     this.viewport.addEventListener('pointerdown', event => this.onPointerDown(event));
     this.viewport.addEventListener('pointermove', event => this.onPointerMove(event));
-    this.viewport.addEventListener('pointerup', event => this.endPointer(event));
-    this.viewport.addEventListener('pointercancel', event => this.endPointer(event));
+    this.viewport.addEventListener('pointerup', event => this.endPointer(event, false));
+    this.viewport.addEventListener('pointercancel', event => this.endPointer(event, true));
   }
 
   private zoomStep(direction: number): void {
@@ -50,13 +54,23 @@ export class PointerController {
     return Math.atan2(points[1].y - points[0].y, points[1].x - points[0].x);
   }
 
+  private distanceFromStart(pointerId: number, point: Point): number {
+    const start = this.starts.get(pointerId);
+    return start ? Math.hypot(point.x - start.x, point.y - start.y) : 0;
+  }
+
   private onPointerDown(event: PointerEvent): void {
     const target = event.target;
-    if (event.pointerType === 'mouse' || (target instanceof Element && target.closest('button'))) return;
+    if (target instanceof Element && target.closest('button')) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
 
-    this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const point = { x: event.clientX, y: event.clientY };
+    this.pointers.set(event.pointerId, point);
+    this.starts.set(event.pointerId, point);
     this.viewport.setPointerCapture(event.pointerId);
-    if (this.pointers.size >= 2) {
+
+    if (event.pointerType !== 'mouse' && this.pointers.size >= 2) {
+      this.hadMultiTouch = true;
       this.pinchDistance = this.currentPinchDistance();
       this.rotationAngle = this.currentTouchAngle();
       this.rotationAccumulator = 0;
@@ -70,7 +84,10 @@ export class PointerController {
     const next = { x: event.clientX, y: event.clientY };
     this.pointers.set(event.pointerId, next);
 
+    if (event.pointerType === 'mouse') return;
+
     if (this.pointers.size >= 2) {
+      this.hadMultiTouch = true;
       const distance = this.currentPinchDistance();
       if (this.pinchDistance > 0) {
         const ratio = distance / this.pinchDistance;
@@ -100,6 +117,8 @@ export class PointerController {
       return;
     }
 
+    if (this.distanceFromStart(event.pointerId, next) < TAP_THRESHOLD_PX) return;
+
     const dx = next.x - previous.x;
     const dy = next.y - previous.y;
     this.panQueue.queue(
@@ -108,15 +127,40 @@ export class PointerController {
     );
   }
 
-  private endPointer(event: PointerEvent): void {
-    if (!this.pointers.has(event.pointerId)) return;
+  private endPointer(event: PointerEvent, cancelled: boolean): void {
+    const last = this.pointers.get(event.pointerId);
+    const start = this.starts.get(event.pointerId);
+    if (!last || !start) return;
+
+    const distance = Math.hypot(last.x - start.x, last.y - start.y);
+    const wasMouse = event.pointerType === 'mouse';
+    const multiTouch = this.hadMultiTouch;
+
     this.pointers.delete(event.pointerId);
+    this.starts.delete(event.pointerId);
+
+    if (!cancelled && wasMouse) {
+      const from = this.viewportController.rendererPoint(start.x, start.y);
+      const to = this.viewportController.rendererPoint(last.x, last.y);
+      if (from && to) {
+        if (distance < TAP_THRESHOLD_PX) {
+          this.module._isoweb_pointer_tap(to.x, to.y, 1);
+        } else {
+          this.module._isoweb_drag_select(from.x, from.y, to.x, to.y, event.shiftKey ? 1 : 0);
+        }
+      }
+    } else if (!cancelled && !wasMouse && !multiTouch && distance < TAP_THRESHOLD_PX) {
+      const point = this.viewportController.rendererPoint(last.x, last.y);
+      if (point) this.module._isoweb_pointer_tap(point.x, point.y, 1);
+    }
+
     if (this.pointers.size >= 2) {
       this.pinchDistance = this.currentPinchDistance();
       this.rotationAngle = this.currentTouchAngle();
     } else {
       this.pinchDistance = 0;
       this.rotationAccumulator = 0;
+      if (this.pointers.size === 0) this.hadMultiTouch = false;
     }
   }
 }

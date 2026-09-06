@@ -1,0 +1,31 @@
+{
+  "engine": {
+    "baseMovementSpeed": 1.45,
+    "selection": {
+      "mode": "multiple",
+      "tint": [0.20, 0.48, 1.0],
+      "strength": 0.45
+    }
+  },
+  "characters": [
+    {
+      "id": "demo-character",
+      "location": {
+        "world": "demo",
+        "timeline": "default",
+        "level": "middle",
+        "position": [0.0, 2.4, 0.0]
+      },
+      "forward": [0.0, 1.0],
+      "hitBox": {
+        "minimum": [-0.28, -0.20, 0.0],
+        "maximum": [0.28, 0.20, 1.65]
+      },
+      "solid": true,
+      "npc": false,
+      "controllable": true,
+      "movementSpeedMultiplier": 1.0,
+      "collisionTags": ["character"]
+    }
+  ]
+}

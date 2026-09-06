@@ -27,10 +27,13 @@ public:
   float viewHeight() const;
   float wholeZoomScale() const;
 
+  Ray rayForPixel(float px, float py) const;
+  bool groundPointForPixel(float px, float py, float groundZ, Vec3& point) const;
+  bool worldPointToPixel(const Vec3& point, float& px, float& py) const;
+
 private:
   static std::uint8_t toByte(float value);
   void ensureFrame();
-  Ray makeRay(float px, float py) const;
 
   const IWorld& world_;
   Camera& camera_;
