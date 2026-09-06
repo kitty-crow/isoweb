@@ -40,6 +40,7 @@ public:
   std::size_t defaultLevelIndex() const { return world_.defaultLevelIndex(); }
 
   bool pointerTap(float x, float y, bool additive);
+  std::size_t dragSelect(float x0, float y0, float x1, float y1, bool additive);
   void clearSelection();
 
   bool clearEntities();
