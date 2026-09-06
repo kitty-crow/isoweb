@@ -22,6 +22,10 @@ public:
   const CharacterSelection& selection() const { return selection_; }
   bool isSelected(const std::string& id) const { return selection_.selected(id); }
   const SelectionStyle& selectionStyle() const { return selection_.style; }
+  void setSelectionMode(SelectionMode mode) {
+    defaultSelectionPolicy_.setMode(mode);
+    if (mode == SelectionMode::Single && selection_.ids().size() > 1) selection_.clear();
+  }
 
   Character* pick(const Ray& ray, float maximumDistance = 1000.0f) const;
   bool toggleSelection(const Ray& ray, bool additive = true);
