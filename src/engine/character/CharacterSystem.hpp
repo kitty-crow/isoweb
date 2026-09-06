@@ -37,6 +37,7 @@ public:
 
   void tick(float deltaSeconds, const Camera& camera);
   void updatePresentation(const Camera& camera);
+  bool needsTick() const;
   float effectiveSpeed(const Character& character) const;
 
   void setCollisionPolicy(CollisionPolicy& policy) {
