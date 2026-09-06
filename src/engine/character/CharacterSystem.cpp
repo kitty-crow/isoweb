@@ -38,6 +38,7 @@ CharacterSystem::CharacterSystem(World& world)
   movementPolicy_ = &defaultMovementPolicy_;
   interactionPolicy_ = &defaultInteractionPolicy_;
   presentationPolicy_ = &defaultPresentationPolicy_;
+  animationPolicy_ = &defaultAnimationPolicy_;
   world_.setCharacterSystem(this);
   world_.setCollisionPolicy(collisionPolicy_);
 }
@@ -170,9 +171,7 @@ void CharacterSystem::updatePresentation(const Camera& camera) {
     const CharacterPresentation presentation = resolveCharacterPresentation(
       *character,
       camera,
-      *presentationPolicy_,
-      effectiveSpeed(*character),
-      defaults_.baseMovementSpeed
+      *presentationPolicy_
     );
     character->animation.facing = presentation.facing;
     character->animation.mirror = presentation.mirror;
@@ -200,12 +199,10 @@ void CharacterSystem::tick(float deltaSeconds, const Camera& camera) {
     const CharacterPresentation presentation = resolveCharacterPresentation(
       *character,
       camera,
-      *presentationPolicy_,
-      effectiveSpeed(*character),
-      defaults_.baseMovementSpeed
+      *presentationPolicy_
     );
     if (!presentation.animation) continue;
-    const float fps = presentationPolicy_->framesPerSecond(
+    const float fps = animationPolicy_->framesPerSecond(
       *character,
       *presentation.animation,
       effectiveSpeed(*character),
