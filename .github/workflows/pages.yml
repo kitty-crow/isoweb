@@ -45,6 +45,9 @@ jobs:
       - name: Test world-object and character systems
         run: bun run test:hitboxes
 
+      - name: Test unified world geometry
+        run: bun run test:geometry
+
       - name: Set up Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
