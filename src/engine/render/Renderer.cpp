@@ -124,22 +124,34 @@ void Renderer::render() {
 
   const WorldBounds& bounds = world_.bounds();
   const Vec3 forward = camera_.forward();
-  const Vec3 right = normalise(cross(forward, {0.0f, 0.0f, 1.0f}));
+  const Vec3 right = camera_.groundRight();
   const Vec3 up = normalise(cross(right, forward));
   const float aspect = static_cast<float>(frameWidth_) / frameHeight_;
-  const float height = camera_.viewHeight(frameWidth_, frameHeight_, bounds);
+
+  // Project the static bounds once. The old path independently asked for
+  // viewHeight, canPan, wholeZoomScale and then controlState, each of which
+  // could repeat this bounds scan.
+  const float wholeHeight = camera_.wholeViewHeight(aspect, bounds);
+  const float baseHeight = camera_.baseViewHeight(aspect);
+  const float height = camera_.zoomPreset() == 0
+    ? wholeHeight
+    : camera_.viewHeight(frameWidth_, frameHeight_, bounds);
   const float width = height * aspect;
-  const bool panEnabled = camera_.canPan(frameWidth_, frameHeight_, bounds);
+  const bool panEnabled = height + 0.0001f < wholeHeight;
   const Vec3 focus = panEnabled
     ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
     : bounds.focus;
 
-  // These values are needed again immediately by the browser presenter. Keep
-  // the exact metrics from this render rather than rescanning bounds and
-  // rebuilding camera state after the expensive frame has already completed.
   frameViewHeight_ = height;
   frameCanPan_ = panEnabled;
-  frameWholeZoomScale_ = camera_.wholeZoomScale(frameWidth_, frameHeight_, bounds);
+  frameWholeZoomScale_ = baseHeight / wholeHeight;
+  frameCameraState_ = camera_.controlState(
+    frameWidth_,
+    frameHeight_,
+    bounds,
+    panEnabled,
+    frameWholeZoomScale_
+  );
 
   world_.prepareRenderFrame(forward);
 
@@ -229,7 +241,6 @@ void Renderer::render() {
     staticCacheValid_ = true;
   }
 
-  frameCameraState_ = camera_.controlState(frameWidth_, frameHeight_, bounds);
   LevelControlState levelState;
   levelState.canMoveUp = world_.activeLevelIndex() + 1 < world_.levelCount();
   levelState.canMoveDown = world_.activeLevelIndex() > 0;
