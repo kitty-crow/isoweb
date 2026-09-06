@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <map>
 #include <string>
+#include <vector>
 
 #include "engine/world/Object.hpp"
 
@@ -16,12 +17,24 @@ enum class CharacterFacing {
   Right
 };
 
+// Runtime character artwork is a WebP-backed frame sequence. frameCount may
+// be one for a static pose or greater than one for an animation. The engine,
+// not the WebP file, owns frame timing so playback can follow character state
+// and effective movement speed.
 struct SpriteAnimation {
   std::string resource;
   std::size_t frameCount = 1;
+  std::size_t columns = 1;
+  std::size_t rows = 1;
+  float nominalFramesPerSecond = 6.0f;
+  bool loop = true;
 
   bool assigned() const {
     return !resource.empty();
+  }
+
+  bool animated() const {
+    return assigned() && frameCount > 1;
   }
 };
 
@@ -41,6 +54,23 @@ struct DirectionalSpriteSet {
 
   bool hasAnyArtwork() const {
     return front.assigned() || back.assigned() || left.assigned() || right.assigned();
+  }
+
+  const SpriteAnimation* animation(CharacterFacing facing, bool* mirror = nullptr) const {
+    if (mirror) *mirror = false;
+    switch (facing) {
+      case CharacterFacing::Front: return front.assigned() ? &front : nullptr;
+      case CharacterFacing::Back: return back.assigned() ? &back : nullptr;
+      case CharacterFacing::Left: return left.assigned() ? &left : nullptr;
+      case CharacterFacing::Right:
+        if (right.assigned()) return &right;
+        if (left.assigned()) {
+          if (mirror) *mirror = true;
+          return &left;
+        }
+        return nullptr;
+    }
+    return nullptr;
   }
 };
 
@@ -62,6 +92,35 @@ struct CharacterSpriteSet {
   }
 };
 
+struct CharacterWaypoint {
+  EntityLocation location;
+  bool levelTransition = false;
+};
+
+struct CharacterMovementState {
+  std::vector<CharacterWaypoint> route;
+  std::size_t nextWaypoint = 0;
+  bool hasDestination = false;
+  EntityLocation destination;
+
+  void clear() {
+    route.clear();
+    nextWaypoint = 0;
+    hasDestination = false;
+    destination = EntityLocation();
+  }
+};
+
+struct CharacterAnimationState {
+  float elapsedSeconds = 0.0f;
+  std::size_t frame = 0;
+
+  void reset() {
+    elapsedSeconds = 0.0f;
+    frame = 0;
+  }
+};
+
 class Character : public Object {
 public:
   bool npc = false;
@@ -71,6 +130,8 @@ public:
   bool moving = false;
   std::string activeAction;
   CharacterSpriteSet sprites;
+  CharacterMovementState movement;
+  CharacterAnimationState animation;
 
   bool hasArtwork() const {
     return sprites.hasAnyArtwork();
