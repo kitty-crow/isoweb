@@ -81,7 +81,6 @@ public:
 
 private:
   void redraw();
-  void configureDemoWorldNavigation();
 
   DemoWorld world_;
   engine::Camera camera_;
@@ -89,7 +88,6 @@ private:
   engine::Renderer renderer_;
   engine::BrowserPresenter presenter_;
   engine::CharacterSystem characters_;
-  bool movementCommandArmed_ = false;
 };
 
 } // namespace demo
