@@ -109,6 +109,8 @@ World::World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defau
       defaultLevelIndex_(defaultLevelIndex) {
   if (levels_.empty() || defaultLevelIndex_ >= levels_.size()) std::abort();
   activeLevelIndex_ = defaultLevelIndex_;
+  levelIds_.reserve(levels_.size());
+  for (std::size_t index = 0; index < levels_.size(); ++index) levelIds_.push_back(std::to_string(index));
 }
 
 const IWorldLevel& World::activeLevel() const {
@@ -116,14 +118,23 @@ const IWorldLevel& World::activeLevel() const {
 }
 
 const std::string& World::activeLevelId() const {
-  return activeLevel().id();
+  return levelIds_[activeLevelIndex_];
 }
 
-const IWorldLevel* World::level(const std::string& levelId) const {
-  for (const auto& candidate : levels_) {
-    if (candidate && candidate->id() == levelId) return candidate.get();
+bool World::setLevelId(std::size_t index, const std::string& id) {
+  if (index >= levelIds_.size() || id.empty()) return false;
+  for (std::size_t other = 0; other < levelIds_.size(); ++other) {
+    if (other != index && levelIds_[other] == id) return false;
   }
-  return nullptr;
+  levelIds_[index] = id;
+  return true;
+}
+
+std::size_t World::levelIndex(const std::string& levelId) const {
+  for (std::size_t index = 0; index < levelIds_.size(); ++index) {
+    if (levelIds_[index] == levelId) return index;
+  }
+  return levels_.size();
 }
 
 const WorldBounds& World::bounds() const {
@@ -131,12 +142,21 @@ const WorldBounds& World::bounds() const {
 }
 
 const WorldBounds& World::bounds(const std::string& levelId) const {
-  const IWorldLevel* target = level(levelId);
-  return target ? target->bounds() : activeLevel().bounds();
+  const std::size_t index = levelIndex(levelId);
+  return index < levels_.size() ? levels_[index]->bounds() : activeLevel().bounds();
+}
+
+float World::staticOccluderDistance(const Ray& ray) const {
+  float closest = std::numeric_limits<float>::max();
+  for (const Object& object : objects()) {
+    ObjectRayHit hit;
+    if (object.intersectRay(ray, 0.001f, closest, hit)) closest = hit.distance;
+  }
+  return closest;
 }
 
 Vec3 World::sample(const Ray& ray, float backgroundY) const {
-  const float staticDistance = activeLevel().distance(ray);
+  const float staticDistance = staticOccluderDistance(ray);
   bool runtimeFound = false;
   const Vec3 runtime = sampleRuntimeEntities(ray, backgroundY, staticDistance, runtimeFound);
   return runtimeFound ? runtime : activeLevel().sample(ray, backgroundY);
@@ -171,8 +191,8 @@ const std::vector<Object>& World::objects() const {
 }
 
 const std::vector<Object>& World::objects(const std::string& levelId) const {
-  const IWorldLevel* target = level(levelId);
-  return target ? target->objects() : activeLevel().objects();
+  const std::size_t index = levelIndex(levelId);
+  return index < levels_.size() ? levels_[index]->objects() : activeLevel().objects();
 }
 
 bool World::intersectsSolid(const HitBox& hitBox) const {
