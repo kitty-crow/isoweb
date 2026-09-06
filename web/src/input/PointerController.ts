@@ -6,6 +6,7 @@ import { ViewportController } from '../viewport/ViewportController';
 type Point = { x: number; y: number };
 
 const TAP_THRESHOLD_PX = 8;
+const SCREEN_VERTICAL_WORLD_SCALE = Math.sqrt(3);
 
 export class PointerController {
   private readonly pointers = new Map<number, Point>();
@@ -123,7 +124,7 @@ export class PointerController {
     const dy = next.y - previous.y;
     this.panQueue.queue(
       -this.viewportController.pixelsToWorld(dx),
-      -this.viewportController.pixelsToWorld(dy)
+      -this.viewportController.pixelsToWorld(dy) * SCREEN_VERTICAL_WORLD_SCALE
     );
   }
 
