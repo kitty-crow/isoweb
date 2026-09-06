@@ -4,12 +4,15 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace isoweb {
 namespace engine {
 namespace {
 
 constexpr std::size_t MAX_STATIC_CACHE_PIXELS = 600000;
+constexpr float PAN_SHIFT_EPSILON = 0.025f;
+constexpr float NO_HIT_DISTANCE = 1.0e30f;
 
 const std::array<float, 255>& gammaThresholds() {
   // The old conversion was round(pow(linear, 1/2.2) * 255). The boundary at
@@ -57,6 +60,148 @@ bool Renderer::staticCacheMatches(const StaticCacheKey& key) const {
     staticCacheKey_.panX == key.panX &&
     staticCacheKey_.panY == key.panY &&
     staticCacheKey_.viewHeight == key.viewHeight;
+}
+
+bool Renderer::staticCacheMatchesExceptPan(const StaticCacheKey& key) const {
+  return staticCacheValid_ &&
+    staticCacheKey_.width == key.width &&
+    staticCacheKey_.height == key.height &&
+    staticCacheKey_.level == key.level &&
+    staticCacheKey_.yawStep == key.yawStep &&
+    staticCacheKey_.zoomPreset == key.zoomPreset &&
+    std::fabs(staticCacheKey_.viewHeight - key.viewHeight) <= 1e-6f;
+}
+
+bool Renderer::shiftStaticCacheForPan(
+  const StaticCacheKey& key,
+  const Vec3& forward,
+  const Vec3& right,
+  const Vec3& up,
+  float viewWidth,
+  float viewHeight,
+  const WorldBounds& bounds
+) {
+  if (!staticCacheMatchesExceptPan(key) || viewWidth <= 0.0f || viewHeight <= 0.0f) return false;
+  if (staticCacheKey_.panX == key.panX && staticCacheKey_.panY == key.panY) return true;
+
+  const Vec3 panDelta(
+    key.panX - staticCacheKey_.panX,
+    key.panY - staticCacheKey_.panY,
+    0.0f
+  );
+  const float sourceShiftXFloat = dot(panDelta, right) * frameWidth_ / viewWidth;
+  const float sourceShiftYFloat = -dot(panDelta, up) * frameHeight_ / viewHeight;
+  const int sourceShiftX = static_cast<int>(std::lround(sourceShiftXFloat));
+  const int sourceShiftY = static_cast<int>(std::lround(sourceShiftYFloat));
+
+  // Camera::pan accumulates motion in renderer-pixel space, so normal
+  // interactive pan deltas land exactly on this grid. Refuse cache shifting if
+  // another caller changes pan by an arbitrary sub-pixel amount: correctness
+  // wins and the normal full static rebuild is used instead.
+  if (
+    std::fabs(sourceShiftXFloat - sourceShiftX) > PAN_SHIFT_EPSILON ||
+    std::fabs(sourceShiftYFloat - sourceShiftY) > PAN_SHIFT_EPSILON
+  ) {
+    return false;
+  }
+  if (sourceShiftX == 0 && sourceShiftY == 0) return false;
+  if (std::abs(sourceShiftX) >= frameWidth_ || std::abs(sourceShiftY) >= frameHeight_) return false;
+
+  const int destinationX0 = std::max(0, -sourceShiftX);
+  const int destinationX1 = std::min(frameWidth_, frameWidth_ - sourceShiftX);
+  const int destinationY0 = std::max(0, -sourceShiftY);
+  const int destinationY1 = std::min(frameHeight_, frameHeight_ - sourceShiftY);
+  if (destinationX0 >= destinationX1 || destinationY0 >= destinationY1) return false;
+
+  // The environment API receives backgroundY explicitly. For a vertical cache
+  // shift, refresh the no-hit gradient once per sub-sample row using a ray that
+  // points away from the bounded scene. This avoids retracing every background
+  // pixel while keeping the screen-space background anchored exactly.
+  if (sourceShiftY != 0) {
+    const std::size_t requiredRows = static_cast<std::size_t>(frameHeight_) * 2;
+    if (panBackgroundRows_.size() != requiredRows) panBackgroundRows_.resize(requiredRows);
+    const Ray missRay{bounds.focus + Vec3(0.0f, 0.0f, 1000000.0f), Vec3(0.0f, 0.0f, 1.0f)};
+    const float inverseHeight = 1.0f / static_cast<float>(frameHeight_);
+    for (int y = 0; y < frameHeight_; ++y) {
+      for (int rowSample = 0; rowSample < 2; ++rowSample) {
+        const float offset = rowSample == 0 ? 0.25f : 0.75f;
+        float distance = 0.0f;
+        const Vec3 colour = world_.sampleEnvironment(
+          missRay,
+          (static_cast<float>(y) + offset) * inverseHeight,
+          distance
+        );
+        if (distance < NO_HIT_DISTANCE) return false;
+        panBackgroundRows_[static_cast<std::size_t>(y) * 2 + rowSample] = colour;
+      }
+    }
+  }
+
+  // Move the overlapping pixel blocks in-place. Each pixel owns four exact
+  // supersamples. Row order prevents a vertical move from overwriting a source
+  // row that has not been consumed yet; memmove handles horizontal overlap.
+  const std::size_t samplesPerPixel = 4;
+  const std::size_t rowSampleCount =
+    static_cast<std::size_t>(destinationX1 - destinationX0) * samplesPerPixel;
+  auto moveRow = [&](int destinationY) {
+    const int sourceY = destinationY + sourceShiftY;
+    const std::size_t destinationIndex =
+      (static_cast<std::size_t>(destinationY) * frameWidth_ + destinationX0) * samplesPerPixel;
+    const std::size_t sourceIndex =
+      (static_cast<std::size_t>(sourceY) * frameWidth_ + destinationX0 + sourceShiftX) * samplesPerPixel;
+    std::memmove(
+      staticSamples_.data() + destinationIndex,
+      staticSamples_.data() + sourceIndex,
+      rowSampleCount * sizeof(StaticSample)
+    );
+  };
+
+  if (sourceShiftY >= 0) {
+    for (int y = destinationY0; y < destinationY1; ++y) moveRow(y);
+  } else {
+    for (int y = destinationY1 - 1; y >= destinationY0; --y) moveRow(y);
+  }
+
+  auto invalidatePixel = [&](int x, int y) {
+    StaticSample* samples = staticSamples_.data() +
+      (static_cast<std::size_t>(y) * frameWidth_ + x) * samplesPerPixel;
+    for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+      samples[sampleIndex].environmentDistance = -1.0f;
+    }
+  };
+
+  for (int y = 0; y < frameHeight_; ++y) {
+    if (y < destinationY0 || y >= destinationY1) {
+      for (int x = 0; x < frameWidth_; ++x) invalidatePixel(x, y);
+      continue;
+    }
+    for (int x = 0; x < destinationX0; ++x) invalidatePixel(x, y);
+    for (int x = destinationX1; x < frameWidth_; ++x) invalidatePixel(x, y);
+  }
+
+  const float forwardShift = dot(panDelta, forward);
+  for (int y = destinationY0; y < destinationY1; ++y) {
+    for (int x = destinationX0; x < destinationX1; ++x) {
+      StaticSample* samples = staticSamples_.data() +
+        (static_cast<std::size_t>(y) * frameWidth_ + x) * samplesPerPixel;
+      for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+        StaticSample& sample = samples[sampleIndex];
+        if (sample.environmentDistance < 0.0f) continue;
+        if (sample.environmentDistance < NO_HIT_DISTANCE) {
+          sample.environmentDistance = std::max(0.001f, sample.environmentDistance - forwardShift);
+        } else if (sourceShiftY != 0) {
+          sample.colour = panBackgroundRows_[
+            static_cast<std::size_t>(y) * 2 + (sampleIndex >> 1)
+          ];
+        }
+      }
+    }
+  }
+
+  staticCacheKey_ = key;
+  staticCacheValid_ = true;
+  ++staticCacheShiftCount_;
+  return true;
 }
 
 void Renderer::ensureFrame() {
@@ -169,14 +314,20 @@ void Renderer::render() {
   nextStaticKey.panY = camera_.panY();
   nextStaticKey.viewHeight = height;
 
-  const bool rebuildStaticCache = useStaticCache && !staticCacheMatches(nextStaticKey);
   if (useStaticCache) {
     const std::size_t sampleCount = pixelCount * 4;
-    if (staticSamples_.size() != sampleCount) staticSamples_.resize(sampleCount);
+    if (staticSamples_.size() != sampleCount) {
+      staticSamples_.resize(sampleCount);
+      staticCacheValid_ = false;
+    }
+    if (!staticCacheMatches(nextStaticKey) && staticCacheMatchesExceptPan(nextStaticKey)) {
+      shiftStaticCacheForPan(nextStaticKey, forward, right, up, width, height, bounds);
+    }
   } else {
     staticCacheValid_ = false;
   }
 
+  const bool rebuildStaticCache = useStaticCache && !staticCacheMatches(nextStaticKey);
   const float inverseFrameWidth = 1.0f / static_cast<float>(frameWidth_);
   const float inverseFrameHeight = 1.0f / static_cast<float>(frameHeight_);
   const Vec3 rightStep = right * (width * inverseFrameWidth);
@@ -210,7 +361,7 @@ void Renderer::render() {
 
         if (useStaticCache) {
           StaticSample& staticSample = staticSamples_[pixelIndex * 4 + sampleIndex];
-          if (rebuildStaticCache) {
+          if (rebuildStaticCache || staticSample.environmentDistance < 0.0f) {
             staticSample.colour = world_.sampleEnvironment(
               ray,
               sampleBackgroundY,
