@@ -31,6 +31,8 @@ public:
   // Split static environment sampling from runtime-entity compositing so a
   // renderer may cache exact static supersamples while the camera/level stay
   // unchanged. Defaults preserve compatibility for worlds that do not opt in.
+  virtual bool supportsStaticSampleCache() const { return false; }
+
   virtual Vec3 sampleEnvironment(
     const Ray& ray,
     float backgroundY,
