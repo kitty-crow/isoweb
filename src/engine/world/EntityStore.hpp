@@ -20,13 +20,19 @@ public:
   Object* find(const std::string& id);
   const Object* find(const std::string& id) const;
 
-  std::vector<Object*> all();
-  std::vector<const Object*> all() const;
-  std::vector<Character*> characters();
-  std::vector<const Character*> characters() const;
+  const std::vector<Object*>& all();
+  const std::vector<const Object*>& all() const;
+  const std::vector<Character*>& characters();
+  const std::vector<const Character*>& characters() const;
 
 private:
+  void rebuildViews();
+
   std::vector<std::unique_ptr<Object>> entities_;
+  std::vector<Object*> allView_;
+  std::vector<const Object*> constAllView_;
+  std::vector<Character*> characterView_;
+  std::vector<const Character*> constCharacterView_;
 };
 
 } // namespace engine
