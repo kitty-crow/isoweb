@@ -43,6 +43,13 @@ public:
   float viewHeight(int frameWidth, int frameHeight, const WorldBounds& bounds) const;
   bool canPan(int frameWidth, int frameHeight, const WorldBounds& bounds) const;
   CameraControlState controlState(int frameWidth, int frameHeight, const WorldBounds& bounds) const;
+  CameraControlState controlState(
+    int frameWidth,
+    int frameHeight,
+    const WorldBounds& bounds,
+    bool panEnabled,
+    float wholeZoomScaleValue
+  ) const;
 
   void rotateClockwise();
   void rotateCounterClockwise();
@@ -64,16 +71,11 @@ public:
   bool detailedYawMode() const { return detailedYawMode_; }
 
 private:
-  static constexpr float PI = 3.14159265358979323846f;
-
-  float yawRadians() const;
   float zoomScale() const;
   bool wholeZoom() const;
-  bool wouldPan(float right, float down, int frameWidth, int frameHeight, const WorldBounds& bounds) const;
-  int detailedPresetAt(int position, int frameWidth, int frameHeight, const WorldBounds& bounds) const;
-  int presetAt(int position, int frameWidth, int frameHeight, const WorldBounds& bounds) const;
+  int presetAt(int position, float wholeZoomScaleValue) const;
   int sequenceLength() const;
-  int sequencePosition(int frameWidth, int frameHeight, const WorldBounds& bounds) const;
+  int sequencePosition(float wholeZoomScaleValue) const;
 
   CameraConfig config_;
   int yawStep_ = 0;
