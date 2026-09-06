@@ -178,6 +178,11 @@ const IWorldLevel& World::activeLevel() const {
   return *levels_[activeLevelIndex_];
 }
 
+const IWorldLevel& World::levelFor(const std::string& levelId) const {
+  const std::size_t index = levelIndex(levelId);
+  return index < levels_.size() ? *levels_[index] : activeLevel();
+}
+
 const std::string& World::activeLevelId() const {
   return levelIds_[activeLevelIndex_];
 }
@@ -203,8 +208,7 @@ const WorldBounds& World::bounds() const {
 }
 
 const WorldBounds& World::bounds(const std::string& levelId) const {
-  const std::size_t index = levelIndex(levelId);
-  return index < levels_.size() ? levels_[index]->bounds() : activeLevel().bounds();
+  return levelFor(levelId).bounds();
 }
 
 bool World::traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const {
@@ -306,8 +310,7 @@ const std::vector<Object>& World::objects() const {
 }
 
 const std::vector<Object>& World::objects(const std::string& levelId) const {
-  const std::size_t index = levelIndex(levelId);
-  return index < levels_.size() ? levels_[index]->objects() : activeLevel().objects();
+  return levelFor(levelId).objects();
 }
 
 bool World::intersectsSolid(const HitBox& hitBox) const {
@@ -319,16 +322,18 @@ bool World::collidesWith(const Object& candidate) const {
 }
 
 bool World::collidesWith(const Object& candidate, const Object* ignored) const {
-  const std::vector<Object>& staticObjects = candidate.location.levelId.empty()
-    ? objects()
-    : objects(candidate.location.levelId);
+  const std::string targetLevelId = candidate.location.levelId.empty()
+    ? activeLevelId()
+    : candidate.location.levelId;
+  const IWorldLevel& targetLevel = levelFor(targetLevelId);
+  const std::vector<Object>& staticObjects = targetLevel.objects();
 
-  for (const Object& object : staticObjects) {
-    if (&object == ignored) continue;
+  for (std::size_t index = 0; index < staticObjects.size(); ++index) {
+    const Object& object = staticObjects[index];
     const bool enabled = collisionPolicy_
       ? collisionPolicy_->shouldCollide(object, candidate)
       : object.collisionEnabledWith(candidate);
-    if (enabled && object.overlaps(candidate)) return true;
+    if (enabled && targetLevel.overlapsStatic(index, candidate)) return true;
   }
 
   for (const Object* object : entities_.all()) {
