@@ -1,6 +1,7 @@
 import type { IsowebModule } from '../runtime';
 
 type Vec3Tuple = [number, number, number];
+type CCallArgType = 'number' | 'string' | 'array';
 
 type SpriteAnimationDefinition = {
   resource: string;
@@ -65,27 +66,6 @@ const FACING: Record<keyof DirectionalSprites, number> = {
   right: 3
 };
 
-class CStringPool {
-  private readonly pointers: number[] = [];
-  private readonly encoder = new TextEncoder();
-
-  constructor(private readonly module: IsowebModule) {}
-
-  add(value: string | undefined): number {
-    const bytes = this.encoder.encode(value ?? '');
-    const pointer = this.module._malloc(bytes.length + 1);
-    this.module.HEAPU8.set(bytes, pointer);
-    this.module.HEAPU8[pointer + bytes.length] = 0;
-    this.pointers.push(pointer);
-    return pointer;
-  }
-
-  dispose(): void {
-    for (const pointer of this.pointers) this.module._free(pointer);
-    this.pointers.length = 0;
-  }
-}
-
 export class WorldStateLoader {
   constructor(private readonly module: IsowebModule) {}
 
@@ -105,6 +85,14 @@ export class WorldStateLoader {
     this.module._isoweb_render();
   }
 
+  private callNumber(ident: string, argTypes: CCallArgType[], args: unknown[]): number {
+    return Number(this.module.ccall(ident, 'number', argTypes, args));
+  }
+
+  private callVoid(ident: string, argTypes: CCallArgType[], args: unknown[]): void {
+    this.module.ccall(ident, null, argTypes, args);
+  }
+
   private applyEngineDefaults(state: WorldState): void {
     const engine = state.engine;
     if (!engine) return;
@@ -121,80 +109,116 @@ export class WorldStateLoader {
   }
 
   private applyCharacter(character: CharacterDefinition, resources: Set<string>): void {
-    const pool = new CStringPool(this.module);
-    try {
-      const id = pool.add(character.id);
-      const world = pool.add(character.location.world);
-      const timeline = pool.add(character.location.timeline);
-      const level = pool.add(character.location.level);
-      const [x, y, z] = character.location.position;
-      if (!this.module._isoweb_create_character(id, world, timeline, level, x, y, z)) return;
+    const [x, y, z] = character.location.position;
+    if (!this.callNumber(
+      'isoweb_create_character',
+      ['string', 'string', 'string', 'string', 'number', 'number', 'number'],
+      [
+        character.id,
+        character.location.world,
+        character.location.timeline,
+        character.location.level,
+        x,
+        y,
+        z
+      ]
+    )) return;
 
-      const forward = character.forward ?? [0, 1];
-      this.module._isoweb_set_character_forward(id, forward[0], forward[1]);
+    const forward = character.forward ?? [0, 1];
+    this.callNumber(
+      'isoweb_set_character_forward',
+      ['string', 'number', 'number'],
+      [character.id, forward[0], forward[1]]
+    );
 
-      const hitBox = character.hitBox ?? {
-        minimum: [-0.25, -0.15, 0],
-        maximum: [0.25, 0.15, 1.70]
-      };
-      this.module._isoweb_set_character_hitbox(
-        id,
+    const hitBox = character.hitBox ?? {
+      minimum: [-0.25, -0.15, 0] as Vec3Tuple,
+      maximum: [0.25, 0.15, 1.70] as Vec3Tuple
+    };
+    this.callNumber(
+      'isoweb_set_character_hitbox',
+      ['string', 'number', 'number', 'number', 'number', 'number', 'number'],
+      [
+        character.id,
         hitBox.minimum[0], hitBox.minimum[1], hitBox.minimum[2],
         hitBox.maximum[0], hitBox.maximum[1], hitBox.maximum[2]
-      );
-      this.module._isoweb_set_character_flags(
-        id,
+      ]
+    );
+    this.callNumber(
+      'isoweb_set_character_flags',
+      ['string', 'number', 'number', 'number'],
+      [
+        character.id,
         character.solid === false ? 0 : 1,
         character.npc === true ? 1 : 0,
         character.controllable === false ? 0 : 1
+      ]
+    );
+    this.callNumber(
+      'isoweb_set_character_speed',
+      ['string', 'number'],
+      [character.id, character.movementSpeedMultiplier ?? 1]
+    );
+
+    this.callNumber(
+      'isoweb_clear_character_collision_filters',
+      ['string'],
+      [character.id]
+    );
+    for (const tag of character.collisionTags ?? []) {
+      this.callNumber(
+        'isoweb_add_character_collision_tag',
+        ['string', 'string'],
+        [character.id, tag]
       );
-      this.module._isoweb_set_character_speed(id, character.movementSpeedMultiplier ?? 1);
+    }
+    for (const selector of character.mustCollideWith ?? []) {
+      this.callNumber(
+        'isoweb_add_character_must_collide_with',
+        ['string', 'string'],
+        [character.id, selector]
+      );
+    }
 
-      this.module._isoweb_clear_character_collision_filters(id);
-      for (const tag of character.collisionTags ?? []) {
-        this.module._isoweb_add_character_collision_tag(id, pool.add(tag));
-      }
-      for (const selector of character.mustCollideWith ?? []) {
-        this.module._isoweb_add_character_must_collide_with(id, pool.add(selector));
-      }
-
-      this.applyDirectionalSprites(id, 0, '', character.sprites?.still, resources, pool);
-      this.applyDirectionalSprites(id, 1, '', character.sprites?.moving, resources, pool);
-      for (const [action, directions] of Object.entries(character.sprites?.actions ?? {})) {
-        this.applyDirectionalSprites(id, 2, action, directions, resources, pool);
-      }
-    } finally {
-      pool.dispose();
+    this.applyDirectionalSprites(character.id, 0, '', character.sprites?.still, resources);
+    this.applyDirectionalSprites(character.id, 1, '', character.sprites?.moving, resources);
+    for (const [action, directions] of Object.entries(character.sprites?.actions ?? {})) {
+      this.applyDirectionalSprites(character.id, 2, action, directions, resources);
     }
   }
 
   private applyDirectionalSprites(
-    id: number,
+    id: string,
     state: number,
     action: string,
     sprites: DirectionalSprites | undefined,
-    resources: Set<string>,
-    pool: CStringPool
+    resources: Set<string>
   ): void {
     if (!sprites) return;
-    const actionPointer = pool.add(action);
     for (const facing of Object.keys(FACING) as Array<keyof DirectionalSprites>) {
       const animation = sprites[facing];
       if (!animation?.resource) continue;
       resources.add(animation.resource);
-      this.module._isoweb_set_character_sprite(
-        id,
-        state,
-        actionPointer,
-        FACING[facing],
-        pool.add(animation.resource),
-        animation.frameCount ?? 1,
-        animation.columns ?? animation.frameCount ?? 1,
-        animation.rows ?? 1,
-        animation.fps ?? 6,
-        animation.worldWidth ?? 0,
-        animation.worldHeight ?? 0,
-        animation.loop === false ? 0 : 1
+      this.callNumber(
+        'isoweb_set_character_sprite',
+        [
+          'string', 'number', 'string', 'number', 'string',
+          'number', 'number', 'number', 'number', 'number', 'number', 'number'
+        ],
+        [
+          id,
+          state,
+          action,
+          FACING[facing],
+          animation.resource,
+          animation.frameCount ?? 1,
+          animation.columns ?? animation.frameCount ?? 1,
+          animation.rows ?? 1,
+          animation.fps ?? 6,
+          animation.worldWidth ?? 0,
+          animation.worldHeight ?? 0,
+          animation.loop === false ? 0 : 1
+        ]
       );
     }
   }
@@ -212,24 +236,14 @@ export class WorldStateLoader {
     context.drawImage(bitmap, 0, 0);
     bitmap.close();
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const bytes = new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength);
 
-    const pool = new CStringPool(this.module);
-    const dataPointer = this.module._malloc(pixels.byteLength);
-    try {
-      this.module.HEAPU8.set(pixels, dataPointer);
-      const resourcePointer = pool.add(resource);
-      if (!this.module._isoweb_register_sprite_atlas(
-        resourcePointer,
-        canvas.width,
-        canvas.height,
-        dataPointer,
-        pixels.byteLength
-      )) {
-        throw new Error(`WASM rejected character artwork ${resource}`);
-      }
-    } finally {
-      this.module._free(dataPointer);
-      pool.dispose();
+    if (!this.callNumber(
+      'isoweb_register_sprite_atlas',
+      ['string', 'number', 'number', 'array', 'number'],
+      [resource, canvas.width, canvas.height, bytes, bytes.byteLength]
+    )) {
+      throw new Error(`WASM rejected character artwork ${resource}`);
     }
   }
 }
