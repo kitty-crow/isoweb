@@ -1,28 +1,57 @@
 #include "engine/camera/Camera.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace isoweb {
 namespace engine {
+namespace {
+
+constexpr float PI = 3.14159265358979323846f;
+
+struct CameraBasisTable {
+  std::array<Vec3, 8> forward;
+  std::array<Vec3, 8> groundRight;
+  std::array<Vec3, 8> groundDown;
+};
+
+const CameraBasisTable& cameraBasisTable() {
+  // Yaw is deliberately quantised to eight states. Build the exact basis with
+  // the original rotate/normalise maths once, rather than repeating trig and
+  // square roots whenever rendering, picking or computing controls asks for it.
+  static const CameraBasisTable table = [] {
+    CameraBasisTable result;
+    const Vec3 base = normalise({1.0f, 1.0f, -1.0f});
+    for (int step = 0; step < 8; ++step) {
+      const Vec3 forward = rotateZ(base, -step * PI * 0.25f);
+      result.forward[step] = forward;
+      result.groundRight[step] = normalise(cross(forward, {0.0f, 0.0f, 1.0f}));
+      result.groundDown[step] = normalise({forward.x, forward.y, 0.0f});
+    }
+    return result;
+  }();
+  return table;
+}
+
+float clampPan(float value, float limit) {
+  return std::max(-limit, std::min(limit, value));
+}
+
+} // namespace
 
 Camera::Camera(const CameraConfig& config) : config_(config) {}
 
-float Camera::yawRadians() const {
-  return -yawStep_ * PI * 0.25f;
-}
-
 Vec3 Camera::forward() const {
-  return rotateZ(normalise({1.0f, 1.0f, -1.0f}), yawRadians());
+  return cameraBasisTable().forward[yawStep_ & 7];
 }
 
 Vec3 Camera::groundRight() const {
-  return normalise(cross(forward(), {0.0f, 0.0f, 1.0f}));
+  return cameraBasisTable().groundRight[yawStep_ & 7];
 }
 
 Vec3 Camera::groundDown() const {
-  const Vec3 value = forward();
-  return normalise({value.x, value.y, 0.0f});
+  return cameraBasisTable().groundDown[yawStep_ & 7];
 }
 
 bool Camera::wholeZoom() const {
@@ -42,7 +71,7 @@ float Camera::zoomScale() const {
 
 float Camera::wholeViewHeight(float aspect, const WorldBounds& bounds) const {
   const Vec3 f = forward();
-  const Vec3 r = normalise(cross(f, {0.0f, 0.0f, 1.0f}));
+  const Vec3 r = groundRight();
   const Vec3 u = normalise(cross(r, f));
 
   float minR = 1e9f;
@@ -80,23 +109,10 @@ float Camera::viewHeight(int frameWidth, int frameHeight, const WorldBounds& bou
 }
 
 bool Camera::canPan(int frameWidth, int frameHeight, const WorldBounds& bounds) const {
+  if (wholeZoom()) return false;
   const float aspect = static_cast<float>(frameWidth) / frameHeight;
-  return viewHeight(frameWidth, frameHeight, bounds) + 0.0001f < wholeViewHeight(aspect, bounds);
-}
-
-bool Camera::wouldPan(
-  float right,
-  float down,
-  int frameWidth,
-  int frameHeight,
-  const WorldBounds& bounds
-) const {
-  if (!canPan(frameWidth, frameHeight, bounds)) return false;
-
-  const Vec3 delta = groundRight() * right + groundDown() * down;
-  const float nextX = std::max(-config_.panLimit, std::min(config_.panLimit, panX_ + delta.x));
-  const float nextY = std::max(-config_.panLimit, std::min(config_.panLimit, panY_ + delta.y));
-  return std::fabs(nextX - panX_) > 0.0001f || std::fabs(nextY - panY_) > 0.0001f;
+  const float currentHeight = baseViewHeight(aspect) / zoomScale();
+  return currentHeight + 0.0001f < wholeViewHeight(aspect, bounds);
 }
 
 CameraControlState Camera::controlState(
@@ -104,47 +120,83 @@ CameraControlState Camera::controlState(
   int frameHeight,
   const WorldBounds& bounds
 ) const {
+  const float aspect = static_cast<float>(frameWidth) / frameHeight;
+  const float wholeHeight = wholeViewHeight(aspect, bounds);
+  const float baseHeight = baseViewHeight(aspect);
+  const float currentHeight = wholeZoom() ? wholeHeight : baseHeight / zoomScale();
+  return controlState(
+    frameWidth,
+    frameHeight,
+    bounds,
+    currentHeight + 0.0001f < wholeHeight,
+    baseHeight / wholeHeight
+  );
+}
+
+CameraControlState Camera::controlState(
+  int,
+  int,
+  const WorldBounds&,
+  bool panEnabled,
+  float wholeZoomScaleValue
+) const {
   CameraControlState state;
-  const int position = sequencePosition(frameWidth, frameHeight, bounds);
+  const int position = sequencePosition(wholeZoomScaleValue);
 
   state.canZoomIn = position + 1 < sequenceLength();
   state.canZoomOut = position > 0;
   state.canResetZoom = zoomPreset_ != 3;
   state.canResetYaw = yawStep_ != 0;
 
-  state.canPanUp = wouldPan(0.0f, 1.0f, frameWidth, frameHeight, bounds);
-  state.canPanDown = wouldPan(0.0f, -1.0f, frameWidth, frameHeight, bounds);
-  state.canPanLeft = wouldPan(-1.0f, 0.0f, frameWidth, frameHeight, bounds);
-  state.canPanRight = wouldPan(1.0f, 0.0f, frameWidth, frameHeight, bounds);
-  state.canResetPan = canPan(frameWidth, frameHeight, bounds) &&
-    (std::fabs(panX_) > 0.0001f || std::fabs(panY_) > 0.0001f);
+  if (panEnabled) {
+    const Vec3 rightAxis = groundRight();
+    const Vec3 downAxis = groundDown();
+    const auto wouldMove = [&](float right, float down) {
+      const Vec3 delta = rightAxis * right + downAxis * down;
+      const float nextX = clampPan(panX_ + delta.x, config_.panLimit);
+      const float nextY = clampPan(panY_ + delta.y, config_.panLimit);
+      return std::fabs(nextX - panX_) > 0.0001f ||
+        std::fabs(nextY - panY_) > 0.0001f;
+    };
+
+    state.canPanUp = wouldMove(0.0f, 1.0f);
+    state.canPanDown = wouldMove(0.0f, -1.0f);
+    state.canPanLeft = wouldMove(-1.0f, 0.0f);
+    state.canPanRight = wouldMove(1.0f, 0.0f);
+    state.canResetPan = std::fabs(panX_) > 0.0001f || std::fabs(panY_) > 0.0001f;
+  }
 
   return state;
 }
 
-int Camera::detailedPresetAt(int position, int frameWidth, int frameHeight, const WorldBounds& bounds) const {
-  if (wholeZoomScale(frameWidth, frameHeight, bounds) > 0.25f) {
+int Camera::presetAt(int position, float wholeZoomScaleValue) const {
+  if (!detailedMode_) return position + 2;
+  if (wholeZoomScaleValue > 0.25f) {
     static const int order[6] = {1, 0, 2, 3, 4, 5};
     return order[position];
   }
   return position;
 }
 
-int Camera::presetAt(int position, int frameWidth, int frameHeight, const WorldBounds& bounds) const {
-  return detailedMode_ ? detailedPresetAt(position, frameWidth, frameHeight, bounds) : position + 2;
-}
-
 int Camera::sequenceLength() const {
   return detailedMode_ ? 6 : 3;
 }
 
-int Camera::sequencePosition(int frameWidth, int frameHeight, const WorldBounds& bounds) const {
-  for (int position = 0; position < sequenceLength(); ++position) {
-    if (presetAt(position, frameWidth, frameHeight, bounds) == zoomPreset_) {
-      return position;
-    }
+int Camera::sequencePosition(float wholeZoomScaleValue) const {
+  if (!detailedMode_) {
+    if (zoomPreset_ >= 2 && zoomPreset_ <= 4) return zoomPreset_ - 2;
+    return 1;
   }
-  return detailedMode_ ? 3 : 1;
+
+  if (wholeZoomScaleValue <= 0.25f) {
+    return zoomPreset_ >= 0 && zoomPreset_ <= 5 ? zoomPreset_ : 3;
+  }
+
+  static const int order[6] = {1, 0, 2, 3, 4, 5};
+  for (int position = 0; position < 6; ++position) {
+    if (order[position] == zoomPreset_) return position;
+  }
+  return 3;
 }
 
 void Camera::rotateClockwise() {
@@ -167,11 +219,12 @@ void Camera::setDetailedYawMode(bool enabled) {
 }
 
 void Camera::stepZoom(int delta, int frameWidth, int frameHeight, const WorldBounds& bounds) {
+  const float wholeScale = wholeZoomScale(frameWidth, frameHeight, bounds);
   const int position = std::max(
     0,
-    std::min(sequenceLength() - 1, sequencePosition(frameWidth, frameHeight, bounds) + delta)
+    std::min(sequenceLength() - 1, sequencePosition(wholeScale) + delta)
   );
-  zoomPreset_ = presetAt(position, frameWidth, frameHeight, bounds);
+  zoomPreset_ = presetAt(position, wholeScale);
 }
 
 void Camera::resetZoom() {
@@ -190,8 +243,8 @@ void Camera::pan(float right, float down, int frameWidth, int frameHeight, const
   if (!canPan(frameWidth, frameHeight, bounds)) return;
 
   const Vec3 delta = groundRight() * right + groundDown() * down;
-  panX_ = std::max(-config_.panLimit, std::min(config_.panLimit, panX_ + delta.x));
-  panY_ = std::max(-config_.panLimit, std::min(config_.panLimit, panY_ + delta.y));
+  panX_ = clampPan(panX_ + delta.x, config_.panLimit);
+  panY_ = clampPan(panY_ + delta.y, config_.panLimit);
 }
 
 void Camera::resetPan() {
