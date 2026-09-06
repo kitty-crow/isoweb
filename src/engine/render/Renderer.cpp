@@ -9,6 +9,8 @@ namespace isoweb {
 namespace engine {
 namespace {
 
+constexpr std::size_t MAX_STATIC_CACHE_PIXELS = 600000;
+
 const std::array<float, 255>& gammaThresholds() {
   // The old conversion was round(pow(linear, 1/2.2) * 255). The boundary at
   // which output N becomes selected is therefore ((N - 0.5) / 255)^2.2.
@@ -59,6 +61,18 @@ std::uint8_t Renderer::toByte(float value) {
   return static_cast<std::uint8_t>(
     std::upper_bound(thresholds.begin(), thresholds.end(), value) - thresholds.begin()
   );
+}
+
+bool Renderer::staticCacheMatches(const StaticCacheKey& key) const {
+  return staticCacheValid_ &&
+    staticCacheKey_.width == key.width &&
+    staticCacheKey_.height == key.height &&
+    staticCacheKey_.level == key.level &&
+    staticCacheKey_.yawStep == key.yawStep &&
+    staticCacheKey_.zoomPreset == key.zoomPreset &&
+    staticCacheKey_.panX == key.panX &&
+    staticCacheKey_.panY == key.panY &&
+    staticCacheKey_.viewHeight == key.viewHeight;
 }
 
 void Renderer::ensureFrame() {
@@ -138,6 +152,28 @@ void Renderer::render() {
 
   world_.prepareRenderFrame(forward);
 
+  const std::size_t pixelCount =
+    static_cast<std::size_t>(frameWidth_) * static_cast<std::size_t>(frameHeight_);
+  const bool useStaticCache =
+    world_.supportsStaticSampleCache() && pixelCount <= MAX_STATIC_CACHE_PIXELS;
+  const StaticCacheKey nextStaticKey{
+    frameWidth_,
+    frameHeight_,
+    world_.activeLevelIndex(),
+    camera_.yawStep(),
+    camera_.zoomPreset(),
+    camera_.panX(),
+    camera_.panY(),
+    height
+  };
+  const bool rebuildStaticCache = useStaticCache && !staticCacheMatches(nextStaticKey);
+  if (useStaticCache) {
+    const std::size_t sampleCount = pixelCount * 4;
+    if (staticSamples_.size() != sampleCount) staticSamples_.resize(sampleCount);
+  } else {
+    staticCacheValid_ = false;
+  }
+
   const float inverseFrameWidth = 1.0f / static_cast<float>(frameWidth_);
   const float inverseFrameHeight = 1.0f / static_cast<float>(frameHeight_);
   const Vec3 rightStep = right * (width * inverseFrameWidth);
@@ -152,17 +188,38 @@ void Renderer::render() {
   };
 
   Vec3 rowOrigin = cornerOrigin;
+  std::size_t pixelIndex = 0;
   for (int y = 0; y < frameHeight_; ++y) {
     Vec3 pixelOrigin = rowOrigin;
-    const float backgroundY0 = (static_cast<float>(y) + 0.25f) * inverseFrameHeight;
-    const float backgroundY1 = (static_cast<float>(y) + 0.75f) * inverseFrameHeight;
+    const float backgroundY[2] = {
+      (static_cast<float>(y) + 0.25f) * inverseFrameHeight,
+      (static_cast<float>(y) + 0.75f) * inverseFrameHeight
+    };
 
-    for (int x = 0; x < frameWidth_; ++x) {
+    for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
       Vec3 colour;
-      colour = colour + world_.sample({pixelOrigin + sampleOffsets[0], forward}, backgroundY0);
-      colour = colour + world_.sample({pixelOrigin + sampleOffsets[1], forward}, backgroundY0);
-      colour = colour + world_.sample({pixelOrigin + sampleOffsets[2], forward}, backgroundY1);
-      colour = colour + world_.sample({pixelOrigin + sampleOffsets[3], forward}, backgroundY1);
+      for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+        const Ray ray{pixelOrigin + sampleOffsets[sampleIndex], forward};
+        const float sampleBackgroundY = backgroundY[sampleIndex >> 1];
+
+        if (useStaticCache) {
+          StaticSample& staticSample = staticSamples_[pixelIndex * 4 + sampleIndex];
+          if (rebuildStaticCache) {
+            staticSample.colour = world_.sampleEnvironment(
+              ray,
+              sampleBackgroundY,
+              staticSample.environmentDistance
+            );
+          }
+          colour = colour + world_.compositeRuntime(
+            ray,
+            staticSample.colour,
+            staticSample.environmentDistance
+          );
+        } else {
+          colour = colour + world_.sample(ray, sampleBackgroundY);
+        }
+      }
       colour = colour * 0.25f;
 
       dsr::image_writePixel(
@@ -174,6 +231,11 @@ void Renderer::render() {
       pixelOrigin = pixelOrigin + rightStep;
     }
     rowOrigin = rowOrigin + downStep;
+  }
+
+  if (rebuildStaticCache) {
+    staticCacheKey_ = nextStaticKey;
+    staticCacheValid_ = true;
   }
 
   const CameraControlState cameraState = camera_.controlState(frameWidth_, frameHeight_, bounds);
