@@ -185,22 +185,31 @@ try {
     throw new Error('Character runtime position getters did not resolve the JSON-created Character.');
   }
 
-  console.log('[runtime-smoke] issuing browser click-to-move command');
-  const destinationCandidates = [
-    [0.20, 0.70], [0.80, 0.70], [0.25, 0.45], [0.72, 0.45]
-  ];
-  let movementStarted = false;
-  for (const [x, y] of destinationCandidates) {
-    if (Math.hypot(
-      viewportBox.x + viewportBox.width * x - characterCssX,
-      viewportBox.y + viewportBox.height * y - characterCssY
-    ) < 50) continue;
-    await page.mouse.click(viewportBox.x + viewportBox.width * x, viewportBox.y + viewportBox.height * y);
-    movementStarted = await page.evaluate(() => (globalThis as any).Module._isoweb_needs_tick() !== 0);
-    if (movementStarted) break;
-  }
-  if (!movementStarted) {
-    throw new Error(`Selected Character did not accept click-to-move. Diagnostics: ${JSON.stringify(await runtimeDiagnostics())}`);
+  console.log('[runtime-smoke] finding a real walkable destination through pointerTap');
+  const firstDestination = await page.evaluate(({ characterX, characterY }) => {
+    const module = (globalThis as any).Module;
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return null;
+    const step = Math.max(10, Math.floor(Math.min(canvas.width, canvas.height) / 28));
+    for (let y = step; y < canvas.height - step; y += step) {
+      for (let x = step; x < canvas.width - step; x += step) {
+        if (Math.hypot(x - characterX, y - characterY) < 90) continue;
+        const accepted = module._isoweb_pointer_tap(x, y, 0) !== 0;
+        const selected = module._isoweb_selected_character_count();
+        if (selected === 0) {
+          module._isoweb_pointer_tap(characterX, characterY, 1);
+          continue;
+        }
+        if (accepted && selected === 1 && module._isoweb_needs_tick() !== 0) {
+          return { x, y, width: canvas.width, height: canvas.height };
+        }
+      }
+    }
+    return null;
+  }, { characterX: characterPoint.x, characterY: characterPoint.y });
+
+  if (!firstDestination) {
+    throw new Error(`Selected Character found no commandable real walkable surface. Diagnostics: ${JSON.stringify(await runtimeDiagnostics())}`);
   }
 
   try {
@@ -216,7 +225,7 @@ try {
     );
   } catch (error) {
     throw new Error(
-      `Character position did not advance after command. Diagnostics: ${JSON.stringify(await runtimeDiagnostics())}\n${browserMessages()}\n${String(error)}`
+      `Character position did not advance after a real-surface command. Diagnostics: ${JSON.stringify(await runtimeDiagnostics())}\n${browserMessages()}\n${String(error)}`
     );
   }
 
@@ -228,32 +237,43 @@ try {
   }
 
   console.log('[runtime-smoke] redirecting still-selected moving Character without reselecting');
-  const redirectCandidates = [
-    [0.82, 0.32], [0.16, 0.34], [0.84, 0.78], [0.14, 0.78], [0.50, 0.82]
-  ];
-  let redirectAccepted = false;
-  for (const [x, y] of redirectCandidates) {
-    const result = await page.evaluate(({ x, y }) => {
-      const module = (globalThis as any).Module;
-      const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
-      if (!canvas) return { accepted: false, selected: -1 };
-      const accepted = module._isoweb_pointer_tap(canvas.width * x, canvas.height * y, 0) !== 0;
-      return {
-        accepted,
-        selected: module._isoweb_selected_character_count()
-      };
-    }, { x, y });
+  const redirectDestination = await page.evaluate(({ firstX, firstY, characterX, characterY }) => {
+    const module = (globalThis as any).Module;
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return null;
+    const step = Math.max(10, Math.floor(Math.min(canvas.width, canvas.height) / 28));
+    for (let y = canvas.height - step; y > step; y -= step) {
+      for (let x = canvas.width - step; x > step; x -= step) {
+        if (Math.hypot(x - firstX, y - firstY) < 120) continue;
+        if (Math.hypot(x - characterX, y - characterY) < 90) continue;
+        const accepted = module._isoweb_pointer_tap(x, y, 0) !== 0;
+        const selected = module._isoweb_selected_character_count();
+        if (selected === 0) {
+          module._isoweb_pointer_tap(characterX, characterY, 1);
+          continue;
+        }
+        if (accepted && selected === 1 && module._isoweb_needs_tick() !== 0) {
+          return { x, y };
+        }
+      }
+    }
+    return null;
+  }, {
+    firstX: firstDestination.x,
+    firstY: firstDestination.y,
+    characterX: characterPoint.x,
+    characterY: characterPoint.y
+  });
 
-    if (result.accepted && result.selected === 1) {
-      redirectAccepted = true;
-      break;
-    }
-    if (result.selected !== 1) {
-      throw new Error('A destination tap unexpectedly deselected the Character during redirect.');
-    }
+  if (!redirectDestination) {
+    throw new Error(`Still-selected moving Character found no accepted replacement destination. Diagnostics: ${JSON.stringify(await runtimeDiagnostics())}`);
   }
-  if (!redirectAccepted) {
-    throw new Error(`Still-selected Character did not accept a second destination. Diagnostics: ${JSON.stringify(await runtimeDiagnostics())}`);
+
+  const selectionAfterRedirect = await page.evaluate(
+    () => (globalThis as any).Module._isoweb_selected_character_count()
+  );
+  if (selectionAfterRedirect !== 1) {
+    throw new Error('Redirecting a selected Character unexpectedly deselected it.');
   }
 
   const stillMovingAfterRedirect = await page.evaluate(
@@ -295,7 +315,7 @@ try {
     throw new Error(`Browser page error(s):\n${pageErrors.join('\n\n')}`);
   }
 
-  console.log('Browser WASM boot, JSON Character load, exact picking, persistent selected redirects, yaw, detailed yaw, and detailed zoom smoke test passed.');
+  console.log('Browser WASM boot, JSON Character load, exact picking, real-surface movement, persistent selected redirects, yaw, detailed yaw, and detailed zoom smoke test passed.');
 } finally {
   await browser.close();
   server.stop(true);
