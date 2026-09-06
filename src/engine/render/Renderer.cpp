@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 
 namespace isoweb {
 namespace engine {
@@ -182,15 +183,15 @@ void Renderer::render() {
   levelState.atDefault = world_.activeLevelIndex() == world_.defaultLevelIndex();
   controls_.draw(frame_, frameWidth_, frameHeight_, cameraState, levelState);
 
+  // OrderedImageRgbaU8 guarantees RGBA byte order on every platform. Copy
+  // whole visible rows from DFPSR's padded image buffer instead of performing
+  // width*height safe pixel reads, unpacking, and four channel assignments.
+  const std::size_t rowBytes = static_cast<std::size_t>(frameWidth_) * 4;
   for (int y = 0; y < frameHeight_; ++y) {
-    for (int x = 0; x < frameWidth_; ++x) {
-      const auto colour = dsr::image_readPixel_border(frame_, x, y);
-      const std::size_t index = static_cast<std::size_t>((y * frameWidth_ + x) * 4);
-      rgba_[index] = colour.red;
-      rgba_[index + 1] = colour.green;
-      rgba_[index + 2] = colour.blue;
-      rgba_[index + 3] = 255;
-    }
+    const std::uint8_t* source = reinterpret_cast<const std::uint8_t*>(
+      &dsr::image_accessPixel(frame_, 0, y)
+    );
+    std::memcpy(rgba_.data() + static_cast<std::size_t>(y) * rowBytes, source, rowBytes);
   }
 }
 
