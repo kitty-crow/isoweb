@@ -199,16 +199,24 @@ int Camera::sequencePosition(float wholeZoomScaleValue) const {
   return 3;
 }
 
+void Camera::resetPanPixelRemainder() {
+  panPixelRemainderRight_ = 0.0f;
+  panPixelRemainderVertical_ = 0.0f;
+}
+
 void Camera::rotateClockwise() {
   yawStep_ = (yawStep_ + (detailedYawMode_ ? 1 : 2)) & 7;
+  resetPanPixelRemainder();
 }
 
 void Camera::rotateCounterClockwise() {
   yawStep_ = (yawStep_ + (detailedYawMode_ ? 7 : 6)) & 7;
+  resetPanPixelRemainder();
 }
 
 void Camera::resetYaw() {
   yawStep_ = 0;
+  resetPanPixelRemainder();
 }
 
 void Camera::setDetailedYawMode(bool enabled) {
@@ -216,6 +224,7 @@ void Camera::setDetailedYawMode(bool enabled) {
   if (!detailedYawMode_ && (yawStep_ & 1)) {
     yawStep_ = (yawStep_ + 1) & 6;
   }
+  resetPanPixelRemainder();
 }
 
 void Camera::stepZoom(int delta, int frameWidth, int frameHeight, const WorldBounds& bounds) {
@@ -225,10 +234,12 @@ void Camera::stepZoom(int delta, int frameWidth, int frameHeight, const WorldBou
     std::min(sequenceLength() - 1, sequencePosition(wholeScale) + delta)
   );
   zoomPreset_ = presetAt(position, wholeScale);
+  resetPanPixelRemainder();
 }
 
 void Camera::resetZoom() {
   zoomPreset_ = 3;
+  resetPanPixelRemainder();
 }
 
 void Camera::setDetailedMode(bool enabled) {
@@ -237,19 +248,55 @@ void Camera::setDetailedMode(bool enabled) {
     if (zoomPreset_ < 2) zoomPreset_ = 2;
     if (zoomPreset_ > 4) zoomPreset_ = 4;
   }
+  resetPanPixelRemainder();
 }
 
 void Camera::pan(float right, float down, int frameWidth, int frameHeight, const WorldBounds& bounds) {
-  if (!canPan(frameWidth, frameHeight, bounds)) return;
+  if (!canPan(frameWidth, frameHeight, bounds) || frameHeight <= 0) {
+    resetPanPixelRemainder();
+    return;
+  }
 
-  const Vec3 delta = groundRight() * right + groundDown() * down;
-  panX_ = clampPan(panX_ + delta.x, config_.panLimit);
-  panY_ = clampPan(panY_ + delta.y, config_.panLimit);
+  // Orthographic panning is ultimately a screen translation. Accumulate the
+  // requested motion in renderer-pixel space and only commit whole pixels.
+  // This is visually continuous at animation-frame rates and, crucially,
+  // makes consecutive pan frames exact translations of the static ray cache.
+  const float height = viewHeight(frameWidth, frameHeight, bounds);
+  if (height <= 1e-7f) return;
+  const float pixelsPerWorld = static_cast<float>(frameHeight) / height;
+  const Vec3 rightAxis = groundRight();
+  const Vec3 downAxis = groundDown();
+  const Vec3 upAxis = normalise(cross(rightAxis, forward()));
+  const float verticalProjection = dot(downAxis, upAxis);
+  if (std::fabs(verticalProjection) <= 1e-7f) return;
+
+  const float pendingRight = panPixelRemainderRight_ + right * pixelsPerWorld;
+  const float pendingVertical =
+    panPixelRemainderVertical_ + down * verticalProjection * pixelsPerWorld;
+  const float pixelRight = std::trunc(pendingRight);
+  const float pixelVertical = std::trunc(pendingVertical);
+  panPixelRemainderRight_ = pendingRight - pixelRight;
+  panPixelRemainderVertical_ = pendingVertical - pixelVertical;
+
+  if (pixelRight == 0.0f && pixelVertical == 0.0f) return;
+
+  const float quantisedRight = pixelRight / pixelsPerWorld;
+  const float quantisedDown = pixelVertical / (verticalProjection * pixelsPerWorld);
+  const Vec3 delta = rightAxis * quantisedRight + downAxis * quantisedDown;
+  const float unclampedX = panX_ + delta.x;
+  const float unclampedY = panY_ + delta.y;
+  const float nextX = clampPan(unclampedX, config_.panLimit);
+  const float nextY = clampPan(unclampedY, config_.panLimit);
+
+  if (nextX != unclampedX || nextY != unclampedY) resetPanPixelRemainder();
+  panX_ = nextX;
+  panY_ = nextY;
 }
 
 void Camera::resetPan() {
   panX_ = 0.0f;
   panY_ = 0.0f;
+  resetPanPixelRemainder();
 }
 
 } // namespace engine
