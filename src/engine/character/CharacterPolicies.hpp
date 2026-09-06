@@ -1,12 +1,12 @@
 #pragma once
 
 #include "engine/world/Character.hpp"
+#include "engine/world/LiminalObject.hpp"
 
 namespace isoweb {
 namespace engine {
 
 class World;
-struct NavigationLink;
 
 struct CharacterEngineDefaults {
   float baseMovementSpeed = 1.45f;
