@@ -29,6 +29,7 @@ public:
 
   Ray rayForPixel(float px, float py) const;
   bool groundPointForPixel(float px, float py, float groundZ, Vec3& point) const;
+  bool worldPointToPixel(const Vec3& point, float& px, float& py) const;
 
 private:
   static std::uint8_t toByte(float value);
