@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "engine/world/EntityStore.hpp"
@@ -18,6 +19,8 @@ struct NavigationLink {
   std::string toLevelId;
   Vec3 fromPosition;
   Vec3 toPosition;
+  std::vector<Vec3> forwardTraversal;
+  std::vector<Vec3> reverseTraversal;
   bool bidirectional = true;
 };
 
