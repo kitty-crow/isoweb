@@ -236,7 +236,6 @@ bool DemoApplication::clearEntities() {
   characters_.clearSelection();
   world_.entities().clear();
   movementCommandArmed_ = false;
-  redraw();
   return true;
 }
 
@@ -261,7 +260,6 @@ bool DemoApplication::createCharacter(
   character->controllable = controllable;
   character->movementSpeedMultiplier = movementSpeedMultiplier;
   world_.entities().add(std::move(character));
-  redraw();
   return true;
 }
 
@@ -283,7 +281,6 @@ bool DemoApplication::setCharacterSprite(
   engine::SpriteAnimation* destination = directionalAnimation(*set, facing);
   if (!destination) return false;
   *destination = animation;
-  redraw();
   return true;
 }
 
@@ -303,15 +300,12 @@ bool DemoApplication::registerSpriteAtlas(
   const std::uint8_t* rgba,
   std::size_t byteCount
 ) {
-  const bool registered = world_.spriteAtlases().registerRgba(resource, width, height, rgba, byteCount);
-  if (registered) redraw();
-  return registered;
+  return world_.spriteAtlases().registerRgba(resource, width, height, rgba, byteCount);
 }
 
 void DemoApplication::setSelectionMode(engine::SelectionMode mode) {
   characters_.setSelectionMode(mode);
   movementCommandArmed_ = false;
-  redraw();
 }
 
 } // namespace demo
