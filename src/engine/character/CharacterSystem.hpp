@@ -25,8 +25,9 @@ public:
   const SelectionStyle& selectionStyle() const { return selection_.style; }
   void setSelectionMode(SelectionMode mode) {
     defaultSelectionPolicy_.setMode(mode);
-    if (mode == SelectionMode::Single && selection_.ids().size() > 1) selection_.clear();
+    selection_.setPolicy(defaultSelectionPolicy_);
   }
+  void setSelectionPolicy(CharacterSelectionPolicy& policy) { selection_.setPolicy(policy); }
 
   Character* pick(const Ray& ray, float maximumDistance = 1000.0f) const;
   bool toggleSelection(const Ray& ray, bool additive = true);
