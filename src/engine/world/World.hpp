@@ -2,19 +2,33 @@
 
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <vector>
 
+#include "engine/world/EntityStore.hpp"
 #include "engine/world/IWorld.hpp"
 
 namespace isoweb {
 namespace engine {
 
+class CharacterSystem;
+
+struct NavigationLink {
+  std::string fromLevelId;
+  std::string toLevelId;
+  Vec3 fromPosition;
+  Vec3 toPosition;
+  bool bidirectional = true;
+};
+
 class IWorldLevel {
 public:
   virtual ~IWorldLevel() = default;
 
+  virtual const std::string& id() const = 0;
   virtual const WorldBounds& bounds() const = 0;
   virtual Vec3 sample(const Ray& ray, float backgroundY) const = 0;
+  virtual float distance(const Ray& ray) const = 0;
   virtual const std::vector<Object>& objects() const = 0;
   virtual bool intersectsSolid(const HitBox& hitBox) const = 0;
 };
@@ -33,6 +47,22 @@ public:
   std::size_t activeLevelIndex() const override { return activeLevelIndex_; }
   std::size_t defaultLevelIndex() const override { return defaultLevelIndex_; }
 
+  const std::string& activeLevelId() const;
+  const IWorldLevel* level(const std::string& levelId) const;
+  const WorldBounds& bounds(const std::string& levelId) const;
+  const std::vector<Object>& objects(const std::string& levelId) const;
+
+  EntityStore& entities() { return entities_; }
+  const EntityStore& entities() const { return entities_; }
+
+  bool collidesWith(const Object& candidate, const Object* ignored) const;
+  bool containsPosition(const std::string& levelId, const Vec3& position) const;
+
+  const std::vector<NavigationLink>& navigationLinks() const { return navigationLinks_; }
+  void setNavigationLinks(std::vector<NavigationLink> links) { navigationLinks_ = std::move(links); }
+
+  void setCharacterSystem(const CharacterSystem* system) { characterSystem_ = system; }
+
   bool canMoveLevelUp() const;
   bool canMoveLevelDown() const;
   bool isDefaultLevel() const;
@@ -44,10 +74,14 @@ public:
 
 private:
   const IWorldLevel& activeLevel() const;
+  Vec3 sampleRuntimeEntities(const Ray& ray, float backgroundY, float staticDistance, bool& found) const;
 
   std::vector<std::unique_ptr<IWorldLevel>> levels_;
   std::size_t activeLevelIndex_ = 0;
   std::size_t defaultLevelIndex_ = 0;
+  EntityStore entities_;
+  std::vector<NavigationLink> navigationLinks_;
+  const CharacterSystem* characterSystem_ = nullptr;
 };
 
 } // namespace engine
