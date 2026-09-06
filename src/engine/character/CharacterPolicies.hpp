@@ -6,6 +6,7 @@ namespace isoweb {
 namespace engine {
 
 class World;
+struct NavigationLink;
 
 struct CharacterEngineDefaults {
   float baseMovementSpeed = 1.45f;
@@ -33,6 +34,27 @@ public:
   ) const;
 };
 
+class LevelTransitionPolicy {
+public:
+  virtual ~LevelTransitionPolicy() = default;
+
+  // Games may veto particular navigation links for a Character without
+  // changing the navigation algorithm itself.
+  virtual bool canTraverse(
+    const Character& character,
+    const NavigationLink& link,
+    bool reverse
+  ) const;
+
+  // Games may customise the contextual/physical state applied at the level
+  // boundary. The default lands at the link endpoint in the adjacent level.
+  virtual EntityLocation arrival(
+    const Character& character,
+    const NavigationLink& link,
+    bool reverse
+  ) const;
+};
+
 class NavigationPolicy {
 public:
   virtual ~NavigationPolicy() = default;
@@ -41,6 +63,7 @@ public:
     const Character& character,
     const EntityLocation& destination,
     const CharacterEngineDefaults& defaults,
+    const LevelTransitionPolicy& transitions,
     CharacterMovementState& route
   ) const = 0;
 };
@@ -68,6 +91,7 @@ public:
     const Character& character,
     const EntityLocation& destination,
     const CharacterEngineDefaults& defaults,
+    const LevelTransitionPolicy& transitions,
     CharacterMovementState& route
   ) const override;
 };
