@@ -112,15 +112,15 @@ try {
     return {
       ok: loading.hidden && canvas.width > 0 && canvas.height > 0 && samples.every(pixel => !pixel.endsWith(',0')),
       reason: loading.hidden ? '' : 'Loading indicator never hid.',
-      resetYawDisabled: resetYaw.disabled,
-      resetZoomDisabled: resetZoom.disabled,
-      resetCameraDisabled: resetCamera.disabled
+      resetYawJoystick: !resetYaw.disabled && resetYaw.dataset.joystick === 'true',
+      resetZoomJoystick: !resetZoom.disabled && resetZoom.dataset.joystick === 'true',
+      resetCameraJoystick: !resetCamera.disabled && resetCamera.dataset.joystick === 'true'
     };
   });
 
   if (!bootState.ok) throw new Error(bootState.reason || 'WASM boot state is invalid.');
-  if (!bootState.resetYawDisabled || !bootState.resetZoomDisabled || !bootState.resetCameraDisabled) {
-    throw new Error('Default camera reset controls are not disabled after the first rendered frame.');
+  if (!bootState.resetYawJoystick || !bootState.resetZoomJoystick || !bootState.resetCameraJoystick) {
+    throw new Error('Centre camera discs are not interactive joysticks after the first rendered frame.');
   }
 
   console.log('[runtime-smoke] waiting for bundled JSON Character');
@@ -292,7 +292,7 @@ try {
   );
 
   const resetYawEnabled = await page.locator('#reset-yaw').isEnabled();
-  if (!resetYawEnabled) throw new Error('Yaw reset did not become enabled after rotating the camera.');
+  if (!resetYawEnabled) throw new Error('Yaw centre joystick became disabled after rotating the camera.');
 
   await page.goto(`http://127.0.0.1:${server.port}/?dyaw=1`, { waitUntil: 'domcontentloaded' });
   await waitForWasmReady();
@@ -315,7 +315,7 @@ try {
     throw new Error(`Browser page error(s):\n${pageErrors.join('\n\n')}`);
   }
 
-  console.log('Browser WASM boot, JSON Character load, exact picking, real-surface movement, persistent selected redirects, yaw, detailed yaw, and detailed zoom smoke test passed.');
+  console.log('Browser WASM boot, JSON Character load, exact picking, real-surface movement, persistent selected redirects, centre joystick availability, yaw, detailed yaw, and detailed zoom smoke test passed.');
 } finally {
   await browser.close();
   server.stop(true);
