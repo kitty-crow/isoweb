@@ -49,17 +49,30 @@ export function installPresenter(): void {
 
     controls.zoomIn.disabled = !enabled(controlMask, CONTROL_ZOOM_IN);
     controls.zoomOut.disabled = !enabled(controlMask, CONTROL_ZOOM_OUT);
-    controls.resetZoom.disabled = !enabled(controlMask, CONTROL_RESET_ZOOM);
-    controls.resetYaw.disabled = !enabled(controlMask, CONTROL_RESET_YAW);
-
     controls.counterClockwise.disabled = false;
     controls.clockwise.disabled = false;
-
     controls.panUp.disabled = !enabled(controlMask, CONTROL_PAN_UP);
     controls.panDown.disabled = !enabled(controlMask, CONTROL_PAN_DOWN);
     controls.panLeft.disabled = !enabled(controlMask, CONTROL_PAN_LEFT);
     controls.panRight.disabled = !enabled(controlMask, CONTROL_PAN_RIGHT);
-    controls.resetCamera.disabled = !enabled(controlMask, CONTROL_RESET_PAN);
+
+    // Centre discs are controls even at their reset position, so they must not
+    // be disabled merely because their tap-to-reset action would be a no-op.
+    controls.resetZoom.disabled = false;
+    controls.resetYaw.disabled = false;
+    controls.resetCamera.disabled = false;
+    controls.resetZoom.dataset.resetEnabled = enabled(controlMask, CONTROL_RESET_ZOOM) ? 'true' : 'false';
+    controls.resetYaw.dataset.resetEnabled = enabled(controlMask, CONTROL_RESET_YAW) ? 'true' : 'false';
+    controls.resetCamera.dataset.resetEnabled = enabled(controlMask, CONTROL_RESET_PAN) ? 'true' : 'false';
+
+    const module = globalThis.Module;
+    const levelCount = module._isoweb_level_count();
+    const activeLevel = module._isoweb_active_level_index();
+    const defaultLevel = module._isoweb_default_level_index();
+    controls.levelUp.disabled = activeLevel + 1 >= levelCount;
+    controls.levelDown.disabled = activeLevel <= 0;
+    controls.resetLevel.disabled = false;
+    controls.resetLevel.dataset.resetEnabled = activeLevel === defaultLevel ? 'false' : 'true';
 
     document.documentElement.classList.add('wasm-ready');
     loading.hidden = true;
