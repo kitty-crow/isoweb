@@ -82,6 +82,7 @@ public:
 
   const WorldBounds& bounds() const override;
   Vec3 sample(const Ray& ray, float backgroundY) const override;
+  bool supportsStaticSampleCache() const override { return true; }
 
   Vec3 sampleEnvironment(
     const Ray& ray,
