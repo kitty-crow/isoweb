@@ -41,6 +41,15 @@ export class ViewportController {
     return pixels * (viewHeight / rect.height);
   }
 
+  rendererPoint(clientX: number, clientY: number): { x: number; y: number } | null {
+    const rect = this.viewport.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return {
+      x: (clientX - rect.left) * (this.renderWidth / rect.width),
+      y: (clientY - rect.top) * (this.renderHeight / rect.height)
+    };
+  }
+
   private scheduleResize(): void {
     if (this.resizeFrame) return;
     this.resizeFrame = requestAnimationFrame(() => {
