@@ -1,5 +1,6 @@
 #include "engine/character/CharacterPresentation.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace isoweb {
