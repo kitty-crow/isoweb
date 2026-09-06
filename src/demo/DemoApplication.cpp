@@ -30,7 +30,14 @@ engine::SpriteAnimation* directionalAnimation(engine::DirectionalSpriteSet& set,
 DemoApplication::DemoApplication()
     : camera_(engine::CameraConfig(3.25f, 6.15f, 5.50f)),
       renderer_(world_, camera_, controls_),
-      characters_(world_) {}
+      characters_(world_) {
+  // Keep runtime Characters under the same point lights used by the demo
+  // geometry renderer. World shadow rays then use the exact active level
+  // geometry, so Characters receive object/stair shadows too.
+  world_.setLevelLight("lower", {4.20f, -3.20f, 5.60f});
+  world_.setLevelLight("middle", {-3.60f, -4.20f, 6.50f});
+  world_.setLevelLight("upper", {3.80f, 4.40f, 7.20f});
+}
 
 void DemoApplication::redraw() {
   characters_.updatePresentation(camera_);
@@ -160,8 +167,14 @@ std::size_t DemoApplication::dragSelect(float x0, float y0, float x1, float y1, 
 
   std::size_t count = 0;
   for (engine::Character* character : world_.entities().characters()) {
-    if (!character || character->location.levelId != world_.activeLevelId()) continue;
-    const engine::Vec3 centre = character->localToWorld(character->hitBox.centre());
+    if (!character) continue;
+    engine::Vec3 renderPosition;
+    if (!world_.renderPositionFor(*character, renderPosition)) continue;
+    const engine::Vec3 localCentre = character->hitBox.centre();
+    const engine::Vec3 centre = renderPosition +
+      character->horizontalRight() * localCentre.x +
+      character->horizontalForward() * localCentre.y +
+      engine::Vec3(0.0f, 0.0f, localCentre.z);
     float px = 0.0f;
     float py = 0.0f;
     if (!renderer_.worldPointToPixel(centre, px, py)) continue;
@@ -198,6 +211,10 @@ bool DemoApplication::createCharacter(
   std::unique_ptr<engine::Character> character(new engine::Character());
   character->id = id;
   character->location = location;
+  character->location.liminalObjectId = world_.liminalObjectAt(
+    character->location.levelId,
+    character->location.position
+  );
   character->forward = forward;
   character->hitBox = hitBox;
   character->solid = solid;

@@ -19,6 +19,26 @@ Vec3 horizontalDirection(const Vec3& from, const Vec3& to, const Vec3& fallback)
   return magnitude > 1e-6f ? delta / magnitude : fallback;
 }
 
+Object renderProxy(const Character& character, const Vec3& position, const std::string& levelId) {
+  Object proxy;
+  proxy.id = character.id;
+  proxy.location = character.location;
+  proxy.location.levelId = levelId;
+  proxy.location.position = position;
+  proxy.forward = character.forward;
+  proxy.hitBox = character.hitBox;
+  proxy.solid = character.solid;
+  return proxy;
+}
+
+void refreshLiminalMembership(World& world, Character& character, float tolerance) {
+  character.location.liminalObjectId = world.liminalObjectAt(
+    character.location.levelId,
+    character.location.position,
+    tolerance
+  );
+}
+
 } // namespace
 
 CharacterSystem::CharacterSystem(World& world)
@@ -42,9 +62,12 @@ Character* CharacterSystem::pick(const Ray& ray, float maximumDistance) const {
   const float environmentDistance = world_.environmentDistance(ray);
   float closestDistance = std::min(maximumDistance, environmentDistance);
   for (Character* character : const_cast<EntityStore&>(world_.entities()).characters()) {
-    if (!character || character->location.levelId != world_.activeLevelId()) continue;
+    if (!character) continue;
+    Vec3 renderPosition;
+    if (!world_.renderPositionFor(*character, renderPosition)) continue;
+    const Object proxy = renderProxy(*character, renderPosition, world_.activeLevelId());
     ObjectRayHit hit;
-    if (character->intersectRay(ray, 0.001f, closestDistance, hit)) {
+    if (proxy.intersectRay(ray, 0.001f, closestDistance, hit)) {
       closestDistance = hit.distance;
       closest = character;
     }
@@ -109,6 +132,9 @@ bool CharacterSystem::needsTick() const {
 }
 
 void CharacterSystem::advance(Character& character, float deltaSeconds) {
+  const float liminalTolerance = std::max(0.18f, defaults_.navigationCellSize * 1.3f);
+  refreshLiminalMembership(world_, character, liminalTolerance);
+
   if (!character.movement.hasDestination || character.movement.nextWaypoint >= character.movement.route.size()) {
     character.moving = false;
     character.movement.clear();
@@ -123,6 +149,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
 
     if (waypoint.levelTransition && waypoint.location.levelId != character.location.levelId) {
       character.location = waypoint.location;
+      refreshLiminalMembership(world_, character, liminalTolerance);
       ++character.movement.nextWaypoint;
       continue;
     }
@@ -141,6 +168,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
         supported
       )) {
         character.location.position = supported;
+        refreshLiminalMembership(world_, character, liminalTolerance);
         ++character.movement.nextWaypoint;
         continue;
       }
@@ -179,6 +207,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
       supported
     )) {
       character.location.position = previous;
+      refreshLiminalMembership(world_, character, liminalTolerance);
       const EntityLocation destination = character.movement.destination;
       CharacterMovementState replacement;
       if (navigationPolicy_->buildRoute(
@@ -197,6 +226,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
     }
 
     character.location.position = supported;
+    refreshLiminalMembership(world_, character, liminalTolerance);
     remaining -= step;
     if (step + defaults_.arrivalEpsilon >= distance) {
       ++character.movement.nextWaypoint;
@@ -205,6 +235,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
 
   if (character.movement.nextWaypoint >= character.movement.route.size()) {
     character.location = character.movement.destination;
+    refreshLiminalMembership(world_, character, liminalTolerance);
     character.movement.clear();
     character.moving = false;
   }
