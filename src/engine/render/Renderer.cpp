@@ -46,7 +46,7 @@ void Renderer::ensureFrame() {
   if (rgba_.size() != required) rgba_.resize(required);
 }
 
-Ray Renderer::makeRay(float px, float py) const {
+Ray Renderer::rayForPixel(float px, float py) const {
   const Vec3 forward = camera_.forward();
   const Vec3 right = normalise(cross(forward, {0.0f, 0.0f, 1.0f}));
   const Vec3 up = normalise(cross(right, forward));
@@ -64,6 +64,15 @@ Ray Renderer::makeRay(float px, float py) const {
   return {focus - forward * 9.0f + right * screenX + up * screenY, forward};
 }
 
+bool Renderer::groundPointForPixel(float px, float py, float groundZ, Vec3& point) const {
+  const Ray ray = rayForPixel(px, py);
+  if (std::fabs(ray.direction.z) < 1e-7f) return false;
+  const float t = (groundZ - ray.origin.z) / ray.direction.z;
+  if (t <= 0.0f) return false;
+  point = ray.origin + ray.direction * t;
+  return true;
+}
+
 void Renderer::render() {
   ensureFrame();
   const float offsets[2] = {0.25f, 0.75f};
@@ -75,7 +84,7 @@ void Renderer::render() {
         for (int sampleX = 0; sampleX < 2; ++sampleX) {
           const float px = x + offsets[sampleX];
           const float py = y + offsets[sampleY];
-          colour = colour + world_.sample(makeRay(px, py), py / frameHeight_);
+          colour = colour + world_.sample(rayForPixel(px, py), py / frameHeight_);
         }
       }
       colour = colour * 0.25f;
