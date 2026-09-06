@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include "DFPSR/api/imageAPI.h"
 #include "engine/camera/Camera.hpp"
 
@@ -12,6 +14,18 @@ struct LevelControlState {
   bool atDefault = true;
 };
 
+enum class ControlStick {
+  Zoom = 0,
+  Yaw = 1,
+  Pan = 2,
+  Level = 3
+};
+
+struct ControlStickOffset {
+  float x = 0.0f;
+  float y = 0.0f;
+};
+
 class ControlSprites {
 public:
   void draw(
@@ -22,6 +36,9 @@ public:
     const LevelControlState& levelState
   );
 
+  void setStickOffset(ControlStick stick, float x, float y);
+  const ControlStickOffset& stickOffset(ControlStick stick) const;
+
 private:
   void ensureSprites();
   void buildRotate(dsr::OrderedImageRgbaU8& sprite, bool mirror, bool disabled = false);
@@ -31,6 +48,7 @@ private:
   void buildZoom(dsr::OrderedImageRgbaU8& sprite, bool plus, bool disabled = false);
   void spritePixel(dsr::OrderedImageRgbaU8& sprite, int x, int y, float distance, float strength = 1.0f);
 
+  std::array<ControlStickOffset, 4> stickOffsets_{};
   dsr::OrderedImageRgbaU8 clockwiseSprite_;
   dsr::OrderedImageRgbaU8 counterClockwiseSprite_;
   dsr::OrderedImageRgbaU8 upSprite_;
