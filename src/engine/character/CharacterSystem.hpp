@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 
+#include "engine/character/CharacterAnimation.hpp"
 #include "engine/character/CharacterPolicies.hpp"
 #include "engine/character/CharacterPresentation.hpp"
 #include "engine/character/CharacterSelection.hpp"
@@ -49,6 +50,7 @@ public:
   void setMovementPolicy(MovementPolicy& policy) { movementPolicy_ = &policy; }
   void setInteractionPolicy(InteractionPolicy& policy) { interactionPolicy_ = &policy; }
   void setPresentationPolicy(CharacterPresentationPolicy& policy) { presentationPolicy_ = &policy; }
+  void setAnimationPolicy(CharacterAnimationPolicy& policy) { animationPolicy_ = &policy; }
 
 private:
   void advance(Character& character, float deltaSeconds);
@@ -63,6 +65,7 @@ private:
   MovementPolicy defaultMovementPolicy_;
   InteractionPolicy defaultInteractionPolicy_;
   DefaultCharacterPresentationPolicy defaultPresentationPolicy_;
+  DefaultCharacterAnimationPolicy defaultAnimationPolicy_;
   CollisionPolicy defaultCollisionPolicy_;
 
   CollisionPolicy* collisionPolicy_ = nullptr;
@@ -71,6 +74,7 @@ private:
   MovementPolicy* movementPolicy_ = nullptr;
   InteractionPolicy* interactionPolicy_ = nullptr;
   CharacterPresentationPolicy* presentationPolicy_ = nullptr;
+  CharacterAnimationPolicy* animationPolicy_ = nullptr;
 };
 
 } // namespace engine
