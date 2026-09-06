@@ -41,7 +41,12 @@ private:
 
 class CharacterSelection {
 public:
-  explicit CharacterSelection(CharacterSelectionPolicy& policy) : policy_(policy) {}
+  explicit CharacterSelection(CharacterSelectionPolicy& policy) : policy_(&policy) {}
+
+  void setPolicy(CharacterSelectionPolicy& policy) {
+    policy_ = &policy;
+    if (policy_->mode() == SelectionMode::Single && selectedIds_.size() > 1) selectedIds_.clear();
+  }
 
   bool select(Character& character, bool additive = true);
   bool toggle(Character& character, bool additive = true);
@@ -55,7 +60,7 @@ public:
   SelectionStyle style;
 
 private:
-  CharacterSelectionPolicy& policy_;
+  CharacterSelectionPolicy* policy_ = nullptr;
   std::set<std::string> selectedIds_;
 };
 
