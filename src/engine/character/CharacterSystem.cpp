@@ -7,23 +7,16 @@ namespace isoweb {
 namespace engine {
 namespace {
 
-float distance3(const Vec3& a, const Vec3& b) {
-  return length(b - a);
+float horizontalDistance(const Vec3& a, const Vec3& b) {
+  const float dx = b.x - a.x;
+  const float dy = b.y - a.y;
+  return std::sqrt(dx * dx + dy * dy);
 }
 
 Vec3 horizontalDirection(const Vec3& from, const Vec3& to, const Vec3& fallback) {
   const Vec3 delta(to.x - from.x, to.y - from.y, 0.0f);
   const float magnitude = std::sqrt(delta.x * delta.x + delta.y * delta.y);
   return magnitude > 1e-6f ? delta / magnitude : fallback;
-}
-
-float staticPickDistance(const World& world, const Ray& ray, float maximumDistance) {
-  float closest = maximumDistance;
-  for (const Object& object : world.objects()) {
-    ObjectRayHit hit;
-    if (object.intersectRay(ray, 0.001f, closest, hit)) closest = hit.distance;
-  }
-  return closest;
 }
 
 } // namespace
@@ -46,7 +39,8 @@ CharacterSystem::CharacterSystem(World& world)
 
 Character* CharacterSystem::pick(const Ray& ray, float maximumDistance) const {
   Character* closest = nullptr;
-  float closestDistance = staticPickDistance(world_, ray, maximumDistance);
+  const float environmentDistance = world_.environmentDistance(ray);
+  float closestDistance = std::min(maximumDistance, environmentDistance);
   for (Character* character : const_cast<EntityStore&>(world_.entities()).characters()) {
     if (!character || character->location.levelId != world_.activeLevelId()) continue;
     ObjectRayHit hit;
@@ -134,20 +128,56 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
     }
 
     const Vec3 target = waypoint.location.position;
-    const float distance = distance3(character.location.position, target);
+    const float distance = horizontalDistance(character.location.position, target);
     if (distance <= defaults_.arrivalEpsilon) {
-      character.location.position = target;
-      ++character.movement.nextWaypoint;
-      continue;
+      Vec3 supported;
+      if (world_.resolveWalkablePosition(
+        character,
+        character.location.levelId,
+        target,
+        character.location.position.z,
+        defaults_.maxStepHeight,
+        defaults_.maxDropHeight,
+        supported
+      )) {
+        character.location.position = supported;
+        ++character.movement.nextWaypoint;
+        continue;
+      }
+
+      const EntityLocation destination = character.movement.destination;
+      CharacterMovementState replacement;
+      if (navigationPolicy_->buildRoute(
+        world_,
+        character,
+        destination,
+        defaults_,
+        *levelTransitionPolicy_,
+        replacement
+      )) {
+        character.movement = std::move(replacement);
+      } else {
+        stop(character);
+      }
+      return;
     }
 
-    const Vec3 travel = (target - character.location.position) / distance;
     character.forward = horizontalDirection(character.location.position, target, character.forward);
     const float step = std::min(remaining, distance);
     const Vec3 previous = character.location.position;
-    character.location.position = previous + travel * step;
+    Vec3 proposed = previous + character.forward * step;
+    proposed.z = previous.z;
 
-    if (world_.collidesWith(character, &character)) {
+    Vec3 supported;
+    if (!world_.resolveWalkablePosition(
+      character,
+      character.location.levelId,
+      proposed,
+      previous.z,
+      defaults_.maxStepHeight,
+      defaults_.maxDropHeight,
+      supported
+    )) {
       character.location.position = previous;
       const EntityLocation destination = character.movement.destination;
       CharacterMovementState replacement;
@@ -166,9 +196,9 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
       return;
     }
 
+    character.location.position = supported;
     remaining -= step;
     if (step + defaults_.arrivalEpsilon >= distance) {
-      character.location.position = target;
       ++character.movement.nextWaypoint;
     }
   }
