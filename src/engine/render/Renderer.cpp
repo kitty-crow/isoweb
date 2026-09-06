@@ -73,6 +73,28 @@ bool Renderer::groundPointForPixel(float px, float py, float groundZ, Vec3& poin
   return true;
 }
 
+bool Renderer::worldPointToPixel(const Vec3& point, float& px, float& py) const {
+  const Vec3 forward = camera_.forward();
+  const Vec3 right = normalise(cross(forward, {0.0f, 0.0f, 1.0f}));
+  const Vec3 up = normalise(cross(right, forward));
+  const float aspect = static_cast<float>(frameWidth_) / frameHeight_;
+  const float height = viewHeight();
+  const float width = height * aspect;
+  if (width <= 0.0f || height <= 0.0f) return false;
+
+  const WorldBounds& bounds = world_.bounds();
+  const Vec3 focus = canPan()
+    ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
+    : bounds.focus;
+  const Vec3 delta = point - focus;
+  const float screenX = dot(delta, right);
+  const float screenY = dot(delta, up);
+
+  px = (screenX / width + 0.5f) * frameWidth_;
+  py = (0.5f - screenY / height) * frameHeight_;
+  return px >= 0.0f && px <= frameWidth_ && py >= 0.0f && py <= frameHeight_;
+}
+
 void Renderer::render() {
   ensureFrame();
   const float offsets[2] = {0.25f, 0.75f};
