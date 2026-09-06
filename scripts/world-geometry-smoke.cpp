@@ -59,10 +59,18 @@ int main() {
   character->forward = {0.0f, 1.0f, 0.0f};
   world.entities().add(std::move(owned));
 
+  // A normal visible floor point must remain commandable after replacing the
+  // old infinite z=0 click plane with actual scene-surface picking.
+  EntityLocation sameLevelDestination = character->location;
+  sameLevelDestination.position = {3.0f, 3.0f, 0.0f};
+  if (!characters.command(*character, sameLevelDestination)) return 9;
+  characters.stop(*character);
+  character->location = {"demo", "default", "middle", {0.0f, 2.40f, 0.0f}};
+
   EntityLocation lowerDestination = character->location;
   lowerDestination.levelId = "lower";
   lowerDestination.position = {0.0f, 2.40f, 0.0f};
-  if (!characters.command(*character, lowerDestination)) return 9;
+  if (!characters.command(*character, lowerDestination)) return 10;
 
   bool routeDescendsInMiddle = false;
   bool routeTransitionsLower = false;
@@ -74,8 +82,8 @@ int main() {
       routeTransitionsLower = true;
     }
   }
-  if (!routeDescendsInMiddle) return 10;
-  if (!routeTransitionsLower) return 11;
+  if (!routeDescendsInMiddle) return 11;
+  if (!routeTransitionsLower) return 12;
 
   bool physicallyDescended = false;
   for (int tick = 0; tick < 1600 && character->moving; ++tick) {
@@ -89,15 +97,15 @@ int main() {
         character->location.position.y,
         support
       )) {
-        return 12;
+        return 13;
       }
-      if (std::fabs(character->location.position.z - support.point.z) > 0.26f) return 13;
+      if (std::fabs(character->location.position.z - support.point.z) > 0.26f) return 14;
     }
   }
 
-  if (!physicallyDescended) return 14;
-  if (character->location.levelId != "lower") return 15;
-  if (character->moving) return 16;
+  if (!physicallyDescended) return 15;
+  if (character->location.levelId != "lower") return 16;
+  if (character->moving) return 17;
 
   std::cout << "Unified world geometry and physical stair traversal smoke test passed.\n";
   return 0;
