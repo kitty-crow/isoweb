@@ -34,6 +34,23 @@ std::vector<engine::Vec3> descendingStair(float x) {
   return result;
 }
 
+engine::DirectionalSpriteSet* spriteSet(engine::Character& character, int state, const std::string& action) {
+  if (state == 0) return &character.sprites.still;
+  if (state == 1) return &character.sprites.moving;
+  if (state == 2 && !action.empty()) return &character.sprites.actions[action];
+  return nullptr;
+}
+
+engine::SpriteAnimation* directionalAnimation(engine::DirectionalSpriteSet& set, engine::CharacterFacing facing) {
+  switch (facing) {
+    case engine::CharacterFacing::Front: return &set.front;
+    case engine::CharacterFacing::Back: return &set.back;
+    case engine::CharacterFacing::Left: return &set.left;
+    case engine::CharacterFacing::Right: return &set.right;
+  }
+  return nullptr;
+}
+
 } // namespace
 
 DemoApplication::DemoApplication()
@@ -68,6 +85,7 @@ void DemoApplication::configureDemoWorldNavigation() {
 }
 
 void DemoApplication::redraw() {
+  characters_.updatePresentation(camera_);
   renderer_.render();
   presenter_.present(
     renderer_.rgba(),
@@ -226,6 +244,51 @@ bool DemoApplication::createCharacter(
 
 engine::Character* DemoApplication::character(const std::string& id) {
   return dynamic_cast<engine::Character*>(world_.entities().find(id));
+}
+
+bool DemoApplication::setCharacterSprite(
+  const std::string& id,
+  int state,
+  const std::string& action,
+  engine::CharacterFacing facing,
+  const engine::SpriteAnimation& animation
+) {
+  engine::Character* target = character(id);
+  if (!target) return false;
+  engine::DirectionalSpriteSet* set = spriteSet(*target, state, action);
+  if (!set) return false;
+  engine::SpriteAnimation* destination = directionalAnimation(*set, facing);
+  if (!destination) return false;
+  *destination = animation;
+  redraw();
+  return true;
+}
+
+bool DemoApplication::setCharacterAction(const std::string& id, const std::string& action) {
+  engine::Character* target = character(id);
+  if (!target) return false;
+  target->activeAction = action;
+  target->animation.reset();
+  redraw();
+  return true;
+}
+
+bool DemoApplication::registerSpriteAtlas(
+  const std::string& resource,
+  int width,
+  int height,
+  const std::uint8_t* rgba,
+  std::size_t byteCount
+) {
+  const bool registered = world_.spriteAtlases().registerRgba(resource, width, height, rgba, byteCount);
+  if (registered) redraw();
+  return registered;
+}
+
+void DemoApplication::setSelectionMode(engine::SelectionMode mode) {
+  characters_.setSelectionMode(mode);
+  movementCommandArmed_ = false;
+  redraw();
 }
 
 } // namespace demo
