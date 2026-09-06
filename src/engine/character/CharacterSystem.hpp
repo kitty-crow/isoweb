@@ -32,6 +32,7 @@ public:
   void stop(Character& character);
 
   void tick(float deltaSeconds, const Camera& camera);
+  void updatePresentation(const Camera& camera);
   float effectiveSpeed(const Character& character) const;
 
   void setCollisionPolicy(CollisionPolicy& policy) {
@@ -46,7 +47,6 @@ public:
 
 private:
   void advance(Character& character, float deltaSeconds);
-  const SpriteAnimation* currentAnimation(const Character& character, const Camera& camera, bool* mirror = nullptr) const;
 
   World& world_;
   CharacterEngineDefaults defaults_;
