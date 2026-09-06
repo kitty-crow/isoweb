@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "engine/character/SpriteAtlas.hpp"
 #include "engine/world/EntityStore.hpp"
 #include "engine/world/IWorld.hpp"
 
@@ -57,6 +58,8 @@ public:
 
   EntityStore& entities() { return entities_; }
   const EntityStore& entities() const { return entities_; }
+  SpriteAtlasRegistry& spriteAtlases() { return spriteAtlases_; }
+  const SpriteAtlasRegistry& spriteAtlases() const { return spriteAtlases_; }
 
   bool collidesWith(const Object& candidate, const Object* ignored) const;
   bool containsPosition(const std::string& levelId, const Vec3& position) const;
@@ -86,6 +89,7 @@ private:
   std::size_t activeLevelIndex_ = 0;
   std::size_t defaultLevelIndex_ = 0;
   EntityStore entities_;
+  SpriteAtlasRegistry spriteAtlases_;
   std::vector<NavigationLink> navigationLinks_;
   const CharacterSystem* characterSystem_ = nullptr;
   const CollisionPolicy* collisionPolicy_ = nullptr;
