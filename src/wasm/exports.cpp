@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 
 #include <emscripten/emscripten.h>
@@ -24,6 +25,10 @@ isoweb::engine::CharacterFacing facingFromInt(int value) {
     case 3: return isoweb::engine::CharacterFacing::Right;
     default: return isoweb::engine::CharacterFacing::Front;
   }
+}
+
+float missingFloat() {
+  return std::numeric_limits<float>::quiet_NaN();
 }
 
 } // namespace
@@ -128,6 +133,34 @@ extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_clear_selection() {
 
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_clear_entities() {
   application().clearEntities();
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_character_count() {
+  return static_cast<int>(application().world().entities().characters().size());
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_selected_character_count() {
+  return static_cast<int>(application().characterSystem().selection().ids().size());
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE float isoweb_character_position_x(const char* id) {
+  const auto* character = application().character(text(id));
+  return character ? character->location.position.x : missingFloat();
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE float isoweb_character_position_y(const char* id) {
+  const auto* character = application().character(text(id));
+  return character ? character->location.position.y : missingFloat();
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE float isoweb_character_position_z(const char* id) {
+  const auto* character = application().character(text(id));
+  return character ? character->location.position.z : missingFloat();
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_character_is_moving(const char* id) {
+  const auto* character = application().character(text(id));
+  return character && character->moving ? 1 : 0;
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_create_character(
