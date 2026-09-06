@@ -144,6 +144,13 @@ bool DemoApplication::pointerTap(float x, float y, bool additive) {
   return commanded > 0;
 }
 
+bool DemoApplication::pointerWalkable(float x, float y) const {
+  const engine::Ray ray = renderer_.rayForPixel(x, y);
+  if (characters_.pick(ray)) return false;
+  engine::SceneSurfaceHit surface;
+  return world_.pickWalkableSurface(ray, surface);
+}
+
 std::size_t DemoApplication::dragSelect(float x0, float y0, float x1, float y1, bool additive) {
   const float minimumX = std::min(x0, x1);
   const float maximumX = std::max(x0, x1);
