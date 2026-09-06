@@ -27,9 +27,6 @@ export class PointerController {
     this.viewport.addEventListener('pointermove', event => this.onPointerMove(event));
     this.viewport.addEventListener('pointerup', event => this.endPointer(event, false));
     this.viewport.addEventListener('pointercancel', event => this.endPointer(event, true));
-    window.addEventListener('keydown', event => {
-      if (event.key === 'Escape') this.module._isoweb_clear_selection();
-    });
   }
 
   private zoomStep(direction: number): void {
