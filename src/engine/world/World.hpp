@@ -9,21 +9,21 @@
 #include "engine/character/SpriteAtlas.hpp"
 #include "engine/world/EntityStore.hpp"
 #include "engine/world/IWorld.hpp"
+#include "engine/world/LiminalObject.hpp"
 
 namespace isoweb {
 namespace engine {
 
+class Character;
 class CharacterSystem;
 class CollisionPolicy;
 
-struct NavigationLink {
-  std::string fromLevelId;
-  std::string toLevelId;
-  Vec3 fromPosition;
-  Vec3 toPosition;
-  std::vector<Vec3> forwardTraversal;
-  std::vector<Vec3> reverseTraversal;
-  bool bidirectional = true;
+struct LevelLight {
+  bool configured = false;
+  Vec3 position;
+  float ambient = 0.19f;
+  float attenuation = 0.018f;
+  float directScale = 1.18f;
 };
 
 class IWorldLevel {
@@ -82,8 +82,45 @@ public:
     Vec3& resolved
   ) const;
 
-  const std::vector<NavigationLink>& navigationLinks() const { return navigationLinks_; }
-  void setNavigationLinks(std::vector<NavigationLink> links) { navigationLinks_ = std::move(links); }
+  // Liminal objects are the single authoritative connectors between levels
+  // (and, at a higher world-manager layer, worlds). Only the active endpoint
+  // level is rendered; a Character physically inside a liminal object can be
+  // projected into either endpoint's local coordinate frame.
+  const std::vector<LiminalObject>& liminalObjects() const { return liminalObjects_; }
+  const std::vector<NavigationLink>& navigationLinks() const { return liminalObjects_; }
+  void setNavigationLinks(std::vector<NavigationLink> links);
+  const LiminalObject* liminalObject(const std::string& id) const;
+  std::string liminalObjectAt(
+    const std::string& levelId,
+    const Vec3& position,
+    float tolerance = 0.32f
+  ) const;
+  bool mapLiminalPosition(
+    const EntityLocation& location,
+    const std::string& targetLevelId,
+    Vec3& mapped
+  ) const;
+  bool characterVisibleOnActiveLevel(const Character& character) const;
+  bool renderPositionFor(const Character& character, Vec3& position) const;
+
+  // Runtime entities use the same point light and the same environment ray
+  // geometry as the level renderer. This makes static object shadows affect
+  // Characters instead of treating them as an unlit post-process overlay.
+  bool setLevelLight(
+    const std::string& levelId,
+    const Vec3& position,
+    float ambient = 0.19f,
+    float attenuation = 0.018f,
+    float directScale = 1.18f
+  );
+  float runtimeLightVisibility(const std::string& levelId, const Vec3& point) const;
+  Vec3 shadeRuntimeSurface(
+    const std::string& levelId,
+    const Vec3& point,
+    const Vec3& normal,
+    const Vec3& colour
+  ) const;
+  float runtimeSpriteLightFactor(const std::string& levelId, const Vec3& point) const;
 
   void setCharacterSystem(const CharacterSystem* system) { characterSystem_ = system; }
   void setCollisionPolicy(const CollisionPolicy* policy) { collisionPolicy_ = policy; }
@@ -104,11 +141,12 @@ private:
 
   std::vector<std::unique_ptr<IWorldLevel>> levels_;
   std::vector<std::string> levelIds_;
+  std::vector<LevelLight> levelLights_;
   std::size_t activeLevelIndex_ = 0;
   std::size_t defaultLevelIndex_ = 0;
   EntityStore entities_;
   SpriteAtlasRegistry spriteAtlases_;
-  std::vector<NavigationLink> navigationLinks_;
+  std::vector<LiminalObject> liminalObjects_;
   const CharacterSystem* characterSystem_ = nullptr;
   const CollisionPolicy* collisionPolicy_ = nullptr;
 };
