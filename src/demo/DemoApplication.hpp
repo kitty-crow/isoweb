@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 #include "demo/DemoWorld.hpp"
@@ -53,6 +54,26 @@ public:
     float movementSpeedMultiplier
   );
   engine::Character* character(const std::string& id);
+
+  bool setCharacterSprite(
+    const std::string& id,
+    int state,
+    const std::string& action,
+    engine::CharacterFacing facing,
+    const engine::SpriteAnimation& animation
+  );
+  bool setCharacterAction(const std::string& id, const std::string& action);
+  bool registerSpriteAtlas(
+    const std::string& resource,
+    int width,
+    int height,
+    const std::uint8_t* rgba,
+    std::size_t byteCount
+  );
+
+  void setBaseMovementSpeed(float speed) { characters_.defaults().baseMovementSpeed = speed; }
+  void setSelectionMode(engine::SelectionMode mode);
+  void setSelectionStyle(const engine::SelectionStyle& style) { characters_.selection().style = style; }
 
   engine::CharacterSystem& characterSystem() { return characters_; }
   engine::World& world() { return world_; }
