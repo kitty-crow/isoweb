@@ -203,6 +203,29 @@ bool DemoApplication::pointerTap(float x, float y, bool additive) {
   return commanded > 0;
 }
 
+std::size_t DemoApplication::dragSelect(float x0, float y0, float x1, float y1, bool additive) {
+  const float minimumX = std::min(x0, x1);
+  const float maximumX = std::max(x0, x1);
+  const float minimumY = std::min(y0, y1);
+  const float maximumY = std::max(y0, y1);
+  if (!additive) characters_.clearSelection();
+
+  std::size_t count = 0;
+  for (engine::Character* character : world_.entities().characters()) {
+    if (!character || character->location.levelId != world_.activeLevelId()) continue;
+    const engine::Vec3 centre = character->localToWorld(character->hitBox.centre());
+    float px = 0.0f;
+    float py = 0.0f;
+    if (!renderer_.worldPointToPixel(centre, px, py)) continue;
+    if (px < minimumX || px > maximumX || py < minimumY || py > maximumY) continue;
+    if (characters_.selection().select(*character, true)) ++count;
+  }
+
+  movementCommandArmed_ = !characters_.selection().ids().empty();
+  redraw();
+  return count;
+}
+
 void DemoApplication::clearSelection() {
   characters_.clearSelection();
   movementCommandArmed_ = false;
