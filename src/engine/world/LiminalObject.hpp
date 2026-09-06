@@ -31,6 +31,12 @@ struct LiminalObject {
   std::vector<Vec3> reverseTraversal;
   bool bidirectional = true;
 
+  // Cached coordinate-frame transform for the current engine's translated
+  // endpoint frames. setNavigationLinks derives this from paired traversal
+  // samples, so rendering the opposite endpoint never requires loading it.
+  Vec3 fromToViewOffset;
+  bool hasViewOffset = false;
+
   bool touchesLevel(const std::string& levelId) const {
     return levelId == fromLevelId || levelId == toLevelId;
   }
