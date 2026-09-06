@@ -113,8 +113,14 @@ void Renderer::render() {
     ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
     : bounds.focus;
 
-  const Vec3 rightStep = right * (width / static_cast<float>(frameWidth_));
-  const Vec3 downStep = up * (-height / static_cast<float>(frameHeight_));
+  // Character projection, liminal mapping, proxy construction and selection
+  // are frame invariant. Pull them out of the per-ray loop too.
+  world_.prepareRenderFrame(forward);
+
+  const float inverseFrameWidth = 1.0f / static_cast<float>(frameWidth_);
+  const float inverseFrameHeight = 1.0f / static_cast<float>(frameHeight_);
+  const Vec3 rightStep = right * (width * inverseFrameWidth);
+  const Vec3 downStep = up * (-height * inverseFrameHeight);
   const Vec3 cornerOrigin = focus - forward * 9.0f - right * (width * 0.5f) + up * (height * 0.5f);
 
   const Vec3 sampleOffsets[4] = {
@@ -127,8 +133,8 @@ void Renderer::render() {
   Vec3 rowOrigin = cornerOrigin;
   for (int y = 0; y < frameHeight_; ++y) {
     Vec3 pixelOrigin = rowOrigin;
-    const float backgroundY0 = (static_cast<float>(y) + 0.25f) / frameHeight_;
-    const float backgroundY1 = (static_cast<float>(y) + 0.75f) / frameHeight_;
+    const float backgroundY0 = (static_cast<float>(y) + 0.25f) * inverseFrameHeight;
+    const float backgroundY1 = (static_cast<float>(y) + 0.75f) * inverseFrameHeight;
 
     for (int x = 0; x < frameWidth_; ++x) {
       Vec3 colour;
