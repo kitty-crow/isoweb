@@ -15,19 +15,30 @@ constexpr int RESET_DISK_SIZE = 38;
 constexpr int ROTATE_LEFT_X = 18;
 constexpr int ROTATE_ROW_GAP = 8;
 constexpr int ZOOM_CONTROL_SIZE = 32;
-constexpr int ZOOM_LEFT = 18;
-constexpr int ZOOM_TOP = 18;
-constexpr int ZOOM_GAP = 6;
+constexpr int TOP_LEFT = 18;
+constexpr int TOP_RIGHT = 18;
+constexpr int TOP_CONTROL_TOP = 18;
+constexpr int TOP_CONTROL_GAP = 6;
 constexpr int CONTROL_BOTTOM = 18;
 constexpr int PAN_ARROW_SIZE = 38;
 constexpr int PAN_X_STEP = 48;
 constexpr int PAN_Y_STEP = 36;
 constexpr int PAN_PAD_RIGHT = 18;
 constexpr int PAN_PAD_BOTTOM = 16;
-constexpr int LEVEL_RIGHT = 18;
-constexpr int LEVEL_TOP = 18;
-constexpr int LEVEL_GAP = 6;
+constexpr float STICK_TRAVEL = 11.0f;
 constexpr float PI = 3.14159265358979323846f;
+
+float clampUnit(float value) {
+  return std::max(-1.0f, std::min(1.0f, value));
+}
+
+int stickPixels(float value) {
+  return static_cast<int>(std::round(clampUnit(value) * STICK_TRAVEL));
+}
+
+bool stickActive(const ControlStickOffset& value) {
+  return std::fabs(value.x) > 0.01f || std::fabs(value.y) > 0.01f;
+}
 
 float segmentDistance(float px, float py, float ax, float ay, float bx, float by) {
   const float x = bx - ax;
@@ -65,9 +76,9 @@ float curvedArrowDistance(float px, float py) {
 
   const float tangentX = std::sin(end) * radiusX;
   const float tangentY = std::cos(end) * radiusY;
-  const float tangentLength = std::sqrt(tangentX * tangentX + tangentY * tangentY);
-  const float dx = tangentX / tangentLength;
-  const float dy = tangentY / tangentLength;
+  const float inverseTangentLength = 1.0f / std::sqrt(tangentX * tangentX + tangentY * tangentY);
+  const float dx = tangentX * inverseTangentLength;
+  const float dy = tangentY * inverseTangentLength;
   const float normalX = -dy;
   const float normalY = dx;
   const float baseX = previousX - dx * 9.0f;
@@ -126,6 +137,18 @@ float levelGlyphDistance(float px, float py) {
 
 } // namespace
 
+void ControlSprites::setStickOffset(ControlStick stick, float x, float y) {
+  const std::size_t index = static_cast<std::size_t>(stick);
+  if (index >= stickOffsets_.size()) return;
+  stickOffsets_[index].x = clampUnit(x);
+  stickOffsets_[index].y = clampUnit(y);
+}
+
+const ControlStickOffset& ControlSprites::stickOffset(ControlStick stick) const {
+  const std::size_t index = static_cast<std::size_t>(stick);
+  return stickOffsets_[index < stickOffsets_.size() ? index : 0];
+}
+
 void ControlSprites::spritePixel(
   dsr::OrderedImageRgbaU8& sprite,
   int x,
@@ -174,10 +197,11 @@ void ControlSprites::buildReset(dsr::OrderedImageRgbaU8& sprite, bool disabled) 
     for (int x = 0; x < RESET_DISK_SIZE; ++x) {
       const float dx = x + 0.5f - centre;
       const float dy = y + 0.5f - centre;
-      const float radius = std::sqrt(dx * dx + dy * dy);
-      if (radius <= 12.5f) {
+      const float radiusSquared = dx * dx + dy * dy;
+      if (radiusSquared <= 156.25f) {
+        const float radius = std::sqrt(radiusSquared);
         const float edge = std::max(0.0f, std::min(1.0f, 13.5f - radius));
-        const int shade = static_cast<int>((radius < 9.0f ? 198.0f : 232.0f) * strength);
+        const int shade = static_cast<int>((radiusSquared < 81.0f ? 198.0f : 232.0f) * strength);
         const int alpha = static_cast<int>(edge * 225.0f * strength + 0.5f);
         dsr::image_writePixel(sprite, x, y, {shade, shade, shade, alpha});
       }
@@ -246,49 +270,83 @@ void ControlSprites::draw(
 ) {
   ensureSprites();
 
-  const int zoomX = ZOOM_LEFT + (RESET_DISK_SIZE - ZOOM_CONTROL_SIZE) / 2;
-  const int zoomResetX = ZOOM_LEFT;
-  const int zoomInTop = ZOOM_TOP;
-  const int zoomResetTop = zoomInTop + ZOOM_CONTROL_SIZE + ZOOM_GAP;
-  const int zoomOutTop = zoomResetTop + RESET_DISK_SIZE + ZOOM_GAP;
-  dsr::OrderedImageRgbaU8& zoomIn = cameraState.canZoomIn ? plusSprite_ : plusDisabled_;
-  dsr::OrderedImageRgbaU8& zoomReset = cameraState.canResetZoom ? resetSprite_ : resetDisabled_;
-  dsr::OrderedImageRgbaU8& zoomOut = cameraState.canZoomOut ? minusSprite_ : minusDisabled_;
-  dsr::draw_alphaFilter(frame, zoomIn, zoomX, zoomInTop);
-  dsr::draw_alphaFilter(frame, zoomReset, zoomResetX, zoomResetTop);
-  dsr::draw_alphaFilter(frame, zoomOut, zoomX, zoomOutTop);
-
-  const int levelX = frameWidth - LEVEL_RIGHT - PAN_ARROW_SIZE;
-  const int levelUpTop = LEVEL_TOP;
-  const int levelResetTop = levelUpTop + PAN_ARROW_SIZE + LEVEL_GAP;
-  const int levelDownTop = levelResetTop + RESET_DISK_SIZE + LEVEL_GAP;
+  // Z-level controls live top-left.
+  const int levelX = TOP_LEFT;
+  const int levelUpTop = TOP_CONTROL_TOP;
+  const int levelResetTop = levelUpTop + PAN_ARROW_SIZE + TOP_CONTROL_GAP;
+  const int levelDownTop = levelResetTop + RESET_DISK_SIZE + TOP_CONTROL_GAP;
+  const ControlStickOffset& levelStick = stickOffset(ControlStick::Level);
   dsr::OrderedImageRgbaU8& levelUp = levelState.canMoveUp ? upSprite_ : upDisabled_;
   dsr::OrderedImageRgbaU8& levelDown = levelState.canMoveDown ? downSprite_ : downDisabled_;
-  dsr::OrderedImageRgbaU8& levelReset = levelState.atDefault ? levelResetDisabled_ : levelResetSprite_;
+  dsr::OrderedImageRgbaU8& levelReset = (!levelState.atDefault || stickActive(levelStick))
+    ? levelResetSprite_
+    : levelResetDisabled_;
   dsr::draw_alphaFilter(frame, levelUp, levelX, levelUpTop);
-  dsr::draw_alphaFilter(frame, levelReset, levelX, levelResetTop);
+  dsr::draw_alphaFilter(
+    frame,
+    levelReset,
+    levelX + stickPixels(levelStick.x),
+    levelResetTop + stickPixels(levelStick.y)
+  );
   dsr::draw_alphaFilter(frame, levelDown, levelX, levelDownTop);
+
+  // Zoom controls live top-right.
+  const int zoomResetX = frameWidth - TOP_RIGHT - RESET_DISK_SIZE;
+  const int zoomX = zoomResetX + (RESET_DISK_SIZE - ZOOM_CONTROL_SIZE) / 2;
+  const int zoomInTop = TOP_CONTROL_TOP;
+  const int zoomResetTop = zoomInTop + ZOOM_CONTROL_SIZE + TOP_CONTROL_GAP;
+  const int zoomOutTop = zoomResetTop + RESET_DISK_SIZE + TOP_CONTROL_GAP;
+  const ControlStickOffset& zoomStick = stickOffset(ControlStick::Zoom);
+  dsr::OrderedImageRgbaU8& zoomIn = cameraState.canZoomIn ? plusSprite_ : plusDisabled_;
+  dsr::OrderedImageRgbaU8& zoomReset = (cameraState.canResetZoom || stickActive(zoomStick))
+    ? resetSprite_
+    : resetDisabled_;
+  dsr::OrderedImageRgbaU8& zoomOut = cameraState.canZoomOut ? minusSprite_ : minusDisabled_;
+  dsr::draw_alphaFilter(frame, zoomIn, zoomX, zoomInTop);
+  dsr::draw_alphaFilter(
+    frame,
+    zoomReset,
+    zoomResetX + stickPixels(zoomStick.x),
+    zoomResetTop + stickPixels(zoomStick.y)
+  );
+  dsr::draw_alphaFilter(frame, zoomOut, zoomX, zoomOutTop);
 
   const int yawTop = frameHeight - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
   const int counterClockwiseX = ROTATE_LEFT_X;
   const int resetYawX = counterClockwiseX + ROTATE_ARROW_WIDTH + ROTATE_ROW_GAP;
   const int clockwiseX = resetYawX + RESET_DISK_SIZE + ROTATE_ROW_GAP;
   const int resetYawTop = yawTop + (ROTATE_ARROW_HEIGHT - RESET_DISK_SIZE) / 2;
-  dsr::OrderedImageRgbaU8& yawReset = cameraState.canResetYaw ? resetSprite_ : resetDisabled_;
+  const ControlStickOffset& yawStick = stickOffset(ControlStick::Yaw);
+  dsr::OrderedImageRgbaU8& yawReset = (cameraState.canResetYaw || stickActive(yawStick))
+    ? resetSprite_
+    : resetDisabled_;
   dsr::draw_alphaFilter(frame, counterClockwiseSprite_, counterClockwiseX, yawTop);
-  dsr::draw_alphaFilter(frame, yawReset, resetYawX, resetYawTop);
+  dsr::draw_alphaFilter(
+    frame,
+    yawReset,
+    resetYawX + stickPixels(yawStick.x),
+    resetYawTop + stickPixels(yawStick.y)
+  );
   dsr::draw_alphaFilter(frame, clockwiseSprite_, clockwiseX, yawTop);
 
   const int centreX = frameWidth - PAN_PAD_RIGHT - PAN_ARROW_SIZE - PAN_X_STEP;
   const int centreY = frameHeight - PAN_PAD_BOTTOM - PAN_ARROW_SIZE - PAN_Y_STEP;
+  const ControlStickOffset& panStick = stickOffset(ControlStick::Pan);
   dsr::OrderedImageRgbaU8& left = cameraState.canPanLeft ? leftSprite_ : leftDisabled_;
   dsr::OrderedImageRgbaU8& right = cameraState.canPanRight ? rightSprite_ : rightDisabled_;
   dsr::OrderedImageRgbaU8& up = cameraState.canPanUp ? upSprite_ : upDisabled_;
   dsr::OrderedImageRgbaU8& down = cameraState.canPanDown ? downSprite_ : downDisabled_;
-  dsr::OrderedImageRgbaU8& centre = cameraState.canResetPan ? resetSprite_ : resetDisabled_;
+  dsr::OrderedImageRgbaU8& centre = (cameraState.canResetPan || stickActive(panStick))
+    ? resetSprite_
+    : resetDisabled_;
 
   dsr::draw_alphaFilter(frame, left, centreX - PAN_X_STEP, centreY);
-  dsr::draw_alphaFilter(frame, centre, centreX, centreY);
+  dsr::draw_alphaFilter(
+    frame,
+    centre,
+    centreX + stickPixels(panStick.x),
+    centreY + stickPixels(panStick.y)
+  );
   dsr::draw_alphaFilter(frame, right, centreX + PAN_X_STEP, centreY);
   dsr::draw_alphaFilter(frame, up, centreX, centreY - PAN_Y_STEP);
   dsr::draw_alphaFilter(frame, down, centreX, centreY + PAN_Y_STEP);
