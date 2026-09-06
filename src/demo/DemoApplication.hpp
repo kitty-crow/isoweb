@@ -39,6 +39,7 @@ public:
   std::size_t levelCount() const { return world_.levelCount(); }
   std::size_t activeLevelIndex() const { return world_.activeLevelIndex(); }
   std::size_t defaultLevelIndex() const { return world_.defaultLevelIndex(); }
+  std::size_t staticCacheBuildCount() const { return renderer_.staticCacheBuildCount(); }
 
   bool pointerTap(float x, float y, bool additive);
   bool pointerWalkable(float x, float y) const;
