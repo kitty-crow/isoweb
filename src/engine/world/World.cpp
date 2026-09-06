@@ -207,23 +207,34 @@ const WorldBounds& World::bounds(const std::string& levelId) const {
   return index < levels_.size() ? levels_[index]->bounds() : activeLevel().bounds();
 }
 
-float World::staticOccluderDistance(const Ray& ray) const {
-  float closest = std::numeric_limits<float>::max();
-  for (const Object& object : objects()) {
-    ObjectRayHit hit;
-    if (object.intersectRay(ray, 0.001f, closest, hit)) closest = hit.distance;
-  }
-  return closest;
+bool World::traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const {
+  return activeLevel().traceEnvironment(ray, hit);
+}
+
+bool World::traceEnvironment(const std::string& levelId, const Ray& ray, SceneSurfaceHit& hit) const {
+  const std::size_t index = levelIndex(levelId);
+  if (index >= levels_.size()) return false;
+  return levels_[index]->traceEnvironment(ray, hit);
+}
+
+float World::environmentDistance(const Ray& ray) const {
+  SceneSurfaceHit hit;
+  return traceEnvironment(ray, hit) ? hit.distance : std::numeric_limits<float>::max();
 }
 
 Vec3 World::sample(const Ray& ray, float backgroundY) const {
-  const float staticDistance = staticOccluderDistance(ray);
+  const float environmentHitDistance = environmentDistance(ray);
   bool runtimeFound = false;
-  const Vec3 runtime = sampleRuntimeEntities(ray, backgroundY, staticDistance, runtimeFound);
+  const Vec3 runtime = sampleRuntimeEntities(ray, backgroundY, environmentHitDistance, runtimeFound);
   return runtimeFound ? runtime : activeLevel().sample(ray, backgroundY);
 }
 
-Vec3 World::sampleRuntimeEntities(const Ray& ray, float backgroundY, float staticDistance, bool& found) const {
+Vec3 World::sampleRuntimeEntities(
+  const Ray& ray,
+  float backgroundY,
+  float environmentHitDistance,
+  bool& found
+) const {
   std::vector<RuntimeSample> samples;
 
   for (const Character* character : entities_.characters()) {
@@ -238,13 +249,11 @@ Vec3 World::sampleRuntimeEntities(const Ray& ray, float backgroundY, float stati
         *character,
         ray,
         spriteAtlases_,
-        staticDistance,
+        environmentHitDistance,
         artworkReady,
         sample
       );
 
-      // A loaded sprite fully replaces the debug hitbox. Transparent pixels
-      // remain transparent and reveal the scene/characters behind them.
       if (artworkReady) {
         if (sampleFound) {
           if (characterSystem_ && characterSystem_->isSelected(character->id)) {
@@ -256,10 +265,8 @@ Vec3 World::sampleRuntimeEntities(const Ray& ray, float backgroundY, float stati
       }
     }
 
-    // Before an assigned WebP has finished decoding/registration, retain the
-    // labelled debug representation so the character never disappears.
     ObjectRayHit hit;
-    if (!character->intersectRay(ray, 0.001f, staticDistance, hit)) continue;
+    if (!character->intersectRay(ray, 0.001f, environmentHitDistance, hit)) continue;
     sample.distance = hit.distance;
     sample.colour = labelPixel(*character, hit)
       ? Vec3(0.96f, 0.97f, 1.0f)
@@ -348,6 +355,49 @@ bool World::containsPosition(const std::string& levelId, const Vec3& position) c
     maxY = std::max(maxY, point.y);
   }
   return position.x >= minX && position.x <= maxX && position.y >= minY && position.y <= maxY;
+}
+
+bool World::pickWalkableSurface(const Ray& ray, SceneSurfaceHit& hit) const {
+  if (!traceEnvironment(ray, hit)) return false;
+  return hit.walkable;
+}
+
+bool World::walkableSurfaceAt(
+  const std::string& levelId,
+  float x,
+  float y,
+  SceneSurfaceHit& hit
+) const {
+  const std::size_t index = levelIndex(levelId);
+  if (index >= levels_.size()) return false;
+  return levels_[index]->walkableSurfaceAt(x, y, hit);
+}
+
+bool World::resolveWalkablePosition(
+  const Object& object,
+  const std::string& levelId,
+  const Vec3& requested,
+  float referenceZ,
+  float maxStepUp,
+  float maxDrop,
+  Vec3& resolved
+) const {
+  if (!containsPosition(levelId, requested)) return false;
+
+  SceneSurfaceHit support;
+  if (!walkableSurfaceAt(levelId, requested.x, requested.y, support)) return false;
+
+  const float originZ = support.point.z - object.hitBox.minimum.z;
+  const float deltaZ = originZ - referenceZ;
+  if (deltaZ > maxStepUp + 1e-4f || deltaZ < -maxDrop - 1e-4f) return false;
+
+  Object probe = object;
+  probe.location.levelId = levelId;
+  probe.location.position = {requested.x, requested.y, originZ};
+  if (collidesWith(probe, &object)) return false;
+
+  resolved = probe.location.position;
+  return true;
 }
 
 bool World::canMoveLevelUp() const {
