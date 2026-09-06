@@ -31,6 +31,7 @@ public:
   void setDetailedMode(bool enabled);
   void pan(float right, float down);
   void resetCamera();
+  void setControlStick(int control, float x, float y);
 
   void levelUp();
   void levelDown();
