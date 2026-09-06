@@ -31,7 +31,10 @@ public:
   virtual ~IWorldLevel() = default;
 
   virtual const WorldBounds& bounds() const = 0;
-  virtual Vec3 sample(const Ray& ray, float backgroundY) const = 0;
+  virtual WorldSurfaceSample sampleSurface(const Ray& ray, float backgroundY) const = 0;
+  virtual Vec3 sample(const Ray& ray, float backgroundY) const {
+    return sampleSurface(ray, backgroundY).colour;
+  }
   virtual const std::vector<Object>& objects() const = 0;
   virtual bool intersectsSolid(const HitBox& hitBox) const = 0;
 };
@@ -81,8 +84,6 @@ public:
 
 private:
   const IWorldLevel& activeLevel() const;
-  Vec3 sampleRuntimeEntities(const Ray& ray, float backgroundY, float staticDistance, bool& found) const;
-  float staticOccluderDistance(const Ray& ray) const;
 
   std::vector<std::unique_ptr<IWorldLevel>> levels_;
   std::vector<std::string> levelIds_;
