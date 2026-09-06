@@ -1,6 +1,7 @@
 #include "engine/world/World.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <limits>
 #include <utility>
@@ -102,6 +103,59 @@ Vec3 applyTint(const Vec3& colour, const SelectionStyle& style) {
   return colour * (1.0f - strength) + style.tint * strength;
 }
 
+bool spriteSample(
+  const Character& character,
+  const Ray& ray,
+  const SpriteAtlasRegistry& atlases,
+  float maximumDistance,
+  float& distance,
+  Vec3& colour,
+  float& alpha
+) {
+  bool implicitMirror = false;
+  const SpriteAnimation* animation = character.currentSpriteAnimation(&implicitMirror);
+  if (!animation || !animation->assigned() || !atlases.contains(animation->resource)) return false;
+
+  const Vec3 horizontalRay(ray.direction.x, ray.direction.y, 0.0f);
+  const float horizontalLength = length(horizontalRay);
+  if (horizontalLength < 1e-7f) return false;
+  const Vec3 planeNormal = horizontalRay / horizontalLength;
+  const float denominator = dot(ray.direction, planeNormal);
+  if (std::fabs(denominator) < 1e-7f) return false;
+
+  const Vec3 hitSize = character.hitBox.size();
+  const float defaultWidth = std::max(std::fabs(hitSize.x), std::fabs(hitSize.y));
+  const float defaultHeight = std::fabs(hitSize.z);
+  const float width = animation->worldWidth > 0.0f ? animation->worldWidth : std::max(0.05f, defaultWidth);
+  const float height = animation->worldHeight > 0.0f ? animation->worldHeight : std::max(0.05f, defaultHeight);
+  const float bottom = character.location.position.z + character.hitBox.minimum.z;
+  const Vec3 centre(character.location.position.x, character.location.position.y, bottom + height * 0.5f);
+
+  const float t = dot(centre - ray.origin, planeNormal) / denominator;
+  if (t <= 0.001f || t >= maximumDistance) return false;
+
+  const Vec3 point = ray.origin + ray.direction * t;
+  const Vec3 screenRight = normalise(cross(ray.direction, Vec3(0.0f, 0.0f, 1.0f)));
+  const Vec3 delta = point - centre;
+  const float u = dot(delta, screenRight) / width + 0.5f;
+  const float v = 0.5f - delta.z / height;
+  if (u < 0.0f || u >= 1.0f || v < 0.0f || v >= 1.0f) return false;
+
+  const SpritePixel pixel = atlases.sample(
+    *animation,
+    character.animation.frame,
+    u,
+    v,
+    character.animation.mirror || implicitMirror
+  );
+  if (pixel.alpha <= 0.01f) return false;
+
+  distance = t;
+  colour = pixel.colour;
+  alpha = pixel.alpha;
+  return true;
+}
+
 } // namespace
 
 World::World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defaultLevelIndex)
@@ -162,26 +216,64 @@ Vec3 World::sample(const Ray& ray, float backgroundY) const {
   return runtimeFound ? runtime : activeLevel().sample(ray, backgroundY);
 }
 
-Vec3 World::sampleRuntimeEntities(const Ray& ray, float, float staticDistance, bool& found) const {
+Vec3 World::sampleRuntimeEntities(const Ray& ray, float backgroundY, float staticDistance, bool& found) const {
   found = false;
   float closest = staticDistance;
+  float closestAlpha = 1.0f;
   Vec3 colour;
 
   for (const Character* character : entities_.characters()) {
     if (!character || character->location.levelId != activeLevelId()) continue;
-    if (character->hasArtwork()) continue;
 
-    ObjectRayHit hit;
-    if (!character->intersectRay(ray, 0.001f, closest, hit)) continue;
-    closest = hit.distance;
+    Vec3 candidateColour;
+    float candidateAlpha = 1.0f;
+    float candidateDistance = closest;
+    bool candidateFound = false;
+
+    if (character->hasArtwork()) {
+      candidateFound = spriteSample(
+        *character,
+        ray,
+        spriteAtlases_,
+        closest,
+        candidateDistance,
+        candidateColour,
+        candidateAlpha
+      );
+    }
+
+    // While an assigned WebP is still being decoded/registered, retain the
+    // debug hitbox rather than making the character disappear.
+    if (!candidateFound) {
+      ObjectRayHit hit;
+      if (character->intersectRay(ray, 0.001f, closest, hit)) {
+        candidateDistance = hit.distance;
+        candidateColour = labelPixel(*character, hit)
+          ? Vec3(0.96f, 0.97f, 1.0f)
+          : faceColour(hit.face);
+        const float facingLight = 0.66f + 0.34f * std::max(
+          0.0f,
+          dot(hit.worldNormal, normalise(Vec3(-0.4f, -0.6f, 1.0f)))
+        );
+        candidateColour = candidateColour * facingLight;
+        candidateAlpha = 1.0f;
+        candidateFound = true;
+      }
+    }
+
+    if (!candidateFound || candidateDistance >= closest) continue;
+    closest = candidateDistance;
+    colour = candidateColour;
+    closestAlpha = candidateAlpha;
     found = true;
-    colour = labelPixel(*character, hit) ? Vec3(0.96f, 0.97f, 1.0f) : faceColour(hit.face);
-
-    const float facingLight = 0.66f + 0.34f * std::max(0.0f, dot(hit.worldNormal, normalise(Vec3(-0.4f, -0.6f, 1.0f))));
-    colour = colour * facingLight;
     if (characterSystem_ && characterSystem_->isSelected(character->id)) {
       colour = applyTint(colour, characterSystem_->selectionStyle());
     }
+  }
+
+  if (found && closestAlpha < 0.999f) {
+    const Vec3 behind = activeLevel().sample(ray, backgroundY);
+    colour = colour * closestAlpha + behind * (1.0f - closestAlpha);
   }
   return colour;
 }
