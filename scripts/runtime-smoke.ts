@@ -8,6 +8,8 @@ const mimeTypes: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.webp': 'image/webp',
   '.wasm': 'application/wasm'
 };
 
@@ -86,6 +88,90 @@ try {
     throw new Error('Default camera reset controls are not disabled after the first rendered frame.');
   }
 
+  await page.waitForFunction(() => {
+    const module = (globalThis as any).Module;
+    return typeof module?._isoweb_character_count === 'function' && module._isoweb_character_count() === 1;
+  });
+
+  const characterPoint = await page.evaluate(() => {
+    const module = (globalThis as any).Module;
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return null;
+    module._isoweb_clear_selection();
+    const step = Math.max(4, Math.floor(Math.min(canvas.width, canvas.height) / 70));
+    for (let y = step; y < canvas.height - step; y += step) {
+      for (let x = step; x < canvas.width - step; x += step) {
+        if (module._isoweb_pointer_tap(x, y, 1) && module._isoweb_selected_character_count() === 1) {
+          module._isoweb_clear_selection();
+          return { x, y, width: canvas.width, height: canvas.height };
+        }
+      }
+    }
+    return null;
+  });
+  if (!characterPoint) throw new Error('Bundled no-art Character was not pickable in the rendered scene.');
+
+  const viewportBox = await page.locator('#viewport').boundingBox();
+  if (!viewportBox) throw new Error('Viewport has no browser bounding box.');
+  const characterCssX = viewportBox.x + characterPoint.x / characterPoint.width * viewportBox.width;
+  const characterCssY = viewportBox.y + characterPoint.y / characterPoint.height * viewportBox.height;
+  await page.mouse.click(characterCssX, characterCssY);
+  await page.waitForFunction(() => (globalThis as any).Module._isoweb_selected_character_count() === 1);
+
+  const initialPosition = await page.evaluate(() => {
+    const module = (globalThis as any).Module;
+    const bytes = new TextEncoder().encode('demo-character');
+    const pointer = module._malloc(bytes.length + 1);
+    module.HEAPU8.set(bytes, pointer);
+    module.HEAPU8[pointer + bytes.length] = 0;
+    try {
+      return {
+        x: module._isoweb_character_position_x(pointer),
+        y: module._isoweb_character_position_y(pointer),
+        z: module._isoweb_character_position_z(pointer)
+      };
+    } finally {
+      module._free(pointer);
+    }
+  });
+  if (![initialPosition.x, initialPosition.y, initialPosition.z].every(Number.isFinite)) {
+    throw new Error('Character runtime position getters did not resolve the JSON-created Character.');
+  }
+
+  const destinationCandidates = [
+    [0.20, 0.70], [0.80, 0.70], [0.25, 0.45], [0.72, 0.45]
+  ];
+  let movementStarted = false;
+  for (const [x, y] of destinationCandidates) {
+    if (Math.hypot(
+      viewportBox.x + viewportBox.width * x - characterCssX,
+      viewportBox.y + viewportBox.height * y - characterCssY
+    ) < 50) continue;
+    await page.mouse.click(viewportBox.x + viewportBox.width * x, viewportBox.y + viewportBox.height * y);
+    movementStarted = await page.evaluate(() => (globalThis as any).Module._isoweb_needs_tick() !== 0);
+    if (movementStarted) break;
+  }
+  if (!movementStarted) throw new Error('Selected Character did not accept a browser click-to-move command.');
+
+  await page.waitForFunction(
+    ({ x, y }) => {
+      const module = (globalThis as any).Module;
+      const bytes = new TextEncoder().encode('demo-character');
+      const pointer = module._malloc(bytes.length + 1);
+      module.HEAPU8.set(bytes, pointer);
+      module.HEAPU8[pointer + bytes.length] = 0;
+      try {
+        const nextX = module._isoweb_character_position_x(pointer);
+        const nextY = module._isoweb_character_position_y(pointer);
+        return Math.hypot(nextX - x, nextY - y) > 0.02;
+      } finally {
+        module._free(pointer);
+      }
+    },
+    initialPosition,
+    { timeout: 10_000 }
+  );
+
   await page.locator('#rotate-clockwise').click();
   await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('Camera 90 degrees'));
 
@@ -105,7 +191,7 @@ try {
     throw new Error(`Browser page error(s):\n${pageErrors.join('\n\n')}`);
   }
 
-  console.log('Browser WASM boot, normal yaw, detailed yaw, detailed zoom, and camera-state smoke test passed.');
+  console.log('Browser WASM boot, JSON Character load, picking, click-to-move, yaw, detailed yaw, and detailed zoom smoke test passed.');
 } finally {
   await browser.close();
   server.stop(true);
