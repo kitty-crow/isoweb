@@ -35,6 +35,7 @@ CharacterSystem::CharacterSystem(World& world)
   collisionPolicy_ = &defaultCollisionPolicy_;
   destinationPolicy_ = &defaultDestinationPolicy_;
   navigationPolicy_ = &defaultNavigationPolicy_;
+  levelTransitionPolicy_ = &defaultLevelTransitionPolicy_;
   movementPolicy_ = &defaultMovementPolicy_;
   interactionPolicy_ = &defaultInteractionPolicy_;
   presentationPolicy_ = &defaultPresentationPolicy_;
@@ -69,7 +70,14 @@ bool CharacterSystem::command(Character& character, const EntityLocation& reques
   if (destination.levelId.empty() || destination.worldId != character.location.worldId || destination.timelineId != character.location.timelineId) return false;
 
   CharacterMovementState nextRoute;
-  if (!navigationPolicy_->buildRoute(world_, character, destination, defaults_, nextRoute)) {
+  if (!navigationPolicy_->buildRoute(
+    world_,
+    character,
+    destination,
+    defaults_,
+    *levelTransitionPolicy_,
+    nextRoute
+  )) {
     stop(character);
     return false;
   }
@@ -143,7 +151,14 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
       character.location.position = previous;
       const EntityLocation destination = character.movement.destination;
       CharacterMovementState replacement;
-      if (navigationPolicy_->buildRoute(world_, character, destination, defaults_, replacement)) {
+      if (navigationPolicy_->buildRoute(
+        world_,
+        character,
+        destination,
+        defaults_,
+        *levelTransitionPolicy_,
+        replacement
+      )) {
         character.movement = std::move(replacement);
       } else {
         stop(character);
