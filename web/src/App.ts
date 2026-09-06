@@ -4,6 +4,7 @@ import { ControlLayout } from './controls/ControlLayout';
 import { ControlBindings } from './controls/ControlBindings';
 import { PanQueue } from './input/PanQueue';
 import { PointerController } from './input/PointerController';
+import { WorldStateLoader } from './state/WorldStateLoader';
 import { WheelController } from './input/WheelController';
 import { ViewportController } from './viewport/ViewportController';
 
@@ -31,5 +32,21 @@ export class App {
     this.module._isoweb_set_detailed_yaw_mode(detailedYawMode ? 1 : 0);
     viewport.syncRendererSize();
     controls.enableInitialState();
+
+    window.addEventListener('keydown', event => {
+      if (event.key === 'Escape') this.module._isoweb_clear_selection();
+    });
+
+    const stateLoader = new WorldStateLoader(this.module);
+    void stateLoader.load().catch(error => console.error('[IsoWeb world state]', error));
+
+    let previousTime = performance.now();
+    const animate = (now: number): void => {
+      const deltaSeconds = Math.min(0.10, Math.max(0, (now - previousTime) / 1000));
+      previousTime = now;
+      if (this.module._isoweb_needs_tick()) this.module._isoweb_tick(deltaSeconds);
+      requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
   }
 }
