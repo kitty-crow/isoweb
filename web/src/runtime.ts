@@ -27,6 +27,7 @@ export interface IsowebModule {
   _isoweb_level_count(): number;
   _isoweb_active_level_index(): number;
   _isoweb_default_level_index(): number;
+  _isoweb_static_cache_build_count(): number;
 
   _isoweb_pointer_tap(x: number, y: number, additive: number): number;
   _isoweb_drag_select(x0: number, y0: number, x1: number, y1: number, additive: number): number;
