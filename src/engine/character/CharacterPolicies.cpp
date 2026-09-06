@@ -192,8 +192,6 @@ bool sameLevelPath(
   std::reverse(reversed.begin(), reversed.end());
   if (!reversed.empty()) reversed.back() = destination;
 
-  // Cheap line-of-sight smoothing keeps visible movement continuous rather
-  // than exposing the pathfinder's grid.
   Vec3 anchor = start;
   std::size_t index = 0;
   while (index < reversed.size()) {
@@ -213,7 +211,13 @@ bool sameLevelPath(
   return true;
 }
 
-std::vector<DirectedLink> levelRoute(const World& world, const std::string& from, const std::string& to) {
+std::vector<DirectedLink> levelRoute(
+  const World& world,
+  const std::string& from,
+  const std::string& to,
+  const Character& character,
+  const LevelTransitionPolicy& transitions
+) {
   if (from == to) return {};
   struct Parent {
     std::string previous;
@@ -230,12 +234,21 @@ std::vector<DirectedLink> levelRoute(const World& world, const std::string& from
     const std::string level = pending.front();
     pending.pop();
     for (const NavigationLink& link : world.navigationLinks()) {
-      if (link.fromLevelId == level && visited.insert(link.toLevelId).second) {
+      if (
+        link.fromLevelId == level &&
+        transitions.canTraverse(character, link, false) &&
+        visited.insert(link.toLevelId).second
+      ) {
         parents[link.toLevelId] = {level, {&link, false}};
         if (link.toLevelId == to) break;
         pending.push(link.toLevelId);
       }
-      if (link.bidirectional && link.toLevelId == level && visited.insert(link.fromLevelId).second) {
+      if (
+        link.bidirectional &&
+        link.toLevelId == level &&
+        transitions.canTraverse(character, link, true) &&
+        visited.insert(link.fromLevelId).second
+      ) {
         parents[link.fromLevelId] = {level, {&link, true}};
         if (link.fromLevelId == to) break;
         pending.push(link.fromLevelId);
@@ -274,6 +287,25 @@ void appendTraversal(
 
 } // namespace
 
+bool LevelTransitionPolicy::canTraverse(
+  const Character&,
+  const NavigationLink&,
+  bool
+) const {
+  return true;
+}
+
+EntityLocation LevelTransitionPolicy::arrival(
+  const Character& character,
+  const NavigationLink& link,
+  bool reverse
+) const {
+  EntityLocation location = character.location;
+  location.levelId = reverse ? link.fromLevelId : link.toLevelId;
+  location.position = reverse ? link.fromPosition : link.toPosition;
+  return location;
+}
+
 EntityLocation DestinationPolicy::resolve(
   const World& world,
   const Character& character,
@@ -310,6 +342,7 @@ bool DefaultNavigationPolicy::buildRoute(
   const Character& character,
   const EntityLocation& destination,
   const CharacterEngineDefaults& defaults,
+  const LevelTransitionPolicy& transitions,
   CharacterMovementState& route
 ) const {
   route.clear();
@@ -322,28 +355,30 @@ bool DefaultNavigationPolicy::buildRoute(
   Vec3 currentPosition = character.location.position;
 
   if (currentLevel != destination.levelId) {
-    const std::vector<DirectedLink> links = levelRoute(world, currentLevel, destination.levelId);
+    const std::vector<DirectedLink> links = levelRoute(
+      world,
+      currentLevel,
+      destination.levelId,
+      character,
+      transitions
+    );
     if (links.empty()) return false;
 
     for (const DirectedLink& directed : links) {
       const NavigationLink& link = *directed.link;
       const Vec3 approach = directed.reverse ? link.toPosition : link.fromPosition;
-      const std::string nextLevel = directed.reverse ? link.fromLevelId : link.toLevelId;
-      const Vec3 arrival = directed.reverse ? link.fromPosition : link.toPosition;
       const std::vector<Vec3>& traversal = directed.reverse ? link.reverseTraversal : link.forwardTraversal;
 
       if (!sameLevelPath(world, character, currentLevel, currentPosition, approach, defaults, waypoints)) return false;
       appendTraversal(character, currentLevel, traversal, waypoints);
 
       CharacterWaypoint transition;
-      transition.location = character.location;
-      transition.location.levelId = nextLevel;
-      transition.location.position = arrival;
+      transition.location = transitions.arrival(character, link, directed.reverse);
       transition.levelTransition = true;
       waypoints.push_back(transition);
 
-      currentLevel = nextLevel;
-      currentPosition = arrival;
+      currentLevel = transition.location.levelId;
+      currentPosition = transition.location.position;
     }
   }
 
