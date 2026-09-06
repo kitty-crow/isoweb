@@ -270,8 +270,29 @@ void ControlSprites::draw(
 ) {
   ensureSprites();
 
-  // Z-level controls live top-left.
-  const int levelX = TOP_LEFT;
+  // Zoom stays top-left and reads horizontally as: -  •  +.
+  const int zoomOutX = TOP_LEFT;
+  const int zoomResetX = zoomOutX + ZOOM_CONTROL_SIZE + TOP_CONTROL_GAP;
+  const int zoomInX = zoomResetX + RESET_DISK_SIZE + TOP_CONTROL_GAP;
+  const int zoomResetTop = TOP_CONTROL_TOP;
+  const int zoomControlTop = zoomResetTop + (RESET_DISK_SIZE - ZOOM_CONTROL_SIZE) / 2;
+  const ControlStickOffset& zoomStick = stickOffset(ControlStick::Zoom);
+  dsr::OrderedImageRgbaU8& zoomIn = cameraState.canZoomIn ? plusSprite_ : plusDisabled_;
+  dsr::OrderedImageRgbaU8& zoomReset = (cameraState.canResetZoom || stickActive(zoomStick))
+    ? resetSprite_
+    : resetDisabled_;
+  dsr::OrderedImageRgbaU8& zoomOut = cameraState.canZoomOut ? minusSprite_ : minusDisabled_;
+  dsr::draw_alphaFilter(frame, zoomOut, zoomOutX, zoomControlTop);
+  dsr::draw_alphaFilter(
+    frame,
+    zoomReset,
+    zoomResetX + stickPixels(zoomStick.x),
+    zoomResetTop
+  );
+  dsr::draw_alphaFilter(frame, zoomIn, zoomInX, zoomControlTop);
+
+  // Z-level stays top-right and remains vertical.
+  const int levelX = frameWidth - TOP_RIGHT - PAN_ARROW_SIZE;
   const int levelUpTop = TOP_CONTROL_TOP;
   const int levelResetTop = levelUpTop + PAN_ARROW_SIZE + TOP_CONTROL_GAP;
   const int levelDownTop = levelResetTop + RESET_DISK_SIZE + TOP_CONTROL_GAP;
@@ -285,31 +306,10 @@ void ControlSprites::draw(
   dsr::draw_alphaFilter(
     frame,
     levelReset,
-    levelX + stickPixels(levelStick.x),
+    levelX,
     levelResetTop + stickPixels(levelStick.y)
   );
   dsr::draw_alphaFilter(frame, levelDown, levelX, levelDownTop);
-
-  // Zoom controls live top-right.
-  const int zoomResetX = frameWidth - TOP_RIGHT - RESET_DISK_SIZE;
-  const int zoomX = zoomResetX + (RESET_DISK_SIZE - ZOOM_CONTROL_SIZE) / 2;
-  const int zoomInTop = TOP_CONTROL_TOP;
-  const int zoomResetTop = zoomInTop + ZOOM_CONTROL_SIZE + TOP_CONTROL_GAP;
-  const int zoomOutTop = zoomResetTop + RESET_DISK_SIZE + TOP_CONTROL_GAP;
-  const ControlStickOffset& zoomStick = stickOffset(ControlStick::Zoom);
-  dsr::OrderedImageRgbaU8& zoomIn = cameraState.canZoomIn ? plusSprite_ : plusDisabled_;
-  dsr::OrderedImageRgbaU8& zoomReset = (cameraState.canResetZoom || stickActive(zoomStick))
-    ? resetSprite_
-    : resetDisabled_;
-  dsr::OrderedImageRgbaU8& zoomOut = cameraState.canZoomOut ? minusSprite_ : minusDisabled_;
-  dsr::draw_alphaFilter(frame, zoomIn, zoomX, zoomInTop);
-  dsr::draw_alphaFilter(
-    frame,
-    zoomReset,
-    zoomResetX + stickPixels(zoomStick.x),
-    zoomResetTop + stickPixels(zoomStick.y)
-  );
-  dsr::draw_alphaFilter(frame, zoomOut, zoomX, zoomOutTop);
 
   const int yawTop = frameHeight - CONTROL_BOTTOM - ROTATE_ARROW_HEIGHT;
   const int counterClockwiseX = ROTATE_LEFT_X;

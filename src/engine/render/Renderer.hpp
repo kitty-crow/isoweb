@@ -28,6 +28,7 @@ public:
   float viewHeight() const { return frameViewHeight_; }
   float wholeZoomScale() const { return frameWholeZoomScale_; }
   std::size_t staticCacheBuildCount() const { return staticCacheBuildCount_; }
+  std::size_t staticCacheShiftCount() const { return staticCacheShiftCount_; }
 
   Ray rayForPixel(float px, float py) const;
   bool groundPointForPixel(float px, float py, float groundZ, Vec3& point) const;
@@ -53,6 +54,16 @@ private:
   static std::uint8_t toByte(float value);
   void ensureFrame();
   bool staticCacheMatches(const StaticCacheKey& key) const;
+  bool staticCacheMatchesExceptPan(const StaticCacheKey& key) const;
+  bool shiftStaticCacheForPan(
+    const StaticCacheKey& key,
+    const Vec3& forward,
+    const Vec3& right,
+    const Vec3& up,
+    float viewWidth,
+    float viewHeight,
+    const WorldBounds& bounds
+  );
 
   const IWorld& world_;
   Camera& camera_;
@@ -65,9 +76,11 @@ private:
   std::vector<std::uint8_t> rgba_;
 
   std::vector<StaticSample> staticSamples_;
+  std::vector<Vec3> panBackgroundRows_;
   StaticCacheKey staticCacheKey_;
   bool staticCacheValid_ = false;
   std::size_t staticCacheBuildCount_ = 0;
+  std::size_t staticCacheShiftCount_ = 0;
 
   CameraControlState frameCameraState_;
   bool frameCanPan_ = false;

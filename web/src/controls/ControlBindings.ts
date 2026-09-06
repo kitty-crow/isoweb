@@ -4,6 +4,8 @@ import type { IsowebModule } from '../runtime';
 import { PanQueue } from '../input/PanQueue';
 import { CentreJoystick, CentreStickId } from './CentreJoystick';
 
+const SCREEN_VERTICAL_WORLD_SCALE = Math.sqrt(3);
+
 export class ControlBindings {
   private joysticks: CentreJoystick[] = [];
 
@@ -19,8 +21,8 @@ export class ControlBindings {
     this.controls.counterClockwise.addEventListener('click', () => this.module._isoweb_rotate_counterclockwise());
     this.controls.clockwise.addEventListener('click', () => this.module._isoweb_rotate_clockwise());
 
-    this.controls.panUp.addEventListener('click', () => this.panQueue.queue(0, INPUT.panButtonStep));
-    this.controls.panDown.addEventListener('click', () => this.panQueue.queue(0, -INPUT.panButtonStep));
+    this.controls.panUp.addEventListener('click', () => this.panQueue.queue(0, INPUT.panButtonStep * SCREEN_VERTICAL_WORLD_SCALE));
+    this.controls.panDown.addEventListener('click', () => this.panQueue.queue(0, -INPUT.panButtonStep * SCREEN_VERTICAL_WORLD_SCALE));
     this.controls.panLeft.addEventListener('click', () => this.panQueue.queue(-INPUT.panButtonStep, 0));
     this.controls.panRight.addEventListener('click', () => this.panQueue.queue(INPUT.panButtonStep, 0));
 
@@ -34,25 +36,25 @@ export class ControlBindings {
     });
 
     this.joysticks = [
-      new CentreJoystick(this.module, this.panQueue, {
+      new CentreJoystick(this.module, {
         id: CentreStickId.Zoom,
         element: this.controls.resetZoom,
         axis: 'horizontal',
         reset: () => this.module._isoweb_reset_zoom()
       }),
-      new CentreJoystick(this.module, this.panQueue, {
+      new CentreJoystick(this.module, {
         id: CentreStickId.Yaw,
         element: this.controls.resetYaw,
         axis: 'horizontal',
         reset: () => this.module._isoweb_reset_yaw()
       }),
-      new CentreJoystick(this.module, this.panQueue, {
+      new CentreJoystick(this.module, {
         id: CentreStickId.Pan,
         element: this.controls.resetCamera,
         axis: 'radial',
         reset: () => this.module._isoweb_reset_camera()
       }),
-      new CentreJoystick(this.module, this.panQueue, {
+      new CentreJoystick(this.module, {
         id: CentreStickId.Level,
         element: this.controls.resetLevel,
         axis: 'vertical',

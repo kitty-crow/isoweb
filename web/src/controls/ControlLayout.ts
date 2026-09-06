@@ -10,24 +10,24 @@ export class ControlLayout {
   position(renderWidth: number, renderHeight: number): void {
     const c = CONTROL_LAYOUT;
 
-    // Z-level controller is top-left.
-    const levelX = c.topLeft;
+    // Zoom stays on the top-left. Its controls form one horizontal row: - • +.
+    const zoomOutX = c.topLeft;
+    const zoomResetX = zoomOutX + c.zoomControlSize + c.topControlGap;
+    const zoomInX = zoomResetX + c.resetDiskSize + c.topControlGap;
+    const zoomResetTop = c.topControlTop;
+    const zoomControlTop = zoomResetTop + (c.resetDiskSize - c.zoomControlSize) * 0.5;
+    this.setHitbox(this.controls.zoomOut, zoomOutX, zoomControlTop, c.zoomControlSize, c.zoomControlSize, 44, renderWidth, renderHeight);
+    this.setHitbox(this.controls.resetZoom, zoomResetX, zoomResetTop, c.resetDiskSize, c.resetDiskSize, 44, renderWidth, renderHeight);
+    this.setHitbox(this.controls.zoomIn, zoomInX, zoomControlTop, c.zoomControlSize, c.zoomControlSize, 44, renderWidth, renderHeight);
+
+    // Z-level stays on the top-right and remains vertical.
+    const levelX = renderWidth - c.topRight - c.panArrowSize;
     const levelUpTop = c.topControlTop;
     const levelResetTop = levelUpTop + c.panArrowSize + c.topControlGap;
     const levelDownTop = levelResetTop + c.resetDiskSize + c.topControlGap;
     this.setHitbox(this.controls.levelUp, levelX, levelUpTop, c.panArrowSize, c.panArrowSize, 44, renderWidth, renderHeight);
     this.setHitbox(this.controls.resetLevel, levelX, levelResetTop, c.resetDiskSize, c.resetDiskSize, 44, renderWidth, renderHeight);
     this.setHitbox(this.controls.levelDown, levelX, levelDownTop, c.panArrowSize, c.panArrowSize, 44, renderWidth, renderHeight);
-
-    // Zoom controller is top-right.
-    const zoomResetX = renderWidth - c.topRight - c.resetDiskSize;
-    const zoomX = zoomResetX + (c.resetDiskSize - c.zoomControlSize) * 0.5;
-    const zoomInTop = c.topControlTop;
-    const zoomResetTop = zoomInTop + c.zoomControlSize + c.topControlGap;
-    const zoomOutTop = zoomResetTop + c.resetDiskSize + c.topControlGap;
-    this.setHitbox(this.controls.zoomIn, zoomX, zoomInTop, c.zoomControlSize, c.zoomControlSize, 44, renderWidth, renderHeight);
-    this.setHitbox(this.controls.resetZoom, zoomResetX, zoomResetTop, c.resetDiskSize, c.resetDiskSize, 44, renderWidth, renderHeight);
-    this.setHitbox(this.controls.zoomOut, zoomX, zoomOutTop, c.zoomControlSize, c.zoomControlSize, 44, renderWidth, renderHeight);
 
     const yawRowTop = renderHeight - c.controlBottom - c.rotateArrowHeight;
     const counterClockwiseX = c.rotateLeftX;
