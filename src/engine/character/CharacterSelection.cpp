@@ -4,8 +4,8 @@ namespace isoweb {
 namespace engine {
 
 bool CharacterSelection::select(Character& character, bool additive) {
-  if (!policy_.canSelect(character) || character.id.empty()) return false;
-  if (!additive || policy_.mode() == SelectionMode::Single) selectedIds_.clear();
+  if (!policy_ || !policy_->canSelect(character) || character.id.empty()) return false;
+  if (!additive || policy_->mode() == SelectionMode::Single) selectedIds_.clear();
   return selectedIds_.insert(character.id).second;
 }
 
