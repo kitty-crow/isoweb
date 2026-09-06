@@ -1,6 +1,5 @@
 import { INPUT } from '../config';
 import type { IsowebModule } from '../runtime';
-import { PanQueue } from '../input/PanQueue';
 
 export const enum CentreStickId {
   Zoom = 0,
@@ -26,6 +25,10 @@ export type QuantisedStick = {
 };
 
 const EIGHTH_TURN = Math.PI / 4;
+// The camera's fixed isometric pitch projects one world unit along groundDown
+// to 1/sqrt(3) screen units. Compensate so the eight joystick directions are
+// actually 45-degree directions on screen rather than vertically squashed.
+const SCREEN_VERTICAL_WORLD_SCALE = Math.sqrt(3);
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
@@ -83,7 +86,6 @@ export class CentreJoystick {
 
   constructor(
     private readonly module: IsowebModule,
-    private readonly panQueue: PanQueue,
     private readonly spec: CentreStickSpec
   ) {}
 
@@ -190,9 +192,14 @@ export class CentreJoystick {
       switch (this.spec.id) {
         case CentreStickId.Pan: {
           const right = stick.x * INPUT.joystickPanUnitsPerSecond * deltaSeconds;
-          const down = -stick.y * INPUT.joystickPanUnitsPerSecond * deltaSeconds;
+          const down = -stick.y * INPUT.joystickPanUnitsPerSecond * SCREEN_VERTICAL_WORLD_SCALE * deltaSeconds;
           if (right !== 0 || down !== 0) {
-            this.panQueue.queue(right, down);
+            // animate() is already synchronized to requestAnimationFrame. Going
+            // through PanQueue inserted a second frame boundary and made the
+            // stick feel one frame behind. The renderer now reuses shifted
+            // static supersamples, so one direct pan per animation frame is
+            // both cheaper and genuinely continuous.
+            this.module._isoweb_pan(right, down);
             redrawn = true;
           }
           break;
