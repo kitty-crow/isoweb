@@ -117,6 +117,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_default_level_index() {
   return static_cast<int>(application().defaultLevelIndex());
 }
 
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_static_cache_build_count() {
+  return static_cast<int>(application().staticCacheBuildCount());
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_pointer_tap(float x, float y, int additive) {
   return application().pointerTap(x, y, additive != 0) ? 1 : 0;
 }
