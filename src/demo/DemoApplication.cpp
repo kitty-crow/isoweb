@@ -30,7 +30,8 @@ engine::SpriteAnimation* directionalAnimation(engine::DirectionalSpriteSet& set,
 DemoApplication::DemoApplication()
     : camera_(engine::CameraConfig(3.25f, 6.15f, 5.50f)),
       renderer_(world_, camera_, controls_),
-      characters_(world_) {
+      characters_(world_),
+      obstacles_(world_) {
   world_.setLevelLight("lower", {4.20f, -3.20f, 5.60f});
   world_.setLevelLight("middle", {-3.60f, -4.20f, 6.50f});
   world_.setLevelLight("upper", {3.80f, 4.40f, 7.20f});
@@ -56,7 +57,11 @@ void DemoApplication::render() {
 }
 
 void DemoApplication::tick(float deltaSeconds) {
-  characters_.tick(std::max(0.0f, std::min(0.10f, deltaSeconds)), camera_);
+  const float clampedDeltaSeconds = std::max(0.0f, std::min(0.10f, deltaSeconds));
+  characters_.tick(clampedDeltaSeconds, camera_);
+  for (const std::string& id : obstacles_.tick(clampedDeltaSeconds)) {
+    hurtCharacter(id);
+  }
   // CharacterSystem::tick already resolved camera-relative presentation for
   // this exact camera. Rendering it again here was a third redundant pass.
   redraw(false);
@@ -122,6 +127,11 @@ void DemoApplication::setControlStick(int control, float x, float y) {
   controls_.setStickOffset(static_cast<engine::ControlStick>(control), x, y);
 }
 
+void DemoApplication::setObstaclesEnabled(bool enabled) {
+  obstacles_.setEnabled(enabled);
+  redraw();
+}
+
 void DemoApplication::levelUp() {
   if (world_.levelUp()) redraw();
 }
@@ -137,6 +147,7 @@ void DemoApplication::resetLevel() {
 bool DemoApplication::pointerTap(float x, float y, bool additive) {
   const engine::Ray ray = renderer_.rayForPixel(x, y);
   if (engine::Character* hit = characters_.pick(ray)) {
+    if (obstacles_.isObstacleCharacter(*hit)) return false;
     characters_.selection().toggle(*hit, additive);
     redraw();
     return true;
@@ -158,7 +169,7 @@ bool DemoApplication::pointerTap(float x, float y, bool additive) {
 bool DemoApplication::pointerDoubleTap(float x, float y) {
   const engine::Ray ray = renderer_.rayForPixel(x, y);
   engine::Character* hit = characters_.pick(ray);
-  if (!hit) return false;
+  if (!hit || obstacles_.isObstacleCharacter(*hit)) return false;
 
   // The first tap in the gesture already ran the ordinary selection toggle.
   // Toggle the same Character once more so a double tap is selection-neutral.
@@ -191,7 +202,7 @@ std::size_t DemoApplication::dragSelect(float x0, float y0, float x1, float y1, 
 
   std::size_t count = 0;
   for (engine::Character* character : world_.entities().characters()) {
-    if (!character) continue;
+    if (!character || obstacles_.isObstacleCharacter(*character)) continue;
     engine::Vec3 renderPosition;
     if (!world_.renderPositionFor(*character, renderPosition)) continue;
     const engine::Vec3 localCentre = character->hitBox.centre();
@@ -216,9 +227,21 @@ void DemoApplication::clearSelection() {
 }
 
 bool DemoApplication::clearEntities() {
+  const bool restoreObstacles = obstacles_.enabled();
+  obstacles_.setEnabled(false);
   characters_.clearSelection();
   world_.entities().clear();
+  characterSpawns_.clear();
+  if (restoreObstacles) obstacles_.setEnabled(true);
   return true;
+}
+
+std::size_t DemoApplication::characterCount() const {
+  std::size_t count = 0;
+  for (const engine::Character* character : world_.entities().characters()) {
+    if (character && !obstacles_.isObstacleCharacter(*character)) ++count;
+  }
+  return count;
 }
 
 bool DemoApplication::createCharacter(
@@ -246,11 +269,29 @@ bool DemoApplication::createCharacter(
   character->controllable = controllable;
   character->movementSpeedMultiplier = movementSpeedMultiplier;
   world_.entities().add(std::move(character));
+  characterSpawns_[id] = location;
   return true;
 }
 
 engine::Character* DemoApplication::character(const std::string& id) {
   return dynamic_cast<engine::Character*>(world_.entities().find(id));
+}
+
+bool DemoApplication::hurtCharacter(const std::string& id) {
+  engine::Character* target = character(id);
+  if (!target || obstacles_.isObstacleCharacter(*target)) return false;
+  const auto spawn = characterSpawns_.find(id);
+  if (spawn == characterSpawns_.end()) return false;
+
+  characters_.stop(*target);
+  target->activeAction.clear();
+  target->animation.reset();
+  target->location = spawn->second;
+  target->location.liminalObjectId = world_.liminalObjectAt(
+    target->location.levelId,
+    target->location.position
+  );
+  return true;
 }
 
 bool DemoApplication::setCharacterSprite(
