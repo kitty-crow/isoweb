@@ -36,41 +36,61 @@ std::size_t transitionCount(const Character& character) {
   return count;
 }
 
-} // namespace
-
-int main() {
+void verifyRoute(
+  const char* label,
+  const char* fromLevel,
+  const char* toLevel,
+  const char* rejectedMessage,
+  const char* transitionMessage,
+  const char* settledMessage,
+  const char* arrivalMessage
+) {
   isoweb::demo::DemoWorld world;
   CharacterSystem characters(world);
   Camera camera(CameraConfig(3.25f, 6.15f, 5.50f));
 
   std::unique_ptr<Character> owned(new Character());
   Character* character = owned.get();
-  character->id = "three-level-runner";
-  character->location = {"demo", "default", "lower", {0.0f, 2.40f, 0.0f}};
+  character->id = label;
+  character->location = {"demo", "default", fromLevel, {0.0f, 2.40f, 0.0f}};
   character->hitBox.minimum = {-0.28f, -0.20f, 0.0f};
   character->hitBox.maximum = {0.28f, 0.20f, 1.65f};
   character->forward = {0.0f, 1.0f, 0.0f};
   world.entities().add(std::move(owned));
 
-  EntityLocation upperDestination = character->location;
-  upperDestination.levelId = "upper";
-  upperDestination.position = {0.0f, 2.40f, 0.0f};
+  EntityLocation destination = character->location;
+  destination.levelId = toLevel;
+  destination.position = {0.0f, 2.40f, 0.0f};
 
-  require(characters.command(*character, upperDestination), "lower -> upper command was rejected");
-  require(transitionCount(*character) == 2, "lower -> upper route did not contain both level transitions");
+  require(characters.command(*character, destination), rejectedMessage);
+  require(transitionCount(*character) == 2, transitionMessage);
   runUntilSettled(characters, *character, camera);
-  require(!character->moving, "lower -> upper route never settled");
-  require(character->location.levelId == "upper", "lower -> upper route stopped before the upper level");
+  require(!character->moving, settledMessage);
+  require(character->location.levelId == toLevel, arrivalMessage);
+}
 
-  EntityLocation lowerDestination = character->location;
-  lowerDestination.levelId = "lower";
-  lowerDestination.position = {0.0f, 2.40f, 0.0f};
+} // namespace
 
-  require(characters.command(*character, lowerDestination), "upper -> lower command was rejected");
-  require(transitionCount(*character) == 2, "upper -> lower route did not contain both level transitions");
-  runUntilSettled(characters, *character, camera);
-  require(!character->moving, "upper -> lower route never settled");
-  require(character->location.levelId == "lower", "upper -> lower route stopped before the lower level");
+int main() {
+  verifyRoute(
+    "upper-to-lower-runner",
+    "upper",
+    "lower",
+    "fresh upper -> lower command was rejected",
+    "fresh upper -> lower route did not contain both level transitions",
+    "fresh upper -> lower route never settled",
+    "fresh upper -> lower route stopped before the lower level"
+  );
+
+  verifyRoute(
+    "lower-to-upper-runner",
+    "lower",
+    "upper",
+    "fresh lower -> upper command was rejected",
+    "fresh lower -> upper route did not contain both level transitions",
+    "fresh lower -> upper route never settled",
+    "fresh lower -> upper route stopped before the upper level"
+  );
 
   std::cout << "Three-level Character routing smoke test passed.\n";
   return 0;
