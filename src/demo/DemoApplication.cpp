@@ -160,6 +160,10 @@ bool DemoApplication::pointerDoubleTap(float x, float y) {
   engine::Character* hit = characters_.pick(ray);
   if (!hit) return false;
 
+  // The first tap in the gesture already ran the ordinary selection toggle.
+  // Toggle the same Character once more so a double tap is selection-neutral.
+  characters_.selection().toggle(*hit, true);
+
   // A double tap is the explicit "cancel current intent" gesture. stop()
   // clears both an active route and a blocked destination that is still
   // retrying. activeAction is independent movement/presentation state, so
