@@ -136,10 +136,6 @@ int main() {
   if (!player.movement.pathBlocked) return 23;
   characters.stop(player);
 
-  // At the bottom position only the lower face is deadly.
-  player.location.position = {0.0f, -1.38f, 0.0f};
-  if (!contains(obstacles.tick(0.0f), player.id)) return 24;
-
   // Once the guillotine rises, exactly the same cross-level request becomes
   // physically routable. Blocked-intent retry in the live engine uses this
   // same geometry and will recover automatically.
@@ -148,12 +144,22 @@ int main() {
   guillotine = dynamic_cast<engine::Character*>(
     world.entities().find("demo-obstacle-guillotine")
   );
-  if (!guillotine || guillotine->location.position.z < 2.0f) return 25;
+  if (!guillotine || guillotine->location.position.z < 2.0f) return 24;
   destination = player.location;
   destination.position = {0.0f, -2.00f, 0.0f};
-  if (!characters.command(player, destination)) return 26;
-  if (player.movement.pathBlocked || player.movement.route.empty()) return 27;
+  if (!characters.command(player, destination)) return 25;
+  if (player.movement.pathBlocked || player.movement.route.empty()) return 26;
   characters.stop(player);
+
+  // Test the deadly face as a real impact: start beneath the raised blade and
+  // let it descend. Teleporting into an already-lowered blade would not tell us
+  // which face made contact.
+  player.location.position = {0.0f, -1.38f, 0.0f};
+  bool guillotineHit = false;
+  for (int step = 0; step < 80 && !guillotineHit; ++step) {
+    guillotineHit = contains(obstacles.tick(0.05f), player.id);
+  }
+  if (!guillotineHit) return 27;
 
   obstacles.setEnabled(false);
   if (obstacles.enabled() || obstacles.partCount() != 0) return 28;
