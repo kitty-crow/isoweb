@@ -373,6 +373,73 @@ bool appendTraversal(
   return true;
 }
 
+bool appendConnectorEgress(
+  const World& world,
+  const Character& character,
+  const NavigationLink& link,
+  bool reverse,
+  const CharacterEngineDefaults& defaults,
+  const EntityLocation& seam,
+  Vec3& currentPosition,
+  std::vector<CharacterWaypoint>& output
+) {
+  // After changing level frames, the connector endpoint is a seam rather than
+  // an ordinary navigation tile. Derive the outward direction from the first
+  // traversal sample on the destination side, then move onto real supported
+  // destination-level ground before asking A* to plan another leg.
+  const std::vector<Vec3>& destinationTraversal = reverse
+    ? link.forwardTraversal
+    : link.reverseTraversal;
+  if (destinationTraversal.empty()) {
+    currentPosition = seam.position;
+    return true;
+  }
+
+  Vec3 outward = seam.position - destinationTraversal.front();
+  outward.z = 0.0f;
+  const float outwardLength = std::sqrt(outward.x * outward.x + outward.y * outward.y);
+  if (outwardLength <= 1e-6f) {
+    currentPosition = seam.position;
+    return true;
+  }
+  outward = outward / outwardLength;
+
+  const float extentX = std::max(
+    std::fabs(character.hitBox.minimum.x),
+    std::fabs(character.hitBox.maximum.x)
+  );
+  const float extentY = std::max(
+    std::fabs(character.hitBox.minimum.y),
+    std::fabs(character.hitBox.maximum.y)
+  );
+  const float footprintRadius = std::sqrt(extentX * extentX + extentY * extentY);
+  const float clearance = std::max(
+    defaults.navigationCellSize * 1.25f,
+    footprintRadius + 0.06f
+  );
+
+  Vec3 desired = seam.position + outward * clearance;
+  Vec3 resolved;
+  if (!segmentClear(
+    world,
+    character,
+    seam.levelId,
+    seam.position,
+    desired,
+    defaults,
+    &resolved
+  )) {
+    return false;
+  }
+
+  CharacterWaypoint egress;
+  egress.location = seam;
+  egress.location.position = resolved;
+  output.push_back(egress);
+  currentPosition = resolved;
+  return true;
+}
+
 } // namespace
 
 bool LevelTransitionPolicy::canTraverse(
@@ -496,32 +563,23 @@ bool DefaultNavigationPolicy::buildRoute(
 
       CharacterWaypoint transition;
       transition.location = transitions.arrival(character, link, directed.reverse);
-
-      // Connector endpoint coordinates identify the seam between two local
-      // level frames, but that exact XY can sit on top of a real stair step in
-      // the destination level. Resolve the arrival against the destination's
-      // authoritative support before chaining the next link. Without this,
-      // reverse multi-hop routes can begin the intermediate level embedded
-      // below its first stair step and fail before reaching the next connector.
-      const float unlimitedTransitionDelta = std::numeric_limits<float>::max() * 0.25f;
-      Vec3 supportedArrival;
-      if (!world.resolveWalkablePosition(
-        character,
-        transition.location.levelId,
-        transition.location.position,
-        transition.location.position.z,
-        unlimitedTransitionDelta,
-        unlimitedTransitionDelta,
-        supportedArrival
-      )) {
-        return false;
-      }
-      transition.location.position = supportedArrival;
       transition.levelTransition = true;
       waypoints.push_back(transition);
 
       currentLevel = transition.location.levelId;
       currentPosition = transition.location.position;
+      if (!appendConnectorEgress(
+        world,
+        character,
+        link,
+        directed.reverse,
+        defaults,
+        transition.location,
+        currentPosition,
+        waypoints
+      )) {
+        return false;
+      }
     }
   }
 
