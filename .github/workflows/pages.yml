@@ -51,6 +51,12 @@ jobs:
       - name: Test three-level Character routing
         run: bun run test:multilevel-routing
 
+      - name: Test generic arbitrary-level Character routing
+        run: bun run test:generic-multilevel-routing
+
+      - name: Test Character collision and navigation reliability
+        run: bun run test:character-reliability
+
       - name: Test liminal spaces and runtime lighting
         run: bun run test:liminal
 
