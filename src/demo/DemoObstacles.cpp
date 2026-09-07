@@ -18,7 +18,6 @@ using engine::ObjectFace;
 using engine::Vec3;
 
 constexpr const char* OBSTACLE_TAG = "demo-obstacle";
-constexpr const char* NAVIGATION_TAG = "demo-obstacle-navigation";
 constexpr const char* LEVEL_ID = "middle";
 constexpr const char* WORLD_ID = "demo";
 constexpr const char* TIMELINE_ID = "default";
@@ -29,24 +28,23 @@ constexpr const char* GUILLOTINE_ID = "demo-obstacle-guillotine";
 constexpr const char* BLADE_A_ID = "demo-obstacle-blade-a";
 constexpr const char* BLADE_B_ID = "demo-obstacle-blade-b";
 
-constexpr const char* BARRIER_NAV_ID = "demo-obstacle-nav-barrier";
-constexpr const char* GUILLOTINE_NAV_ID = "demo-obstacle-nav-guillotine";
-constexpr const char* BLADES_NAV_ID = "demo-obstacle-nav-blades";
+// Both gates deliberately extend slightly beyond the 4.40 world-floor edge.
+// There is no path around either gate inside the playable level.
+constexpr float GATE_HALF_SPAN = 4.48f;
+const Vec3 BARRIER_BASE(0.0f, 1.90f, 0.0f);
+const Vec3 GUILLOTINE_BASE(0.0f, -1.38f, 0.0f);
+const Vec3 BLADES_BASE(3.10f, 0.35f, 0.0f);
 
-const Vec3 BARRIER_BASE(1.15f, 1.05f, 0.0f);
-const Vec3 GUILLOTINE_BASE(0.15f, -0.05f, 0.0f);
-const Vec3 BLADES_BASE(3.15f, 0.35f, 0.0f);
+constexpr float BARRIER_GAP = 1.15f;
+constexpr float BARRIER_SWEEP = 2.65f;
+constexpr float BARRIER_SPEED = 0.85f;
+constexpr float BARRIER_HALF_THICKNESS = 0.11f;
+constexpr float BARRIER_HEIGHT = 1.30f;
 
-constexpr float BARRIER_SEGMENT_HALF_LENGTH = 0.625f;
-constexpr float BARRIER_GAP = 0.80f;
-constexpr float BARRIER_SWEEP = 0.55f;
-constexpr float BARRIER_SPEED = 1.15f;
-constexpr float BARRIER_HALF_THICKNESS = 0.10f;
-constexpr float BARRIER_HEIGHT = 1.15f;
-
-constexpr float GUILLOTINE_UP_Z = 2.15f;
-constexpr float GUILLOTINE_DOWN_Z = 0.20f;
+constexpr float GUILLOTINE_UP_Z = 2.25f;
+constexpr float GUILLOTINE_DOWN_Z = 0.28f;
 constexpr float GUILLOTINE_PERIOD = 2.60f;
+constexpr float GUILLOTINE_HALF_THICKNESS = 0.12f;
 
 constexpr float BLADE_ANGULAR_SPEED = 2.35f;
 constexpr float PI = 3.14159265358979323846f;
@@ -89,19 +87,20 @@ Character& addPart(
   return static_cast<Character&>(stored);
 }
 
-void addNavigationEnvelope(
-  engine::World& world,
-  const std::string& id,
-  const Vec3& position,
-  const HitBox& hitBox
-) {
-  std::unique_ptr<Object> envelope(new Object());
-  envelope->id = id;
-  envelope->location = location(position);
-  envelope->hitBox = hitBox;
-  envelope->solid = true;
-  envelope->collisionTags.push_back(NAVIGATION_TAG);
-  world.entities().add(std::move(envelope));
+void setBarrierSegment(Character& segment, float minimumX, float maximumX) {
+  const float centreX = (minimumX + maximumX) * 0.5f;
+  const float halfLength = std::max(0.01f, (maximumX - minimumX) * 0.5f);
+  segment.location.position = {centreX, BARRIER_BASE.y, BARRIER_BASE.z};
+  segment.hitBox = box(
+    {-halfLength, -BARRIER_HALF_THICKNESS, 0.0f},
+    { halfLength,  BARRIER_HALF_THICKNESS, BARRIER_HEIGHT}
+  );
+}
+
+void setBarrierOpening(Character& left, Character& right, float centreX) {
+  const float halfGap = BARRIER_GAP * 0.5f;
+  setBarrierSegment(left, -GATE_HALF_SPAN, centreX - halfGap);
+  setBarrierSegment(right, centreX + halfGap, GATE_HALF_SPAN);
 }
 
 float overlapAmount(float minimumA, float maximumA, float minimumB, float maximumB) {
@@ -145,26 +144,21 @@ void DemoObstacleSystem::spawn() {
   partIds_.clear();
   navigationIds_.clear();
 
-  const float barrierOffset = BARRIER_GAP * 0.5f + BARRIER_SEGMENT_HALF_LENGTH;
-  const HitBox barrierBox = box(
-    {-BARRIER_SEGMENT_HALF_LENGTH, -BARRIER_HALF_THICKNESS, 0.0f},
-    { BARRIER_SEGMENT_HALF_LENGTH,  BARRIER_HALF_THICKNESS, BARRIER_HEIGHT}
-  );
-
-  addPart(
+  Character& barrierLeft = addPart(
     world_,
     BARRIER_LEFT_ID,
-    BARRIER_BASE + Vec3(-barrierOffset, 0.0f, 0.0f),
+    BARRIER_BASE,
     {0.0f, 1.0f, 0.0f},
-    barrierBox
+    box({-0.10f, -BARRIER_HALF_THICKNESS, 0.0f}, {0.10f, BARRIER_HALF_THICKNESS, BARRIER_HEIGHT})
   );
-  addPart(
+  Character& barrierRight = addPart(
     world_,
     BARRIER_RIGHT_ID,
-    BARRIER_BASE + Vec3(barrierOffset, 0.0f, 0.0f),
+    BARRIER_BASE,
     {0.0f, 1.0f, 0.0f},
-    barrierBox
+    box({-0.10f, -BARRIER_HALF_THICKNESS, 0.0f}, {0.10f, BARRIER_HALF_THICKNESS, BARRIER_HEIGHT})
   );
+  setBarrierOpening(barrierLeft, barrierRight, 0.0f);
   partIds_.push_back(BARRIER_LEFT_ID);
   partIds_.push_back(BARRIER_RIGHT_ID);
 
@@ -173,10 +167,15 @@ void DemoObstacleSystem::spawn() {
     GUILLOTINE_ID,
     GUILLOTINE_BASE + Vec3(0.0f, 0.0f, GUILLOTINE_UP_Z),
     {0.0f, 1.0f, 0.0f},
-    box({-0.72f, -0.11f, -0.11f}, {0.72f, 0.11f, 0.11f})
+    box(
+      {-GATE_HALF_SPAN, -GUILLOTINE_HALF_THICKNESS, -GUILLOTINE_HALF_THICKNESS},
+      { GATE_HALF_SPAN,  GUILLOTINE_HALF_THICKNESS,  GUILLOTINE_HALF_THICKNESS}
+    )
   );
   partIds_.push_back(GUILLOTINE_ID);
 
+  // The rotating pair sits in the clear right-hand approach between the two
+  // gates. Its sweep does not intersect the demo cube or sphere.
   addPart(
     world_,
     BLADE_A_ID,
@@ -193,28 +192,6 @@ void DemoObstacleSystem::spawn() {
   );
   partIds_.push_back(BLADE_A_ID);
   partIds_.push_back(BLADE_B_ID);
-
-  addNavigationEnvelope(
-    world_,
-    BARRIER_NAV_ID,
-    BARRIER_BASE,
-    box({-2.25f, -0.32f, 0.0f}, {2.25f, 0.32f, 1.70f})
-  );
-  addNavigationEnvelope(
-    world_,
-    GUILLOTINE_NAV_ID,
-    GUILLOTINE_BASE,
-    box({-0.90f, -0.42f, 0.0f}, {0.90f, 0.42f, 1.70f})
-  );
-  addNavigationEnvelope(
-    world_,
-    BLADES_NAV_ID,
-    BLADES_BASE,
-    box({-1.25f, -1.25f, 0.0f}, {1.25f, 1.25f, 1.70f})
-  );
-  navigationIds_.push_back(BARRIER_NAV_ID);
-  navigationIds_.push_back(GUILLOTINE_NAV_ID);
-  navigationIds_.push_back(BLADES_NAV_ID);
 }
 
 void DemoObstacleSystem::remove() {
@@ -343,38 +320,11 @@ void DemoObstacleSystem::updateBarrier(float deltaSeconds) {
   Character* right = part(BARRIER_RIGHT_ID);
   if (!left || !right) return;
 
-  const float previousPhase = barrierPhase_;
-  const Vec3 previousLeft = left->location.position;
-  const Vec3 previousRight = right->location.position;
   barrierPhase_ += std::max(0.0f, deltaSeconds) * BARRIER_SPEED;
+  if (barrierPhase_ > PI * 2.0f) barrierPhase_ = std::fmod(barrierPhase_, PI * 2.0f);
 
-  const float offset = std::sin(barrierPhase_) * BARRIER_SWEEP;
-  const float segmentOffset = BARRIER_GAP * 0.5f + BARRIER_SEGMENT_HALF_LENGTH;
-  left->location.position = BARRIER_BASE + Vec3(offset - segmentOffset, 0.0f, 0.0f);
-  right->location.position = BARRIER_BASE + Vec3(offset + segmentOffset, 0.0f, 0.0f);
-
-  bool blockedBySafeContact = false;
-  for (const Character* character : world_.entities().characters()) {
-    if (!character || isObstacleCharacter(*character)) continue;
-    if (
-      left->overlaps(*character) &&
-      !touchesFace(*left, *character, ObjectFace::Right, CONTACT_TOLERANCE)
-    ) {
-      blockedBySafeContact = true;
-    }
-    if (
-      right->overlaps(*character) &&
-      !touchesFace(*right, *character, ObjectFace::Left, CONTACT_TOLERANCE)
-    ) {
-      blockedBySafeContact = true;
-    }
-  }
-
-  if (blockedBySafeContact) {
-    barrierPhase_ = previousPhase;
-    left->location.position = previousLeft;
-    right->location.position = previousRight;
-  }
+  const float openingCentre = std::sin(barrierPhase_) * BARRIER_SWEEP;
+  setBarrierOpening(*left, *right, openingCentre);
 }
 
 void DemoObstacleSystem::updateGuillotine(float deltaSeconds) {
