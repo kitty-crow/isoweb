@@ -73,7 +73,7 @@ jobs:
         run: bun run build:wasm
 
       - name: Check generated Emscripten bridge
-        run: bun run check-emscripten-bridge
+        run: bun run check:emscripten-bridge
 
       - name: Install Chromium for browser checks
         working-directory: vendor/pages
