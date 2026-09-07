@@ -138,7 +138,7 @@ bool commandRoute(
   destination.levelId = to;
 
   if (!characters.command(*character, destination)) return false;
-  return transitionCount(*character) == expectedTransitions;
+  return !character->movement.pathBlocked && transitionCount(*character) == expectedTransitions;
 }
 
 void require(bool condition, const char* message) {
@@ -189,7 +189,10 @@ int main() {
     Character* character = addCharacter(*world, "one-way-reverse", "east");
     EntityLocation destination = character->location;
     destination.levelId = "west";
-    require(!characters.command(*character, destination), "one-way reverse route was incorrectly accepted");
+    require(characters.command(*character, destination), "one-way reverse command was rejected");
+    require(character->movement.hasDestination, "one-way reverse did not retain destination intent");
+    require(character->movement.pathBlocked, "one-way reverse did not report an unavailable route");
+    require(transitionCount(*character) == 0, "one-way reverse invented a forbidden transition");
   }
 
   {
@@ -200,7 +203,10 @@ int main() {
     Character* character = addCharacter(*world, "disconnected", "island-a");
     EntityLocation destination = character->location;
     destination.levelId = "island-c";
-    require(!characters.command(*character, destination), "disconnected destination was incorrectly accepted");
+    require(characters.command(*character, destination), "disconnected command was rejected");
+    require(character->movement.hasDestination, "disconnected command did not retain destination intent");
+    require(character->movement.pathBlocked, "disconnected destination did not report an unavailable route");
+    require(transitionCount(*character) == 0, "disconnected destination invented a transition");
   }
 
   {

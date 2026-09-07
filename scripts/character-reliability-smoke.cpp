@@ -132,6 +132,12 @@ void require(bool condition, const char* message) {
   std::exit(1);
 }
 
+void runUntilSettled(CharacterSystem& characters, Character& character, Camera& camera) {
+  for (int tick = 0; tick < 1200 && character.movement.hasDestination; ++tick) {
+    characters.tick(0.05f, camera);
+  }
+}
+
 } // namespace
 
 int main() {
@@ -195,6 +201,23 @@ int main() {
   }
 
   {
+    std::vector<std::vector<Object>> staticObjects(1);
+    staticObjects[0].push_back(blocker("floor", {0.0f, 0.0f, 0.0f}, 0.70f, 0.70f));
+    std::unique_ptr<World> world = makeWorld({"floor"}, std::move(staticObjects));
+    CharacterSystem characters(*world);
+    Camera camera(CameraConfig(3.25f, 6.15f, 5.50f));
+    Character* runner = addCharacter(*world, "detour-runner", "floor", {-2.5f, 0.0f, 0.0f});
+
+    EntityLocation destination = runner->location;
+    destination.position = {2.5f, 0.0f, 0.0f};
+    require(characters.command(*runner, destination), "command across a static obstacle was rejected");
+    require(!runner->movement.pathBlocked, "planner reported a reachable detour as blocked");
+    runUntilSettled(characters, *runner, camera);
+    require(!runner->movement.hasDestination, "detour runner never reached the far side of the obstacle");
+    require(std::fabs(runner->location.position.x - 2.5f) < 0.05f, "detour runner stopped short of destination");
+  }
+
+  {
     std::unique_ptr<World> world = makeWorld({"floor"});
     CharacterSystem characters(*world);
     Camera camera(CameraConfig(3.25f, 6.15f, 5.50f));
@@ -216,6 +239,34 @@ int main() {
     characters.tick(0.10f, camera);
     require(runner->location.position.x < 0.60f, "fast runner tunnelled through a newly inserted blocker");
     require(!world->collidesWith(*runner, runner), "fast runner ended a tick overlapping the blocker");
+    require(runner->movement.hasDestination, "runtime obstruction cancelled the original destination");
+
+    runUntilSettled(characters, *runner, camera);
+    require(!runner->movement.hasDestination, "runner failed to replan around a runtime obstruction");
+    require(std::fabs(runner->location.position.x - 1.45f) < 0.05f, "replanned runner did not reach its original destination");
+  }
+
+  {
+    std::vector<std::vector<Object>> staticObjects(1);
+    staticObjects[0].push_back(blocker("floor", {0.0f, 0.0f, 0.0f}, 0.25f, 6.50f));
+    std::unique_ptr<World> world = makeWorld({"floor"}, std::move(staticObjects));
+    CharacterSystem characters(*world);
+    Camera camera(CameraConfig(3.25f, 6.15f, 5.50f));
+    Character* runner = addCharacter(*world, "blocked-runner", "floor", {-2.0f, 0.0f, 0.0f});
+
+    EntityLocation destination = runner->location;
+    destination.position = {2.0f, 0.0f, 0.0f};
+    require(characters.command(*runner, destination), "valid but unreachable destination was rejected as a command");
+    require(runner->movement.hasDestination, "unreachable command did not retain destination intent");
+    require(runner->movement.pathBlocked, "unreachable command did not set pathBlocked");
+    require(!runner->moving, "blocked runner incorrectly reported physical movement");
+    const std::size_t firstFailures = runner->movement.failedPathAttempts;
+
+    characters.tick(0.30f, camera);
+    require(runner->movement.hasDestination, "blocked retry discarded destination intent");
+    require(runner->movement.pathBlocked, "blocked retry cleared the complaint flag without a route");
+    require(runner->movement.failedPathAttempts > firstFailures, "blocked destination was not retried");
+    require(std::fabs(runner->movement.destination.position.x - 2.0f) < 0.001f, "blocked retry changed the requested destination");
   }
 
   std::cout << "Character reliability regressions passed.\n";
