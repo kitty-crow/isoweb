@@ -43,6 +43,7 @@ public:
   std::size_t staticCacheShiftCount() const { return renderer_.staticCacheShiftCount(); }
 
   bool pointerTap(float x, float y, bool additive);
+  bool pointerDoubleTap(float x, float y);
   bool pointerWalkable(float x, float y) const;
   std::size_t dragSelect(float x0, float y0, float x1, float y1, bool additive);
   void clearSelection();
