@@ -40,10 +40,7 @@ void verifyRoute(
   const char* label,
   const char* fromLevel,
   const char* toLevel,
-  const char* rejectedMessage,
-  const char* transitionMessage,
-  const char* settledMessage,
-  const char* arrivalMessage
+  std::size_t expectedTransitions
 ) {
   isoweb::demo::DemoWorld world;
   CharacterSystem characters(world);
@@ -62,36 +59,45 @@ void verifyRoute(
   destination.levelId = toLevel;
   destination.position = {0.0f, 2.40f, 0.0f};
 
-  require(characters.command(*character, destination), rejectedMessage);
-  require(transitionCount(*character) == 2, transitionMessage);
+  if (!characters.command(*character, destination)) {
+    std::cerr << "[multilevel-route] " << fromLevel << " -> " << toLevel
+              << " command was rejected\n";
+    std::exit(1);
+  }
+  if (transitionCount(*character) != expectedTransitions) {
+    std::cerr << "[multilevel-route] " << fromLevel << " -> " << toLevel
+              << " expected " << expectedTransitions << " transition(s), got "
+              << transitionCount(*character) << '\n';
+    std::exit(1);
+  }
+
   runUntilSettled(characters, *character, camera);
-  require(!character->moving, settledMessage);
-  require(character->location.levelId == toLevel, arrivalMessage);
+  if (character->moving) {
+    std::cerr << "[multilevel-route] " << fromLevel << " -> " << toLevel
+              << " never settled\n";
+    std::exit(1);
+  }
+  if (character->location.levelId != toLevel) {
+    std::cerr << "[multilevel-route] " << fromLevel << " -> " << toLevel
+              << " stopped on " << character->location.levelId << '\n';
+    std::exit(1);
+  }
 }
 
 } // namespace
 
 int main() {
-  verifyRoute(
-    "upper-to-lower-runner",
-    "upper",
-    "lower",
-    "fresh upper -> lower command was rejected",
-    "fresh upper -> lower route did not contain both level transitions",
-    "fresh upper -> lower route never settled",
-    "fresh upper -> lower route stopped before the lower level"
-  );
+  // Pin every real DemoWorld connector direction first so a multi-hop failure
+  // cannot hide a more basic one-way seam problem.
+  verifyRoute("lower-middle", "lower", "middle", 1);
+  verifyRoute("middle-lower", "middle", "lower", 1);
+  verifyRoute("middle-upper", "middle", "upper", 1);
+  verifyRoute("upper-middle", "upper", "middle", 1);
 
-  verifyRoute(
-    "lower-to-upper-runner",
-    "lower",
-    "upper",
-    "fresh lower -> upper command was rejected",
-    "fresh lower -> upper route did not contain both level transitions",
-    "fresh lower -> upper route never settled",
-    "fresh lower -> upper route stopped before the upper level"
-  );
+  // Then require graph chaining across the intermediate level in both directions.
+  verifyRoute("lower-upper", "lower", "upper", 2);
+  verifyRoute("upper-lower", "upper", "lower", 2);
 
-  std::cout << "Three-level Character routing smoke test passed.\n";
+  std::cout << "Adjacent and three-level Character routing smoke test passed.\n";
   return 0;
 }
