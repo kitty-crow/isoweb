@@ -48,6 +48,9 @@ jobs:
       - name: Test unified world geometry
         run: bun run test:geometry
 
+      - name: Test three-level Character routing
+        run: bun run test:multilevel-routing
+
       - name: Test liminal spaces and runtime lighting
         run: bun run test:liminal
 

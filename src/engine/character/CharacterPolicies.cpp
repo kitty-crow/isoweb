@@ -17,13 +17,16 @@ namespace {
 struct GridPoint {
   int x = 0;
   int y = 0;
+  int z = 0;
 
   bool operator<(const GridPoint& other) const {
-    return x < other.x || (x == other.x && y < other.y);
+    if (x != other.x) return x < other.x;
+    if (y != other.y) return y < other.y;
+    return z < other.z;
   }
 
   bool operator==(const GridPoint& other) const {
-    return x == other.x && y == other.y;
+    return x == other.x && y == other.y && z == other.z;
   }
 };
 
@@ -64,10 +67,17 @@ void boundsXY(const WorldBounds& bounds, float& minX, float& minY, float& maxX, 
   }
 }
 
-GridPoint toGrid(const Vec3& point, float minX, float minY, float cell) {
+GridPoint toGrid(
+  const Vec3& point,
+  float minX,
+  float minY,
+  float cell,
+  float zCell
+) {
   return {
     static_cast<int>(std::round((point.x - minX) / cell)),
-    static_cast<int>(std::round((point.y - minY) / cell))
+    static_cast<int>(std::round((point.y - minY) / cell)),
+    static_cast<int>(std::round(point.z / zCell))
   };
 }
 
@@ -170,10 +180,17 @@ bool sameLevelPath(
   float minX, minY, maxX, maxY;
   boundsXY(world.bounds(levelId), minX, minY, maxX, maxY);
   const float cell = std::max(0.08f, defaults.navigationCellSize);
+  // XY-only A* collapses the ground and a staircase that occupy the same XY
+  // coordinate into one closed node. Preserve a modest quantised Z component
+  // so the planner can route around/through real stacked walkable geometry.
+  const float verticalResolution = std::max(
+    0.05f,
+    std::min(cell, std::max(defaults.maxStepHeight, defaults.maxDropHeight) * 0.5f)
+  );
   const int maxGridX = static_cast<int>(std::ceil((maxX - minX) / cell));
   const int maxGridY = static_cast<int>(std::ceil((maxY - minY) / cell));
-  const GridPoint startGrid = toGrid(start, minX, minY, cell);
-  const GridPoint goalGrid = toGrid(destination, minX, minY, cell);
+  const GridPoint startGrid = toGrid(start, minX, minY, cell, verticalResolution);
+  const GridPoint goalGrid = toGrid(destination, minX, minY, cell, verticalResolution);
 
   std::priority_queue<QueueNode> open;
   std::map<GridPoint, float> cost;
@@ -190,6 +207,7 @@ bool sameLevelPath(
   };
 
   bool found = false;
+  GridPoint foundGoal = goalGrid;
   while (!open.empty()) {
     const GridPoint current = open.top().point;
     open.pop();
@@ -197,16 +215,18 @@ bool sameLevelPath(
     closed.insert(current);
     if (current == goalGrid) {
       found = true;
+      foundGoal = current;
       break;
     }
 
     const Vec3 currentPoint = positions[current];
     for (const auto& direction : directions) {
-      GridPoint next{current.x + direction[0], current.y + direction[1]};
-      if (next.x < 0 || next.y < 0 || next.x > maxGridX || next.y > maxGridY) continue;
-      if (closed.find(next) != closed.end()) continue;
+      const int nextX = current.x + direction[0];
+      const int nextY = current.y + direction[1];
+      if (nextX < 0 || nextY < 0 || nextX > maxGridX || nextY > maxGridY) continue;
 
-      Vec3 desired = fromGrid(next, minX, minY, cell, currentPoint.z);
+      GridPoint desiredGrid{nextX, nextY, current.z};
+      Vec3 desired = fromGrid(desiredGrid, minX, minY, cell, currentPoint.z);
       const Vec3 facing = horizontalDirection(currentPoint, desired, character.forward);
       Vec3 supported;
       if (!resolveSupported(
@@ -222,6 +242,9 @@ bool sameLevelPath(
         continue;
       }
 
+      GridPoint next = toGrid(supported, minX, minY, cell, verticalResolution);
+      if (closed.find(next) != closed.end()) continue;
+
       const float horizontalStep = (direction[0] != 0 && direction[1] != 0) ? 1.41421356f : 1.0f;
       const float verticalCost = std::fabs(supported.z - currentPoint.z) / cell;
       const float nextCost = cost[current] + horizontalStep + verticalCost * 0.25f;
@@ -230,15 +253,18 @@ bool sameLevelPath(
       cost[next] = nextCost;
       parent[next] = current;
       positions[next] = supported;
-      const float heuristic = static_cast<float>(std::abs(goalGrid.x - next.x) + std::abs(goalGrid.y - next.y));
-      open.push({next, nextCost + heuristic});
+      const float horizontalHeuristic = static_cast<float>(
+        std::abs(goalGrid.x - next.x) + std::abs(goalGrid.y - next.y)
+      );
+      const float verticalHeuristic = static_cast<float>(std::abs(goalGrid.z - next.z)) * 0.20f;
+      open.push({next, nextCost + horizontalHeuristic + verticalHeuristic});
     }
   }
 
   if (!found) return false;
 
   std::vector<Vec3> reversed;
-  GridPoint cursor = goalGrid;
+  GridPoint cursor = foundGoal;
   while (!(cursor == startGrid)) {
     const auto position = positions.find(cursor);
     if (position == positions.end()) return false;
