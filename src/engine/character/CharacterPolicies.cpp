@@ -227,17 +227,19 @@ bool sameLevelPath(
 
       GridPoint desiredGrid{nextX, nextY, current.z};
       Vec3 desired = fromGrid(desiredGrid, minX, minY, cell, currentPoint.z);
-      const Vec3 facing = horizontalDirection(currentPoint, desired, character.forward);
       Vec3 supported;
-      if (!resolveSupported(
+      // A node endpoint being free does not mean the physical move to it is
+      // free. Validate the complete A* edge so diagonal neighbours cannot cut
+      // through an obstacle corner and leave route smoothing with an
+      // impossible path that gets rejected after the search succeeds.
+      if (!segmentClear(
         world,
         character,
         levelId,
+        currentPoint,
         desired,
-        currentPoint.z,
-        facing,
         defaults,
-        supported
+        &supported
       )) {
         continue;
       }
