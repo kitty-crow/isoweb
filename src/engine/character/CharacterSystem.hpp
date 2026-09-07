@@ -55,6 +55,18 @@ public:
   void setAnimationPolicy(CharacterAnimationPolicy& policy) { animationPolicy_ = &policy; }
 
 private:
+  bool buildRouteWithRecovery(
+    Character& character,
+    const EntityLocation& destination,
+    CharacterMovementState& route
+  );
+  void keepBlockedIntent(
+    Character& character,
+    const EntityLocation& destination,
+    float feedbackElapsedSeconds,
+    std::size_t failedAttempts
+  );
+  bool reachedDestination(const Character& character) const;
   void advance(Character& character, float deltaSeconds);
 
   World& world_;
