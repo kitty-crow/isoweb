@@ -496,6 +496,27 @@ bool DefaultNavigationPolicy::buildRoute(
 
       CharacterWaypoint transition;
       transition.location = transitions.arrival(character, link, directed.reverse);
+
+      // Connector endpoint coordinates identify the seam between two local
+      // level frames, but that exact XY can sit on top of a real stair step in
+      // the destination level. Resolve the arrival against the destination's
+      // authoritative support before chaining the next link. Without this,
+      // reverse multi-hop routes can begin the intermediate level embedded
+      // below its first stair step and fail before reaching the next connector.
+      const float unlimitedTransitionDelta = std::numeric_limits<float>::max() * 0.25f;
+      Vec3 supportedArrival;
+      if (!world.resolveWalkablePosition(
+        character,
+        transition.location.levelId,
+        transition.location.position,
+        transition.location.position.z,
+        unlimitedTransitionDelta,
+        unlimitedTransitionDelta,
+        supportedArrival
+      )) {
+        return false;
+      }
+      transition.location.position = supportedArrival;
       transition.levelTransition = true;
       waypoints.push_back(transition);
 
