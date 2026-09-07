@@ -57,6 +57,9 @@ jobs:
       - name: Test Character collision and navigation reliability
         run: bun run test:character-reliability
 
+      - name: Test moving obstacle hazards and routing
+        run: bun run test:obstacles
+
       - name: Test liminal spaces and runtime lighting
         run: bun run test:liminal
 
