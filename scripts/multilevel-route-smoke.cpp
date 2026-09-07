@@ -12,6 +12,8 @@ using isoweb::engine::CameraConfig;
 using isoweb::engine::Character;
 using isoweb::engine::CharacterSystem;
 using isoweb::engine::EntityLocation;
+using isoweb::engine::NavigationLink;
+using isoweb::engine::Vec3;
 
 namespace {
 
@@ -36,6 +38,74 @@ std::size_t transitionCount(const Character& character) {
   return count;
 }
 
+Character* addCharacter(isoweb::demo::DemoWorld& world, const char* label, const char* level) {
+  std::unique_ptr<Character> owned(new Character());
+  Character* character = owned.get();
+  character->id = label;
+  character->location = {"demo", "default", level, {0.0f, 2.40f, 0.0f}};
+  character->hitBox.minimum = {-0.28f, -0.20f, 0.0f};
+  character->hitBox.maximum = {0.28f, 0.20f, 1.65f};
+  character->forward = {0.0f, 1.0f, 0.0f};
+  world.entities().add(std::move(owned));
+  return character;
+}
+
+void diagnoseUpperMiddle() {
+  isoweb::demo::DemoWorld world;
+  CharacterSystem characters(world);
+  Character* character = addCharacter(world, "upper-middle-diagnostic", "upper");
+
+  const NavigationLink* link = nullptr;
+  for (const NavigationLink& candidate : world.navigationLinks()) {
+    if (candidate.fromLevelId == "middle" && candidate.toLevelId == "upper") {
+      link = &candidate;
+      break;
+    }
+  }
+  require(link != nullptr, "middle/upper connector was not registered");
+
+  EntityLocation approach = character->location;
+  approach.position = link->toPosition;
+  require(characters.command(*character, approach), "upper same-level path to connector approach failed");
+  characters.stop(*character);
+
+  Vec3 supported = link->toPosition;
+  for (std::size_t index = 0; index < link->reverseTraversal.size(); ++index) {
+    Vec3 next;
+    if (!world.resolveWalkablePosition(
+      *character,
+      "upper",
+      link->reverseTraversal[index],
+      supported.z,
+      characters.defaults().maxStepHeight,
+      characters.defaults().maxDropHeight,
+      next
+    )) {
+      std::cerr << "[multilevel-route] reverse upper traversal support failed at sample "
+                << index << '\n';
+      std::exit(1);
+    }
+    supported = next;
+  }
+
+  character->location.levelId = "middle";
+  character->location.position = link->fromPosition;
+  character->movement.clear();
+  character->moving = false;
+  EntityLocation egress = character->location;
+  egress.position.y -= characters.defaults().navigationCellSize;
+  require(characters.command(*character, egress), "middle same-level seam egress failed");
+  characters.stop(*character);
+
+  character->location.position = egress.position;
+  character->movement.clear();
+  character->moving = false;
+  EntityLocation finalDestination = character->location;
+  finalDestination.position = {0.0f, 2.40f, 0.0f};
+  require(characters.command(*character, finalDestination), "middle post-egress path to destination failed");
+  characters.stop(*character);
+}
+
 void verifyRoute(
   const char* label,
   const char* fromLevel,
@@ -45,15 +115,7 @@ void verifyRoute(
   isoweb::demo::DemoWorld world;
   CharacterSystem characters(world);
   Camera camera(CameraConfig(3.25f, 6.15f, 5.50f));
-
-  std::unique_ptr<Character> owned(new Character());
-  Character* character = owned.get();
-  character->id = label;
-  character->location = {"demo", "default", fromLevel, {0.0f, 2.40f, 0.0f}};
-  character->hitBox.minimum = {-0.28f, -0.20f, 0.0f};
-  character->hitBox.maximum = {0.28f, 0.20f, 1.65f};
-  character->forward = {0.0f, 1.0f, 0.0f};
-  world.entities().add(std::move(owned));
+  Character* character = addCharacter(world, label, fromLevel);
 
   EntityLocation destination = character->location;
   destination.levelId = toLevel;
@@ -87,14 +149,12 @@ void verifyRoute(
 } // namespace
 
 int main() {
-  // Pin every real DemoWorld connector direction first so a multi-hop failure
-  // cannot hide a more basic one-way seam problem.
+  diagnoseUpperMiddle();
+
   verifyRoute("lower-middle", "lower", "middle", 1);
   verifyRoute("middle-lower", "middle", "lower", 1);
   verifyRoute("middle-upper", "middle", "upper", 1);
   verifyRoute("upper-middle", "upper", "middle", 1);
-
-  // Then require graph chaining across the intermediate level in both directions.
   verifyRoute("lower-upper", "lower", "upper", 2);
   verifyRoute("upper-lower", "upper", "lower", 2);
 
