@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace isoweb {
 namespace engine {
 namespace {
+
+constexpr float BLOCKED_REPLAN_INTERVAL_SECONDS = 0.25f;
 
 float horizontalDistance(const Vec3& a, const Vec3& b) {
   const float dx = b.x - a.x;
@@ -18,6 +21,53 @@ Vec3 horizontalDirection(const Vec3& from, const Vec3& to, const Vec3& fallback)
   const float magnitudeSquared = delta.x * delta.x + delta.y * delta.y;
   if (magnitudeSquared <= 1e-12f) return fallback;
   return delta * (1.0f / std::sqrt(magnitudeSquared));
+}
+
+bool recoverySegmentClear(
+  World& world,
+  Character& character,
+  const Vec3& destination,
+  const CharacterEngineDefaults& defaults,
+  Vec3& resolvedEnd
+) {
+  const Vec3 start = character.location.position;
+  const float distance = horizontalDistance(start, destination);
+  if (distance <= 1e-6f) {
+    return world.resolveWalkablePosition(
+      character,
+      character.location.levelId,
+      destination,
+      start.z,
+      defaults.maxStepHeight,
+      defaults.maxDropHeight,
+      resolvedEnd
+    );
+  }
+
+  const float sampleDistance = std::max(0.04f, defaults.navigationCellSize * 0.35f);
+  const int samples = std::max(1, static_cast<int>(std::ceil(distance / sampleDistance)));
+  Vec3 current = start;
+  for (int index = 1; index <= samples; ++index) {
+    const float t = static_cast<float>(index) / samples;
+    Vec3 requested = start * (1.0f - t) + destination * t;
+    requested.z = current.z;
+    Vec3 supported;
+    if (!world.resolveWalkablePosition(
+      character,
+      character.location.levelId,
+      requested,
+      current.z,
+      defaults.maxStepHeight,
+      defaults.maxDropHeight,
+      supported
+    )) {
+      return false;
+    }
+    current = supported;
+  }
+
+  resolvedEnd = current;
+  return true;
 }
 
 // Mirror advance() exactly enough to know the Character's eventual facing
@@ -127,28 +177,183 @@ bool CharacterSystem::toggleSelection(const Ray& ray, bool additive) {
   return selection_.toggle(*character, additive);
 }
 
-bool CharacterSystem::command(Character& character, const EntityLocation& requestedDestination) {
-  if (!interactionPolicy_->canCommand(character)) return false;
-  const EntityLocation destination = destinationPolicy_->resolve(world_, character, requestedDestination, defaults_);
-  if (destination.levelId.empty() || destination.worldId != character.location.worldId || destination.timelineId != character.location.timelineId) return false;
-
-  CharacterMovementState nextRoute;
-  if (!navigationPolicy_->buildRoute(
+bool CharacterSystem::buildRouteWithRecovery(
+  Character& character,
+  const EntityLocation& destination,
+  CharacterMovementState& route
+) {
+  route.clear();
+  if (navigationPolicy_->buildRoute(
     world_,
     character,
     destination,
     defaults_,
     *levelTransitionPolicy_,
-    nextRoute
+    route
   )) {
-    stop(character);
+    route.pathBlocked = false;
+    route.failedPathAttempts = 0;
+    route.replanElapsedSeconds = 0.0f;
+    route.destinationForward = finalRouteDirection(character, route, defaults_.arrivalEpsilon);
+    return true;
+  }
+
+  // A planner failure should not force the player to manually provide the
+  // missing side-step. Probe a small local ring for a physically reachable
+  // point from which the normal planner can complete the original command.
+  // This is only a recovery path after a full route search has failed.
+  const float cell = std::max(0.08f, defaults_.navigationCellSize);
+  const int maximumRecoveryRings = 4;
+  const EntityLocation originalLocation = character.location;
+  const Vec3 originalForward = character.forward;
+
+  for (int ring = 1; ring <= maximumRecoveryRings; ++ring) {
+    bool found = false;
+    float bestScore = std::numeric_limits<float>::max();
+    Vec3 bestPosition;
+    CharacterMovementState bestContinuation;
+
+    for (int x = -ring; x <= ring; ++x) {
+      for (int y = -ring; y <= ring; ++y) {
+        if (std::max(std::abs(x), std::abs(y)) != ring) continue;
+
+        Vec3 requested = originalLocation.position + Vec3(x * cell, y * cell, 0.0f);
+        Vec3 supported;
+        character.location = originalLocation;
+        character.forward = originalForward;
+        if (!recoverySegmentClear(world_, character, requested, defaults_, supported)) continue;
+
+        const Vec3 recoveryDirection = horizontalDirection(
+          originalLocation.position,
+          supported,
+          originalForward
+        );
+        character.location = originalLocation;
+        character.location.position = supported;
+        character.location.liminalObjectId = world_.liminalObjectAt(
+          character.location.levelId,
+          supported,
+          std::max(0.18f, defaults_.navigationCellSize * 1.3f)
+        );
+        character.forward = recoveryDirection;
+
+        CharacterMovementState continuation;
+        const bool continuationFound = navigationPolicy_->buildRoute(
+          world_,
+          character,
+          destination,
+          defaults_,
+          *levelTransitionPolicy_,
+          continuation
+        );
+
+        character.location = originalLocation;
+        character.forward = originalForward;
+        if (!continuationFound) continue;
+
+        const float score = horizontalDistance(originalLocation.position, supported) +
+          horizontalDistance(supported, destination.position);
+        if (score >= bestScore) continue;
+        bestScore = score;
+        bestPosition = supported;
+        bestContinuation = std::move(continuation);
+        found = true;
+      }
+    }
+
+    if (!found) continue;
+
+    route.clear();
+    route.destination = destination;
+    route.hasDestination = true;
+    CharacterWaypoint recovery;
+    recovery.location = originalLocation;
+    recovery.location.position = bestPosition;
+    recovery.location.liminalObjectId = world_.liminalObjectAt(
+      recovery.location.levelId,
+      bestPosition,
+      std::max(0.18f, defaults_.navigationCellSize * 1.3f)
+    );
+    route.route.push_back(recovery);
+    route.route.insert(
+      route.route.end(),
+      bestContinuation.route.begin(),
+      bestContinuation.route.end()
+    );
+    route.pathBlocked = false;
+    route.failedPathAttempts = 0;
+    route.replanElapsedSeconds = 0.0f;
+    route.destinationForward = finalRouteDirection(character, route, defaults_.arrivalEpsilon);
+    return true;
+  }
+
+  character.location = originalLocation;
+  character.forward = originalForward;
+  return false;
+}
+
+void CharacterSystem::keepBlockedIntent(
+  Character& character,
+  const EntityLocation& destination,
+  float feedbackElapsedSeconds,
+  std::size_t failedAttempts
+) {
+  CharacterMovementState blocked;
+  blocked.hasDestination = true;
+  blocked.destination = destination;
+  blocked.pathBlocked = true;
+  blocked.failedPathAttempts = failedAttempts + 1;
+  blocked.replanElapsedSeconds = 0.0f;
+  blocked.destinationForward = character.forward;
+  blocked.feedbackElapsedSeconds = feedbackElapsedSeconds;
+  character.movement = std::move(blocked);
+  character.moving = false;
+}
+
+bool CharacterSystem::reachedDestination(const Character& character) const {
+  if (!character.movement.hasDestination) return false;
+  if (character.location.levelId != character.movement.destination.levelId) return false;
+  if (
+    horizontalDistance(
+      character.location.position,
+      character.movement.destination.position
+    ) > defaults_.arrivalEpsilon * 2.0f
+  ) {
     return false;
   }
-  nextRoute.destinationForward = finalRouteDirection(character, nextRoute, defaults_.arrivalEpsilon);
-  nextRoute.feedbackElapsedSeconds = 0.0f;
-  character.movement = std::move(nextRoute);
-  character.moving = character.movement.hasDestination;
-  return character.moving;
+  const float verticalTolerance = std::max(
+    defaults_.arrivalEpsilon * 2.0f,
+    std::max(defaults_.maxStepHeight, defaults_.maxDropHeight)
+  );
+  return std::fabs(
+    character.location.position.z - character.movement.destination.position.z
+  ) <= verticalTolerance;
+}
+
+bool CharacterSystem::command(Character& character, const EntityLocation& requestedDestination) {
+  if (!interactionPolicy_->canCommand(character)) return false;
+  const EntityLocation destination = destinationPolicy_->resolve(world_, character, requestedDestination, defaults_);
+  if (
+    destination.levelId.empty() ||
+    destination.worldId != character.location.worldId ||
+    destination.timelineId != character.location.timelineId
+  ) {
+    return false;
+  }
+
+  CharacterMovementState nextRoute;
+  if (buildRouteWithRecovery(character, destination, nextRoute)) {
+    nextRoute.feedbackElapsedSeconds = 0.0f;
+    character.movement = std::move(nextRoute);
+    character.moving = character.movement.hasDestination;
+    return true;
+  }
+
+  // The command itself is valid even when no route exists right now. Preserve
+  // the destination, mark the failed planning attempt, and keep retrying from
+  // tick(). A later game layer can interpret pathBlocked as a complaint.
+  keepBlockedIntent(character, destination, 0.0f, 0);
+  return true;
 }
 
 std::size_t CharacterSystem::commandSelected(const EntityLocation& requestedDestination) {
@@ -183,15 +388,56 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
   const float liminalTolerance = std::max(0.18f, defaults_.navigationCellSize * 1.3f);
   refreshLiminalMembership(world_, character, liminalTolerance);
 
-  if (!character.movement.hasDestination || character.movement.nextWaypoint >= character.movement.route.size()) {
+  if (!character.movement.hasDestination) {
     character.moving = false;
-    character.movement.clear();
+    return;
+  }
+
+  const float positiveDeltaSeconds = std::max(0.0f, deltaSeconds);
+  character.movement.feedbackElapsedSeconds += positiveDeltaSeconds;
+
+  auto replan = [&]() {
+    const EntityLocation destination = character.movement.destination;
+    const float feedbackElapsedSeconds = character.movement.feedbackElapsedSeconds;
+    const std::size_t failedAttempts = character.movement.failedPathAttempts;
+    CharacterMovementState replacement;
+    if (buildRouteWithRecovery(character, destination, replacement)) {
+      replacement.feedbackElapsedSeconds = feedbackElapsedSeconds;
+      character.movement = std::move(replacement);
+      character.moving = character.movement.hasDestination;
+      return true;
+    }
+    keepBlockedIntent(
+      character,
+      destination,
+      feedbackElapsedSeconds,
+      failedAttempts
+    );
+    return false;
+  };
+
+  if (character.movement.nextWaypoint >= character.movement.route.size()) {
+    if (reachedDestination(character)) {
+      character.location = character.movement.destination;
+      refreshLiminalMembership(world_, character, liminalTolerance);
+      character.movement.clear();
+      character.moving = false;
+      return;
+    }
+
+    character.moving = false;
+    character.movement.replanElapsedSeconds += positiveDeltaSeconds;
+    if (
+      character.movement.pathBlocked &&
+      character.movement.replanElapsedSeconds < BLOCKED_REPLAN_INTERVAL_SECONDS
+    ) {
+      return;
+    }
+    replan();
     return;
   }
 
   character.moving = true;
-  const float positiveDeltaSeconds = std::max(0.0f, deltaSeconds);
-  character.movement.feedbackElapsedSeconds += positiveDeltaSeconds;
   float remaining = effectiveSpeed(character) * positiveDeltaSeconds;
   // Route planning samples complete segments, but runtime blockers can appear
   // after planning. Bound each physical advance to the same collision sampling
@@ -228,23 +474,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
         continue;
       }
 
-      const EntityLocation destination = character.movement.destination;
-      const float feedbackElapsedSeconds = character.movement.feedbackElapsedSeconds;
-      CharacterMovementState replacement;
-      if (navigationPolicy_->buildRoute(
-        world_,
-        character,
-        destination,
-        defaults_,
-        *levelTransitionPolicy_,
-        replacement
-      )) {
-        replacement.destinationForward = finalRouteDirection(character, replacement, defaults_.arrivalEpsilon);
-        replacement.feedbackElapsedSeconds = feedbackElapsedSeconds;
-        character.movement = std::move(replacement);
-      } else {
-        stop(character);
-      }
+      replan();
       return;
     }
 
@@ -266,23 +496,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
     )) {
       character.location.position = previous;
       refreshLiminalMembership(world_, character, liminalTolerance);
-      const EntityLocation destination = character.movement.destination;
-      const float feedbackElapsedSeconds = character.movement.feedbackElapsedSeconds;
-      CharacterMovementState replacement;
-      if (navigationPolicy_->buildRoute(
-        world_,
-        character,
-        destination,
-        defaults_,
-        *levelTransitionPolicy_,
-        replacement
-      )) {
-        replacement.destinationForward = finalRouteDirection(character, replacement, defaults_.arrivalEpsilon);
-        replacement.feedbackElapsedSeconds = feedbackElapsedSeconds;
-        character.movement = std::move(replacement);
-      } else {
-        stop(character);
-      }
+      replan();
       return;
     }
 
@@ -295,10 +509,14 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
   }
 
   if (character.movement.nextWaypoint >= character.movement.route.size()) {
-    character.location = character.movement.destination;
-    refreshLiminalMembership(world_, character, liminalTolerance);
-    character.movement.clear();
-    character.moving = false;
+    if (reachedDestination(character)) {
+      character.location = character.movement.destination;
+      refreshLiminalMembership(world_, character, liminalTolerance);
+      character.movement.clear();
+      character.moving = false;
+      return;
+    }
+    replan();
   }
 }
 
