@@ -4,8 +4,11 @@ import { PanQueue } from './PanQueue';
 import { ViewportController } from '../viewport/ViewportController';
 
 type Point = { x: number; y: number };
+type TapRecord = { point: Point; timestamp: number; pointerType: string };
 
 const TAP_THRESHOLD_PX = 8;
+const DOUBLE_TAP_WINDOW_MS = 325;
+const DOUBLE_TAP_RADIUS_PX = 24;
 const SCREEN_VERTICAL_WORLD_SCALE = Math.sqrt(3);
 
 export class PointerController {
@@ -15,6 +18,7 @@ export class PointerController {
   private rotationAngle = 0;
   private rotationAccumulator = 0;
   private hadMultiTouch = false;
+  private lastTap: TapRecord | null = null;
 
   constructor(
     private readonly viewport: HTMLElement,
@@ -58,6 +62,28 @@ export class PointerController {
   private distanceFromStart(pointerId: number, point: Point): number {
     const start = this.starts.get(pointerId);
     return start ? Math.hypot(point.x - start.x, point.y - start.y) : 0;
+  }
+
+  private dispatchTap(screenPoint: Point, rendererPoint: Point, pointerType: string): void {
+    const now = performance.now();
+    const previous = this.lastTap;
+    const isDoubleTap = previous !== null &&
+      previous.pointerType === pointerType &&
+      now - previous.timestamp <= DOUBLE_TAP_WINDOW_MS &&
+      Math.hypot(screenPoint.x - previous.point.x, screenPoint.y - previous.point.y) <= DOUBLE_TAP_RADIUS_PX;
+
+    if (isDoubleTap) {
+      this.lastTap = null;
+      // The engine only accepts this gesture when the second tap actually
+      // hits a Character. If it does not, preserve ordinary rapid tapping by
+      // falling back to the normal tap action for this second tap.
+      if (this.module._isoweb_pointer_double_tap(rendererPoint.x, rendererPoint.y)) return;
+      this.module._isoweb_pointer_tap(rendererPoint.x, rendererPoint.y, 1);
+      return;
+    }
+
+    this.lastTap = { point: screenPoint, timestamp: now, pointerType };
+    this.module._isoweb_pointer_tap(rendererPoint.x, rendererPoint.y, 1);
   }
 
   private onPointerDown(event: PointerEvent): void {
@@ -145,14 +171,14 @@ export class PointerController {
       const to = this.viewportController.rendererPoint(last.x, last.y);
       if (from && to) {
         if (distance < TAP_THRESHOLD_PX) {
-          this.module._isoweb_pointer_tap(to.x, to.y, 1);
+          this.dispatchTap(last, to, event.pointerType);
         } else {
           this.module._isoweb_drag_select(from.x, from.y, to.x, to.y, event.shiftKey ? 1 : 0);
         }
       }
     } else if (!cancelled && !wasMouse && !multiTouch && distance < TAP_THRESHOLD_PX) {
       const point = this.viewportController.rendererPoint(last.x, last.y);
-      if (point) this.module._isoweb_pointer_tap(point.x, point.y, 1);
+      if (point) this.dispatchTap(last, point, event.pointerType);
     }
 
     if (this.pointers.size >= 2) {
