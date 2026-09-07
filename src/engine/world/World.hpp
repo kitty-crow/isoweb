@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -102,10 +103,14 @@ public:
     const Vec3& environmentColour,
     float environmentDistance
   ) const override {
-    // Renderer always prepares the frame first. This makes the overwhelmingly
-    // common no-runtime-entity case a single branch per supersample instead of
-    // entering the compositor and clearing scratch storage.
-    if (runtimeRenderCachePrepared_ && runtimeRenderEntries_.empty()) {
+    // Renderer always prepares the frame first. Destination acknowledgements
+    // live in this dynamic layer too, so an off-view Character may still leave
+    // its destination footprint visible on the currently rendered endpoint.
+    if (
+      runtimeRenderCachePrepared_ &&
+      runtimeRenderEntries_.empty() &&
+      destinationFeedbackMarkers_.empty()
+    ) {
       return environmentColour;
     }
     bool found = false;
@@ -245,8 +250,26 @@ private:
     float spriteInverseHeight = 0.0f;
   };
 
+  struct DestinationFeedbackMarker {
+    Vec3 position;
+    Vec3 forward = {0.0f, 1.0f, 0.0f};
+    Vec3 right = {1.0f, 0.0f, 0.0f};
+    float minimumX = 0.0f;
+    float maximumX = 0.0f;
+    float minimumY = 0.0f;
+    float maximumY = 0.0f;
+    float floorZ = 0.0f;
+    float elapsedSeconds = 0.0f;
+  };
+
   const IWorldLevel& activeLevel() const;
   const IWorldLevel& levelFor(const std::string& levelId) const;
+  Vec3 compositeDestinationFeedback(
+    const Ray& ray,
+    const Vec3& environmentColour,
+    float environmentDistance,
+    bool& found
+  ) const;
   Vec3 sampleRuntimeEntities(
     const Ray& ray,
     const Vec3& environmentColour,
@@ -276,6 +299,7 @@ private:
   const CollisionPolicy* collisionPolicy_ = nullptr;
 
   mutable std::vector<RuntimeRenderEntry> runtimeRenderEntries_;
+  mutable std::vector<DestinationFeedbackMarker> destinationFeedbackMarkers_;
   mutable std::vector<RuntimeSample> runtimeSampleScratch_;
   mutable Vec3 runtimeSpritePlaneNormal_;
   mutable Vec3 runtimeSpriteScreenRight_;

@@ -20,6 +20,37 @@ Vec3 horizontalDirection(const Vec3& from, const Vec3& to, const Vec3& fallback)
   return delta * (1.0f / std::sqrt(magnitudeSquared));
 }
 
+// Mirror advance() exactly enough to know the Character's eventual facing
+// without simulating movement. Level-transition waypoints change coordinate
+// frame but do not rotate the Character; only physical horizontal segments
+// longer than arrivalEpsilon do.
+Vec3 finalRouteDirection(
+  const Character& character,
+  const CharacterMovementState& movement,
+  float arrivalEpsilon
+) {
+  EntityLocation cursor = character.location;
+  Vec3 facing = character.forward;
+
+  for (const CharacterWaypoint& waypoint : movement.route) {
+    if (waypoint.levelTransition) {
+      cursor = waypoint.location;
+      continue;
+    }
+
+    if (waypoint.location.levelId != cursor.levelId) {
+      cursor = waypoint.location;
+      continue;
+    }
+
+    if (horizontalDistance(cursor.position, waypoint.location.position) > arrivalEpsilon) {
+      facing = horizontalDirection(cursor.position, waypoint.location.position, facing);
+    }
+    cursor = waypoint.location;
+  }
+  return facing;
+}
+
 Object renderProxy(const Character& character, const Vec3& position, const std::string& levelId) {
   Object proxy;
   proxy.id = character.id;
@@ -113,6 +144,8 @@ bool CharacterSystem::command(Character& character, const EntityLocation& reques
     stop(character);
     return false;
   }
+  nextRoute.destinationForward = finalRouteDirection(character, nextRoute, defaults_.arrivalEpsilon);
+  nextRoute.feedbackElapsedSeconds = 0.0f;
   character.movement = std::move(nextRoute);
   character.moving = character.movement.hasDestination;
   return character.moving;
@@ -157,7 +190,9 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
   }
 
   character.moving = true;
-  float remaining = effectiveSpeed(character) * std::max(0.0f, deltaSeconds);
+  const float positiveDeltaSeconds = std::max(0.0f, deltaSeconds);
+  character.movement.feedbackElapsedSeconds += positiveDeltaSeconds;
+  float remaining = effectiveSpeed(character) * positiveDeltaSeconds;
 
   while (remaining > 0.0f && character.movement.nextWaypoint < character.movement.route.size()) {
     const CharacterWaypoint& waypoint = character.movement.route[character.movement.nextWaypoint];
@@ -189,6 +224,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
       }
 
       const EntityLocation destination = character.movement.destination;
+      const float feedbackElapsedSeconds = character.movement.feedbackElapsedSeconds;
       CharacterMovementState replacement;
       if (navigationPolicy_->buildRoute(
         world_,
@@ -198,6 +234,8 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
         *levelTransitionPolicy_,
         replacement
       )) {
+        replacement.destinationForward = finalRouteDirection(character, replacement, defaults_.arrivalEpsilon);
+        replacement.feedbackElapsedSeconds = feedbackElapsedSeconds;
         character.movement = std::move(replacement);
       } else {
         stop(character);
@@ -224,6 +262,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
       character.location.position = previous;
       refreshLiminalMembership(world_, character, liminalTolerance);
       const EntityLocation destination = character.movement.destination;
+      const float feedbackElapsedSeconds = character.movement.feedbackElapsedSeconds;
       CharacterMovementState replacement;
       if (navigationPolicy_->buildRoute(
         world_,
@@ -233,6 +272,8 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
         *levelTransitionPolicy_,
         replacement
       )) {
+        replacement.destinationForward = finalRouteDirection(character, replacement, defaults_.arrivalEpsilon);
+        replacement.feedbackElapsedSeconds = feedbackElapsedSeconds;
         character.movement = std::move(replacement);
       } else {
         stop(character);

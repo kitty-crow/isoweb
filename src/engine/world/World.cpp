@@ -317,6 +317,7 @@ bool World::renderPositionFor(const Character& character, Vec3& position) const 
 
 void World::prepareRenderFrame(const Vec3& viewDirection) const {
   runtimeRenderEntries_.clear();
+  destinationFeedbackMarkers_.clear();
   runtimeSpritePlaneValid_ = false;
 
   const float horizontalLengthSquared =
@@ -342,10 +343,43 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
 
   const auto& characters = entities_.characters();
   runtimeRenderEntries_.reserve(characters.size());
+  destinationFeedbackMarkers_.reserve(characters.size());
   const std::string& levelId = activeLevelId();
 
   for (const Character* character : characters) {
     if (!character) continue;
+
+    if (
+      character->moving &&
+      character->movement.hasDestination &&
+      character->movement.destination.levelId == levelId
+    ) {
+      Vec3 forward = character->movement.destinationForward;
+      float magnitudeSquared = forward.x * forward.x + forward.y * forward.y;
+      if (magnitudeSquared <= 1e-12f) {
+        forward = character->forward;
+        magnitudeSquared = forward.x * forward.x + forward.y * forward.y;
+      }
+      if (magnitudeSquared <= 1e-12f) {
+        forward = {0.0f, 1.0f, 0.0f};
+      } else {
+        const float inverseMagnitude = 1.0f / std::sqrt(magnitudeSquared);
+        forward = {forward.x * inverseMagnitude, forward.y * inverseMagnitude, 0.0f};
+      }
+
+      DestinationFeedbackMarker marker;
+      marker.position = character->movement.destination.position;
+      marker.forward = forward;
+      marker.right = {forward.y, -forward.x, 0.0f};
+      marker.minimumX = character->hitBox.minimum.x;
+      marker.maximumX = character->hitBox.maximum.x;
+      marker.minimumY = character->hitBox.minimum.y;
+      marker.maximumY = character->hitBox.maximum.y;
+      marker.floorZ = marker.position.z + character->hitBox.minimum.z;
+      marker.elapsedSeconds = character->movement.feedbackElapsedSeconds;
+      destinationFeedbackMarkers_.push_back(marker);
+    }
+
     Vec3 renderPosition;
     if (!renderPositionFor(*character, renderPosition)) continue;
 
@@ -501,6 +535,65 @@ Vec3 World::sample(const Ray& ray, float backgroundY) const {
   return runtimeFound ? runtime : environmentColour;
 }
 
+Vec3 World::compositeDestinationFeedback(
+  const Ray& ray,
+  const Vec3& environmentColour,
+  float environmentDistance,
+  bool& found
+) const {
+  found = false;
+  if (
+    destinationFeedbackMarkers_.empty() ||
+    environmentDistance > 1.0e20f
+  ) {
+    return environmentColour;
+  }
+
+  // Use the already-resolved closest environment point. The feedback therefore
+  // conforms to the real walkable surface and is naturally hidden by any
+  // static geometry in front of it, without another scene traversal.
+  const Vec3 point = ray.origin + ray.direction * environmentDistance;
+  Vec3 colour = environmentColour;
+  const SelectionStyle style = characterSystem_
+    ? characterSystem_->selectionStyle()
+    : SelectionStyle();
+  const float selectionStrength = std::max(0.0f, std::min(1.0f, style.strength));
+
+  for (const DestinationFeedbackMarker& marker : destinationFeedbackMarkers_) {
+    if (std::fabs(point.z - marker.floorZ) > 0.035f) continue;
+
+    const Vec3 delta = point - marker.position;
+    const float localX = dot(delta, marker.right);
+    const float localY = dot(delta, marker.forward);
+    if (
+      localX < marker.minimumX || localX > marker.maximumX ||
+      localY < marker.minimumY || localY > marker.maximumY
+    ) {
+      continue;
+    }
+
+    // A soft flash makes command receipt obvious while the slightly stronger
+    // front strip removes the 180-degree ambiguity of a rectangular footprint.
+    // It is still the Character's actual base shape and uses the same tint as
+    // selection; only opacity changes.
+    const float pulse = 0.5f + 0.5f * std::sin(
+      marker.elapsedSeconds * 6.28318530717958647692f * 1.75f
+    );
+    float alpha = selectionStrength * (0.22f + 0.58f * pulse);
+    const float depth = std::max(0.0f, marker.maximumY - marker.minimumY);
+    const float frontBandDepth = std::max(0.04f, depth * 0.22f);
+    if (localY >= marker.maximumY - frontBandDepth) {
+      alpha += selectionStrength * 0.18f;
+    }
+    alpha = std::max(0.0f, std::min(0.72f, alpha));
+
+    colour = style.tint * alpha + colour * (1.0f - alpha);
+    found = true;
+  }
+
+  return colour;
+}
+
 Vec3 World::sampleRuntimeEntities(
   const Ray& ray,
   const Vec3& environmentColour,
@@ -508,6 +601,14 @@ Vec3 World::sampleRuntimeEntities(
   bool& found
 ) const {
   if (!runtimeRenderCachePrepared_) prepareRenderFrame(ray.direction);
+
+  bool destinationFound = false;
+  const Vec3 compositedEnvironment = compositeDestinationFeedback(
+    ray,
+    environmentColour,
+    environmentHitDistance,
+    destinationFound
+  );
 
   std::vector<RuntimeSample>& samples = runtimeSampleScratch_;
   samples.clear();
@@ -574,8 +675,8 @@ Vec3 World::sampleRuntimeEntities(
   }
 
   if (samples.empty()) {
-    found = false;
-    return Vec3();
+    found = destinationFound;
+    return destinationFound ? compositedEnvironment : Vec3();
   }
 
   if (samples.size() > 1) {
@@ -584,7 +685,7 @@ Vec3 World::sampleRuntimeEntities(
     });
   }
 
-  Vec3 colour = environmentColour;
+  Vec3 colour = compositedEnvironment;
   for (const RuntimeSample& sample : samples) {
     const float alpha = std::max(0.0f, std::min(1.0f, sample.alpha));
     colour = sample.colour * alpha + colour * (1.0f - alpha);
