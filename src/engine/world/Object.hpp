@@ -26,9 +26,12 @@ struct EntityLocation {
       return left.empty() || right.empty() || left == right;
     };
 
-    if (!liminalObjectId.empty() || !other.liminalObjectId.empty()) {
-      return !liminalObjectId.empty() &&
-        liminalObjectId == other.liminalObjectId &&
+    // Two entities simultaneously inside liminal space only share space when
+    // they occupy the same physical connector. If only one entity is liminal,
+    // preserve collisions with ordinary occupants of its current endpoint
+    // level rather than making the connector an isolation bubble.
+    if (!liminalObjectId.empty() && !other.liminalObjectId.empty()) {
+      return liminalObjectId == other.liminalObjectId &&
         compatible(timelineId, other.timelineId);
     }
 
