@@ -42,7 +42,15 @@ extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_tick(float deltaSeconds) {
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_needs_tick() {
-  return application().characterSystem().needsTick() ? 1 : 0;
+  return application().needsTick() ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_set_obstacles_enabled(int enabled) {
+  application().setObstaclesEnabled(enabled != 0);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_obstacles_enabled() {
+  return application().obstaclesEnabled() ? 1 : 0;
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_resize(int width, int height) {
@@ -148,7 +156,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_clear_entities() {
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_character_count() {
-  return static_cast<int>(application().world().entities().characters().size());
+  return static_cast<int>(application().characterCount());
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_selected_character_count() {
@@ -173,6 +181,12 @@ extern "C" EMSCRIPTEN_KEEPALIVE float isoweb_character_position_z(const char* id
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_character_is_moving(const char* id) {
   const auto* character = application().character(text(id));
   return character && character->moving ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_hurt_character(const char* id) {
+  const bool hurt = application().hurtCharacter(text(id));
+  if (hurt) application().render();
+  return hurt ? 1 : 0;
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_create_character(

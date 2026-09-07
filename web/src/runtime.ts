@@ -13,6 +13,8 @@ export interface IsowebModule {
   _isoweb_render(): void;
   _isoweb_tick(deltaSeconds: number): void;
   _isoweb_needs_tick(): number;
+  _isoweb_set_obstacles_enabled(enabled: number): void;
+  _isoweb_obstacles_enabled(): number;
   _isoweb_resize(width: number, height: number): void;
   _isoweb_rotate_clockwise(): void;
   _isoweb_rotate_counterclockwise(): void;
@@ -40,6 +42,7 @@ export interface IsowebModule {
   _isoweb_clear_entities(): void;
   _isoweb_character_count(): number;
   _isoweb_selected_character_count(): number;
+  _isoweb_hurt_character(id: number): number;
   _isoweb_set_base_movement_speed(speed: number): void;
   _isoweb_set_selection_mode(mode: number): void;
   _isoweb_set_selection_style(red: number, green: number, blue: number, strength: number): void;

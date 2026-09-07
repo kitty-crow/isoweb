@@ -3,7 +3,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 
+#include "demo/DemoObstacles.hpp"
 #include "demo/DemoWorld.hpp"
 #include "engine/camera/Camera.hpp"
 #include "engine/character/CharacterSystem.hpp"
@@ -20,6 +22,7 @@ public:
 
   void render();
   void tick(float deltaSeconds);
+  bool needsTick() const { return obstacles_.enabled() || characters_.needsTick(); }
   void resize(int width, int height);
   void rotateClockwise();
   void rotateCounterClockwise();
@@ -42,6 +45,9 @@ public:
   std::size_t staticCacheBuildCount() const { return renderer_.staticCacheBuildCount(); }
   std::size_t staticCacheShiftCount() const { return renderer_.staticCacheShiftCount(); }
 
+  void setObstaclesEnabled(bool enabled);
+  bool obstaclesEnabled() const { return obstacles_.enabled(); }
+
   bool pointerTap(float x, float y, bool additive);
   bool pointerDoubleTap(float x, float y);
   bool pointerWalkable(float x, float y) const;
@@ -49,6 +55,7 @@ public:
   void clearSelection();
 
   bool clearEntities();
+  std::size_t characterCount() const;
   bool createCharacter(
     const std::string& id,
     const engine::EntityLocation& location,
@@ -60,6 +67,7 @@ public:
     float movementSpeedMultiplier
   );
   engine::Character* character(const std::string& id);
+  bool hurtCharacter(const std::string& id);
 
   bool setCharacterSprite(
     const std::string& id,
@@ -93,6 +101,8 @@ private:
   engine::Renderer renderer_;
   engine::BrowserPresenter presenter_;
   engine::CharacterSystem characters_;
+  DemoObstacleSystem obstacles_;
+  std::unordered_map<std::string, engine::EntityLocation> characterSpawns_;
 };
 
 } // namespace demo

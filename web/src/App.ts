@@ -22,6 +22,7 @@ export class App {
     const browserArgs = new URLSearchParams(window.location.search);
     const detailedZoomMode = browserArgs.get('dzoom') === '1';
     const detailedYawMode = browserArgs.get('dyaw') === '1';
+    const obstaclesEnabled = browserArgs.get('obstacles') === '1';
 
     controls.bind();
     wheel.bind();
@@ -30,6 +31,7 @@ export class App {
 
     this.module._isoweb_set_detailed_mode(detailedZoomMode ? 1 : 0);
     this.module._isoweb_set_detailed_yaw_mode(detailedYawMode ? 1 : 0);
+    this.module._isoweb_set_obstacles_enabled(obstaclesEnabled ? 1 : 0);
     viewport.syncRendererSize();
     controls.enableInitialState();
 
