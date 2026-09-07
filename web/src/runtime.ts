@@ -6,6 +6,10 @@ export interface IsowebModule {
     args: unknown[]
   ): number | void;
 
+  HEAPU8: Uint8Array;
+  _malloc(size: number): number;
+  _free(pointer: number): void;
+
   _isoweb_render(): void;
   _isoweb_tick(deltaSeconds: number): void;
   _isoweb_needs_tick(): number;
