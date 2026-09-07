@@ -92,11 +92,23 @@ struct CharacterMovementState {
   bool hasDestination = false;
   EntityLocation destination;
 
+  // Direction the Character will actually be facing after the last physical
+  // movement segment. Runtime destination feedback uses this rather than the
+  // Character's current facing, so the projected footprint previews arrival.
+  Vec3 destinationForward = {0.0f, 1.0f, 0.0f};
+
+  // The acknowledgement decal is dynamic runtime feedback. Keeping its phase
+  // with the movement state lets it pulse without invalidating static world
+  // samples or introducing browser-only timing state.
+  float feedbackElapsedSeconds = 0.0f;
+
   void clear() {
     route.clear();
     nextWaypoint = 0;
     hasDestination = false;
     destination = EntityLocation();
+    destinationForward = {0.0f, 1.0f, 0.0f};
+    feedbackElapsedSeconds = 0.0f;
   }
 };
 
