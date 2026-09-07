@@ -50,6 +50,20 @@ Character* addCharacter(isoweb::demo::DemoWorld& world, const char* label, const
   return character;
 }
 
+void requireSameLevelStage(
+  CharacterSystem& characters,
+  Character& character,
+  const Vec3& destination,
+  const char* message
+) {
+  EntityLocation requested = character.location;
+  requested.position = destination;
+  require(characters.command(character, requested), message);
+  characters.stop(character);
+  character.location.position = destination;
+  character.location.liminalObjectId.clear();
+}
+
 void diagnoseUpperMiddle() {
   isoweb::demo::DemoWorld world;
   CharacterSystem characters(world);
@@ -90,20 +104,39 @@ void diagnoseUpperMiddle() {
 
   character->location.levelId = "middle";
   character->location.position = link->fromPosition;
+  character->location.liminalObjectId.clear();
   character->movement.clear();
   character->moving = false;
-  EntityLocation egress = character->location;
-  egress.position.y -= characters.defaults().navigationCellSize;
-  require(characters.command(*character, egress), "middle same-level seam egress failed");
-  characters.stop(*character);
 
-  character->location.position = egress.position;
-  character->movement.clear();
-  character->moving = false;
-  EntityLocation finalDestination = character->location;
-  finalDestination.position = {0.0f, 2.40f, 0.0f};
-  require(characters.command(*character, finalDestination), "middle post-egress path to destination failed");
-  characters.stop(*character);
+  const float egressY = link->fromPosition.y - characters.defaults().navigationCellSize;
+  requireSameLevelStage(
+    characters,
+    *character,
+    {link->fromPosition.x, egressY, 0.0f},
+    "middle same-level seam egress failed"
+  );
+
+  // Probe a deliberately clear route around the right-hand side of the stair
+  // cluster. If these legs work but the single A* request below does not, the
+  // fault is XY-only state collapse around overlapping stair/ground Z states.
+  requireSameLevelStage(
+    characters,
+    *character,
+    {4.0f, egressY, 0.0f},
+    "middle egress -> right clearance failed"
+  );
+  requireSameLevelStage(
+    characters,
+    *character,
+    {4.0f, 2.40f, 0.0f},
+    "middle right clearance -> north clearance failed"
+  );
+  requireSameLevelStage(
+    characters,
+    *character,
+    {0.0f, 2.40f, 0.0f},
+    "middle north clearance -> destination failed"
+  );
 }
 
 void verifyRoute(
