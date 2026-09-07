@@ -92,6 +92,13 @@ struct CharacterMovementState {
   bool hasDestination = false;
   EntityLocation destination;
 
+  // A destination is an intent, not merely the currently available route.
+  // When the latest planning attempt cannot find a route, retain that intent
+  // and expose the failure as state for a future game layer to interpret.
+  bool pathBlocked = false;
+  std::size_t failedPathAttempts = 0;
+  float replanElapsedSeconds = 0.0f;
+
   // Direction the Character will actually be facing after the last physical
   // movement segment. Runtime destination feedback uses this rather than the
   // Character's current facing, so the projected footprint previews arrival.
@@ -107,6 +114,9 @@ struct CharacterMovementState {
     nextWaypoint = 0;
     hasDestination = false;
     destination = EntityLocation();
+    pathBlocked = false;
+    failedPathAttempts = 0;
+    replanElapsedSeconds = 0.0f;
     destinationForward = {0.0f, 1.0f, 0.0f};
     feedbackElapsedSeconds = 0.0f;
   }
