@@ -193,6 +193,11 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
   const float positiveDeltaSeconds = std::max(0.0f, deltaSeconds);
   character.movement.feedbackElapsedSeconds += positiveDeltaSeconds;
   float remaining = effectiveSpeed(character) * positiveDeltaSeconds;
+  // Route planning samples complete segments, but runtime blockers can appear
+  // after planning. Bound each physical advance to the same collision sampling
+  // scale so high movement multipliers cannot tunnel through a newly occupied
+  // interval in a single tick.
+  const float maximumCollisionStep = std::max(0.04f, defaults_.navigationCellSize * 0.35f);
 
   while (remaining > 0.0f && character.movement.nextWaypoint < character.movement.route.size()) {
     const CharacterWaypoint& waypoint = character.movement.route[character.movement.nextWaypoint];
@@ -244,7 +249,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
     }
 
     character.forward = horizontalDirection(character.location.position, target, character.forward);
-    const float step = std::min(remaining, distance);
+    const float step = std::min(std::min(remaining, distance), maximumCollisionStep);
     const Vec3 previous = character.location.position;
     Vec3 proposed = previous + character.forward * step;
     proposed.z = previous.z;

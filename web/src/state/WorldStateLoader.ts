@@ -238,12 +238,20 @@ export class WorldStateLoader {
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
     const bytes = new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength);
 
-    if (!this.callNumber(
-      'isoweb_register_sprite_atlas',
-      ['string', 'number', 'number', 'array', 'number'],
-      [resource, canvas.width, canvas.height, bytes, bytes.byteLength]
-    )) {
-      throw new Error(`WASM rejected character artwork ${resource}`);
+    const pointer = this.module._malloc(bytes.byteLength);
+    if (!pointer) throw new Error(`Unable to allocate WASM memory for character artwork ${resource}`);
+
+    try {
+      this.module.HEAPU8.set(bytes, pointer);
+      if (!this.callNumber(
+        'isoweb_register_sprite_atlas',
+        ['string', 'number', 'number', 'number', 'number'],
+        [resource, canvas.width, canvas.height, pointer, bytes.byteLength]
+      )) {
+        throw new Error(`WASM rejected character artwork ${resource}`);
+      }
+    } finally {
+      this.module._free(pointer);
     }
   }
 }
