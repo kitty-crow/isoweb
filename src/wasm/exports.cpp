@@ -125,6 +125,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_pointer_tap(float x, float y, int add
   return application().pointerTap(x, y, additive != 0) ? 1 : 0;
 }
 
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_pointer_double_tap(float x, float y) {
+  return application().pointerDoubleTap(x, y) ? 1 : 0;
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_drag_select(
   float x0,
   float y0,
