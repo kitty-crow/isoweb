@@ -34,6 +34,7 @@ export interface IsowebModule {
   _isoweb_static_cache_build_count(): number;
 
   _isoweb_pointer_tap(x: number, y: number, additive: number): number;
+  _isoweb_pointer_double_tap(x: number, y: number): number;
   _isoweb_drag_select(x0: number, y0: number, x1: number, y1: number, additive: number): number;
   _isoweb_clear_selection(): void;
   _isoweb_clear_entities(): void;

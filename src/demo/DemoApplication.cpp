@@ -155,6 +155,26 @@ bool DemoApplication::pointerTap(float x, float y, bool additive) {
   return commanded > 0;
 }
 
+bool DemoApplication::pointerDoubleTap(float x, float y) {
+  const engine::Ray ray = renderer_.rayForPixel(x, y);
+  engine::Character* hit = characters_.pick(ray);
+  if (!hit) return false;
+
+  // The first tap in the gesture already ran the ordinary selection toggle.
+  // Toggle the same Character once more so a double tap is selection-neutral.
+  characters_.selection().toggle(*hit, true);
+
+  // A double tap is the explicit "cancel current intent" gesture. stop()
+  // clears both an active route and a blocked destination that is still
+  // retrying. activeAction is independent movement/presentation state, so
+  // clear it as part of the same cancel contract.
+  characters_.stop(*hit);
+  hit->activeAction.clear();
+  hit->animation.reset();
+  redraw();
+  return true;
+}
+
 bool DemoApplication::pointerWalkable(float x, float y) const {
   const engine::Ray ray = renderer_.rayForPixel(x, y);
   if (characters_.pick(ray)) return false;
