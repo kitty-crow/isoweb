@@ -383,10 +383,11 @@ bool appendConnectorEgress(
   Vec3& currentPosition,
   std::vector<CharacterWaypoint>& output
 ) {
-  // After changing level frames, the connector endpoint is a seam rather than
-  // an ordinary navigation tile. Derive the outward direction from the first
-  // traversal sample on the destination side, then move onto real supported
-  // destination-level ground before asking A* to plan another leg.
+  // A connector endpoint is a coordinate-frame seam, not an ordinary A* tile.
+  // Move a single navigation cell away from the connector on the destination
+  // side before chaining another same-level path. One cell is enough to clear
+  // the shared stair/floor boundary without needlessly pushing the Character
+  // into unrelated nearby scene geometry.
   const std::vector<Vec3>& destinationTraversal = reverse
     ? link.forwardTraversal
     : link.reverseTraversal;
@@ -404,21 +405,8 @@ bool appendConnectorEgress(
   }
   outward = outward / outwardLength;
 
-  const float extentX = std::max(
-    std::fabs(character.hitBox.minimum.x),
-    std::fabs(character.hitBox.maximum.x)
-  );
-  const float extentY = std::max(
-    std::fabs(character.hitBox.minimum.y),
-    std::fabs(character.hitBox.maximum.y)
-  );
-  const float footprintRadius = std::sqrt(extentX * extentX + extentY * extentY);
-  const float clearance = std::max(
-    defaults.navigationCellSize * 1.25f,
-    footprintRadius + 0.06f
-  );
-
-  Vec3 desired = seam.position + outward * clearance;
+  const float clearance = std::max(0.12f, defaults.navigationCellSize);
+  const Vec3 desired = seam.position + outward * clearance;
   Vec3 resolved;
   if (!segmentClear(
     world,
