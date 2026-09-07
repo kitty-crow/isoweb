@@ -57,6 +57,9 @@ jobs:
       - name: Test Character face skin orientation
         run: bun run test:faces
 
+      - name: Test Character destination feedback
+        run: bun run test:destination-feedback
+
       - name: Test centre joystick quantisation
         run: bun run test:joystick
 
@@ -70,7 +73,7 @@ jobs:
         run: bun run build:wasm
 
       - name: Check generated Emscripten bridge
-        run: bun run check:emscripten-bridge
+        run: bun run check-emscripten-bridge
 
       - name: Install Chromium for browser checks
         working-directory: vendor/pages
