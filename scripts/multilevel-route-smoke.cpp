@@ -12,17 +12,8 @@ using isoweb::engine::CameraConfig;
 using isoweb::engine::Character;
 using isoweb::engine::CharacterSystem;
 using isoweb::engine::EntityLocation;
-using isoweb::engine::NavigationLink;
-using isoweb::engine::Vec3;
 
 namespace {
-
-void require(bool condition, const char* message) {
-  if (!condition) {
-    std::cerr << "[multilevel-route] " << message << '\n';
-    std::exit(1);
-  }
-}
 
 void runUntilSettled(CharacterSystem& characters, Character& character, Camera& camera) {
   for (int tick = 0; tick < 4000 && character.moving; ++tick) {
@@ -48,95 +39,6 @@ Character* addCharacter(isoweb::demo::DemoWorld& world, const char* label, const
   character->forward = {0.0f, 1.0f, 0.0f};
   world.entities().add(std::move(owned));
   return character;
-}
-
-void requireSameLevelStage(
-  CharacterSystem& characters,
-  Character& character,
-  const Vec3& destination,
-  const char* message
-) {
-  EntityLocation requested = character.location;
-  requested.position = destination;
-  require(characters.command(character, requested), message);
-  characters.stop(character);
-  character.location.position = destination;
-  character.location.liminalObjectId.clear();
-}
-
-void diagnoseUpperMiddle() {
-  isoweb::demo::DemoWorld world;
-  CharacterSystem characters(world);
-  Character* character = addCharacter(world, "upper-middle-diagnostic", "upper");
-
-  const NavigationLink* link = nullptr;
-  for (const NavigationLink& candidate : world.navigationLinks()) {
-    if (candidate.fromLevelId == "middle" && candidate.toLevelId == "upper") {
-      link = &candidate;
-      break;
-    }
-  }
-  require(link != nullptr, "middle/upper connector was not registered");
-
-  EntityLocation approach = character->location;
-  approach.position = link->toPosition;
-  require(characters.command(*character, approach), "upper same-level path to connector approach failed");
-  characters.stop(*character);
-
-  Vec3 supported = link->toPosition;
-  for (std::size_t index = 0; index < link->reverseTraversal.size(); ++index) {
-    Vec3 next;
-    if (!world.resolveWalkablePosition(
-      *character,
-      "upper",
-      link->reverseTraversal[index],
-      supported.z,
-      characters.defaults().maxStepHeight,
-      characters.defaults().maxDropHeight,
-      next
-    )) {
-      std::cerr << "[multilevel-route] reverse upper traversal support failed at sample "
-                << index << '\n';
-      std::exit(1);
-    }
-    supported = next;
-  }
-
-  character->location.levelId = "middle";
-  character->location.position = link->fromPosition;
-  character->location.liminalObjectId.clear();
-  character->movement.clear();
-  character->moving = false;
-
-  const float egressY = link->fromPosition.y - characters.defaults().navigationCellSize;
-  requireSameLevelStage(
-    characters,
-    *character,
-    {link->fromPosition.x, egressY, 0.0f},
-    "middle same-level seam egress failed"
-  );
-
-  // Probe a deliberately clear route around the right-hand side of the stair
-  // cluster. If these legs work but the single A* request below does not, the
-  // fault is XY-only state collapse around overlapping stair/ground Z states.
-  requireSameLevelStage(
-    characters,
-    *character,
-    {4.0f, egressY, 0.0f},
-    "middle egress -> right clearance failed"
-  );
-  requireSameLevelStage(
-    characters,
-    *character,
-    {4.0f, 2.40f, 0.0f},
-    "middle right clearance -> north clearance failed"
-  );
-  requireSameLevelStage(
-    characters,
-    *character,
-    {0.0f, 2.40f, 0.0f},
-    "middle north clearance -> destination failed"
-  );
 }
 
 void verifyRoute(
@@ -182,8 +84,6 @@ void verifyRoute(
 } // namespace
 
 int main() {
-  diagnoseUpperMiddle();
-
   verifyRoute("lower-middle", "lower", "middle", 1);
   verifyRoute("middle-lower", "middle", "lower", 1);
   verifyRoute("middle-upper", "middle", "upper", 1);
