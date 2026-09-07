@@ -512,21 +512,80 @@ bool DefaultNavigationPolicy::buildRoute(
     if (links.empty()) return false;
 
     for (const DirectedLink& directed : links) {
-      const NavigationLink& link = *directed.link;
-      const Vec3 approach = directed.reverse ? link.toPosition : link.fromPosition;
-      const std::vector<Vec3>& traversal = directed.reverse ? link.reverseTraversal : link.forwardTraversal;
+      const NavigationLink& selected = *directed.link;
+      const std::string nextLevel = directed.reverse ? selected.fromLevelId : selected.toLevelId;
 
-      if (!sameLevelPath(world, character, currentLevel, currentPosition, approach, defaults, waypoints)) return false;
-      if (!waypoints.empty()) currentPosition = waypoints.back().location.position;
-      if (!appendTraversal(world, character, currentLevel, traversal, defaults, currentPosition, waypoints)) return false;
+      // The level graph intentionally chooses the fewest transitions without
+      // considering geometry. Once that level-to-level edge is selected, try
+      // every physically equivalent connector between the same two levels in
+      // declaration order. This preserves shortest-route behaviour while
+      // removing the old "first connector wins" failure mode.
+      std::vector<DirectedLink> candidates;
+      candidates.push_back(directed);
+      for (const NavigationLink& link : world.navigationLinks()) {
+        if (&link == directed.link) continue;
+        if (
+          link.fromLevelId == currentLevel &&
+          link.toLevelId == nextLevel &&
+          transitions.canTraverse(character, link, false)
+        ) {
+          candidates.push_back({&link, false});
+        }
+        if (
+          link.bidirectional &&
+          link.toLevelId == currentLevel &&
+          link.fromLevelId == nextLevel &&
+          transitions.canTraverse(character, link, true)
+        ) {
+          candidates.push_back({&link, true});
+        }
+      }
 
-      CharacterWaypoint transition;
-      transition.location = transitions.arrival(character, link, directed.reverse);
-      transition.levelTransition = true;
-      waypoints.push_back(transition);
+      bool traversed = false;
+      for (const DirectedLink& candidate : candidates) {
+        const NavigationLink& link = *candidate.link;
+        const Vec3 approach = candidate.reverse ? link.toPosition : link.fromPosition;
+        const std::vector<Vec3>& traversal = candidate.reverse ? link.reverseTraversal : link.forwardTraversal;
+        std::vector<CharacterWaypoint> candidateWaypoints = waypoints;
+        Vec3 candidatePosition = currentPosition;
 
-      currentLevel = transition.location.levelId;
-      currentPosition = transition.location.position;
+        if (!sameLevelPath(
+          world,
+          character,
+          currentLevel,
+          candidatePosition,
+          approach,
+          defaults,
+          candidateWaypoints
+        )) {
+          continue;
+        }
+        if (!candidateWaypoints.empty()) candidatePosition = candidateWaypoints.back().location.position;
+        if (!appendTraversal(
+          world,
+          character,
+          currentLevel,
+          traversal,
+          defaults,
+          candidatePosition,
+          candidateWaypoints
+        )) {
+          continue;
+        }
+
+        CharacterWaypoint transition;
+        transition.location = transitions.arrival(character, link, candidate.reverse);
+        transition.levelTransition = true;
+        candidateWaypoints.push_back(transition);
+
+        waypoints = std::move(candidateWaypoints);
+        currentLevel = transition.location.levelId;
+        currentPosition = transition.location.position;
+        traversed = true;
+        break;
+      }
+
+      if (!traversed) return false;
     }
   }
 
