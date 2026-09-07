@@ -399,61 +399,6 @@ bool appendTraversal(
   return true;
 }
 
-bool appendConnectorEgress(
-  const World& world,
-  const Character& character,
-  const NavigationLink& link,
-  bool reverse,
-  const CharacterEngineDefaults& defaults,
-  const EntityLocation& seam,
-  Vec3& currentPosition,
-  std::vector<CharacterWaypoint>& output
-) {
-  // A connector endpoint is a coordinate-frame seam, not an ordinary A* tile.
-  // Move a single navigation cell away from the connector on the destination
-  // side before chaining another same-level path. One cell is enough to clear
-  // the shared stair/floor boundary without needlessly pushing the Character
-  // into unrelated nearby scene geometry.
-  const std::vector<Vec3>& destinationTraversal = reverse
-    ? link.forwardTraversal
-    : link.reverseTraversal;
-  if (destinationTraversal.empty()) {
-    currentPosition = seam.position;
-    return true;
-  }
-
-  Vec3 outward = seam.position - destinationTraversal.front();
-  outward.z = 0.0f;
-  const float outwardLength = std::sqrt(outward.x * outward.x + outward.y * outward.y);
-  if (outwardLength <= 1e-6f) {
-    currentPosition = seam.position;
-    return true;
-  }
-  outward = outward / outwardLength;
-
-  const float clearance = std::max(0.12f, defaults.navigationCellSize);
-  const Vec3 desired = seam.position + outward * clearance;
-  Vec3 resolved;
-  if (!segmentClear(
-    world,
-    character,
-    seam.levelId,
-    seam.position,
-    desired,
-    defaults,
-    &resolved
-  )) {
-    return false;
-  }
-
-  CharacterWaypoint egress;
-  egress.location = seam;
-  egress.location.position = resolved;
-  output.push_back(egress);
-  currentPosition = resolved;
-  return true;
-}
-
 } // namespace
 
 bool LevelTransitionPolicy::canTraverse(
@@ -582,18 +527,6 @@ bool DefaultNavigationPolicy::buildRoute(
 
       currentLevel = transition.location.levelId;
       currentPosition = transition.location.position;
-      if (!appendConnectorEgress(
-        world,
-        character,
-        link,
-        directed.reverse,
-        defaults,
-        transition.location,
-        currentPosition,
-        waypoints
-      )) {
-        return false;
-      }
     }
   }
 
