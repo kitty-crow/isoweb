@@ -14,6 +14,11 @@ using engine::HitBox;
 using engine::NavigationLink;
 using engine::Object;
 using engine::Ray;
+using engine::Room;
+using engine::RoomConnection;
+using engine::RoomLayout;
+using engine::RoomPortal;
+using engine::RoomSide;
 using engine::SceneSurfaceHit;
 using engine::SceneSurfaceKind;
 using engine::Vec3;
@@ -23,6 +28,10 @@ using engine::WorldObject;
 constexpr float EPSILON = 0.0015f;
 constexpr float FAR_DISTANCE = 1000.0f;
 constexpr float GROUND_LIMIT = 4.40f;
+constexpr float ROOM_SIZE = GROUND_LIMIT * 2.0f;
+constexpr float ROOM_WALL_HEIGHT = 1.10f;
+constexpr float ROOM_WALL_THICKNESS = 0.12f;
+constexpr float ROOM_OPENING_WIDTH = 1.45f;
 const Vec3 BASE_FOCUS(0.0f, 0.15f, 0.55f);
 
 constexpr int STAIR_STEP_COUNT = 7;
@@ -96,7 +105,15 @@ struct FloorProxy {
   Vec3 light;
 };
 
+
+struct RoomWallBox {
+  Vec3 centre;
+  Vec3 halfExtent;
+  Vec3 colour;
+};
+
 struct LevelDefinition {
+  RoomLayout roomLayout;
   std::vector<RenderObject> objects;
   std::vector<FloorHole> floorHoles;
   std::vector<Staircase> staircases;
@@ -199,6 +216,82 @@ NavigationLink navigationLink(const StairConnection& connection) {
   link.reverseTraversal = staircaseTraversal(descendingStaircase(connection));
   link.bidirectional = true;
   return link;
+}
+
+
+Room demoRoom(const std::string& id, float x, float y) {
+  Room room;
+  room.id = id;
+  room.centre = {x, y, 0.0f};
+  room.width = ROOM_SIZE;
+  room.depth = ROOM_SIZE;
+  room.floorZ = 0.0f;
+  room.wallHeight = ROOM_WALL_HEIGHT;
+  room.wallThickness = ROOM_WALL_THICKNESS;
+  return room;
+}
+
+RoomConnection roomConnection(
+  const std::string& id,
+  const std::string& a,
+  RoomSide aSide,
+  const std::string& b,
+  RoomSide bSide
+) {
+  RoomConnection connection;
+  connection.id = id;
+  connection.a.roomId = a;
+  connection.a.side = aSide;
+  connection.a.offset = 0.0f;
+  connection.a.width = ROOM_OPENING_WIDTH;
+  connection.b.roomId = b;
+  connection.b.side = bSide;
+  connection.b.offset = 0.0f;
+  connection.b.width = ROOM_OPENING_WIDTH;
+  connection.openPassage = true;
+  return connection;
+}
+
+RoomLayout lowerRoomLayout() {
+  RoomLayout layout;
+  layout.rooms.push_back(demoRoom("centre", 0.0f, 0.0f));
+  layout.rooms.push_back(demoRoom("north", 0.0f, ROOM_SIZE));
+  layout.rooms.push_back(demoRoom("south", 0.0f, -ROOM_SIZE));
+  layout.rooms.push_back(demoRoom("west", -ROOM_SIZE, 0.0f));
+  layout.rooms.push_back(demoRoom("east", ROOM_SIZE, 0.0f));
+  layout.connections.push_back(roomConnection("centre-north", "centre", RoomSide::North, "north", RoomSide::South));
+  layout.connections.push_back(roomConnection("centre-south", "centre", RoomSide::South, "south", RoomSide::North));
+  layout.connections.push_back(roomConnection("centre-west", "centre", RoomSide::West, "west", RoomSide::East));
+  layout.connections.push_back(roomConnection("centre-east", "centre", RoomSide::East, "east", RoomSide::West));
+  return layout;
+}
+
+RoomLayout middleRoomLayout() {
+  RoomLayout layout;
+  layout.rooms.push_back(demoRoom("centre", 0.0f, 0.0f));
+  layout.rooms.push_back(demoRoom("north", 0.0f, ROOM_SIZE));
+  layout.rooms.push_back(demoRoom("south", 0.0f, -ROOM_SIZE));
+  layout.rooms.push_back(demoRoom("north-west", -ROOM_SIZE, ROOM_SIZE));
+  layout.rooms.push_back(demoRoom("south-east", ROOM_SIZE, -ROOM_SIZE));
+  layout.connections.push_back(roomConnection("centre-north", "centre", RoomSide::North, "north", RoomSide::South));
+  layout.connections.push_back(roomConnection("centre-south", "centre", RoomSide::South, "south", RoomSide::North));
+  layout.connections.push_back(roomConnection("north-west", "north", RoomSide::West, "north-west", RoomSide::East));
+  layout.connections.push_back(roomConnection("south-east", "south", RoomSide::East, "south-east", RoomSide::West));
+  return layout;
+}
+
+RoomLayout upperRoomLayout() {
+  RoomLayout layout;
+  layout.rooms.push_back(demoRoom("centre", 0.0f, 0.0f));
+  layout.rooms.push_back(demoRoom("west", -ROOM_SIZE, 0.0f));
+  layout.rooms.push_back(demoRoom("east", ROOM_SIZE, 0.0f));
+  layout.rooms.push_back(demoRoom("south", 0.0f, -ROOM_SIZE));
+  layout.rooms.push_back(demoRoom("far-south", 0.0f, -ROOM_SIZE * 2.0f));
+  layout.connections.push_back(roomConnection("centre-west", "centre", RoomSide::West, "west", RoomSide::East));
+  layout.connections.push_back(roomConnection("centre-east", "centre", RoomSide::East, "east", RoomSide::West));
+  layout.connections.push_back(roomConnection("centre-south", "centre", RoomSide::South, "south", RoomSide::North));
+  layout.connections.push_back(roomConnection("south-far-south", "south", RoomSide::South, "far-south", RoomSide::North));
+  return layout;
 }
 
 float triangleIntersection(
@@ -541,6 +634,7 @@ class DemoLevel final : public engine::IWorldLevel {
 public:
   explicit DemoLevel(LevelDefinition definition)
       : definition_(std::move(definition)) {
+    buildRoomWalls();
     buildCollisionObjects();
     buildStairSteps();
     buildBounds();
@@ -604,16 +698,31 @@ public:
     return worldObjects_;
   }
 
-  bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const override {
-    if (objectIndex >= definition_.objects.size()) return false;
-    const RenderObject& object = definition_.objects[objectIndex];
-    return object.solid && overlapsConvexObject(candidate, object);
+  const RoomLayout* roomLayout() const override {
+    return &definition_.roomLayout;
+  }
+
+  bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const {
+    if (objectIndex < definition_.objects.size()) {
+      const RenderObject& object = definition_.objects[objectIndex];
+      return object.solid && overlapsConvexObject(candidate, object);
+    }
+
+    const std::size_t wallIndex = objectIndex - definition_.objects.size();
+    if (wallIndex >= roomWalls_.size()) return false;
+    Object wall;
+    wall.location = candidate.location;
+    wall.location.position = {0.0f, 0.0f, 0.0f};
+    wall.hitBox.minimum = roomWalls_[wallIndex].centre - roomWalls_[wallIndex].halfExtent;
+    wall.hitBox.maximum = roomWalls_[wallIndex].centre + roomWalls_[wallIndex].halfExtent;
+    wall.solid = true;
+    return wall.overlaps(candidate);
   }
 
   bool intersectsSolid(const HitBox& hitBox) const override {
     Object candidate;
     candidate.hitBox = hitBox;
-    for (std::size_t index = 0; index < definition_.objects.size(); ++index) {
+    for (std::size_t index = 0; index < worldObjects_.size(); ++index) {
       if (overlapsStatic(index, candidate)) return true;
     }
     return false;
@@ -629,15 +738,92 @@ private:
     return {object.size, object.size, object.height * 0.5f};
   }
 
+  void buildRoomWalls() {
+    roomWalls_.clear();
+    const RoomSide sides[4] = {
+      RoomSide::North,
+      RoomSide::South,
+      RoomSide::East,
+      RoomSide::West
+    };
+
+    struct Gap {
+      float minimum;
+      float maximum;
+    };
+
+    for (const Room& room : definition_.roomLayout.rooms) {
+      for (RoomSide side : sides) {
+        std::vector<Gap> gaps;
+        for (const RoomConnection& connection : definition_.roomLayout.connections) {
+          if (!connection.openPassage) continue;
+          const RoomPortal* portal = nullptr;
+          if (connection.a.roomId == room.id && connection.a.side == side) portal = &connection.a;
+          if (connection.b.roomId == room.id && connection.b.side == side) portal = &connection.b;
+          if (!portal) continue;
+          const float halfOpening = std::max(0.0f, portal->width) * 0.5f;
+          gaps.push_back({portal->offset - halfOpening, portal->offset + halfOpening});
+        }
+
+        const bool horizontal = side == RoomSide::North || side == RoomSide::South;
+        const float halfSpan = horizontal ? room.width * 0.5f : room.depth * 0.5f;
+        std::sort(gaps.begin(), gaps.end(), [](const Gap& a, const Gap& b) {
+          return a.minimum < b.minimum;
+        });
+
+        auto emit = [&](float minimum, float maximum) {
+          minimum = std::max(minimum, -halfSpan);
+          maximum = std::min(maximum, halfSpan);
+          if (maximum - minimum <= 0.02f) return;
+
+          RoomWallBox wall;
+          wall.colour = definition_.floorDark * 0.68f;
+          const float centreAlong = (minimum + maximum) * 0.5f;
+          const float halfAlong = (maximum - minimum) * 0.5f;
+          const float z = room.floorZ + room.wallHeight * 0.5f;
+          if (horizontal) {
+            const float y = room.centre.y +
+              (side == RoomSide::North ? room.depth * 0.5f : -room.depth * 0.5f);
+            wall.centre = {room.centre.x + centreAlong, y, z};
+            wall.halfExtent = {halfAlong, room.wallThickness * 0.5f, room.wallHeight * 0.5f};
+          } else {
+            const float x = room.centre.x +
+              (side == RoomSide::East ? room.width * 0.5f : -room.width * 0.5f);
+            wall.centre = {x, room.centre.y + centreAlong, z};
+            wall.halfExtent = {room.wallThickness * 0.5f, halfAlong, room.wallHeight * 0.5f};
+          }
+          roomWalls_.push_back(wall);
+        };
+
+        float cursor = -halfSpan;
+        for (const Gap& gap : gaps) {
+          const float gapMinimum = std::max(-halfSpan, gap.minimum);
+          const float gapMaximum = std::min(halfSpan, gap.maximum);
+          if (gapMaximum <= cursor) continue;
+          emit(cursor, gapMinimum);
+          cursor = std::max(cursor, gapMaximum);
+        }
+        emit(cursor, halfSpan);
+      }
+    }
+  }
+
   void buildCollisionObjects() {
     worldObjects_.clear();
-    worldObjects_.reserve(definition_.objects.size());
+    worldObjects_.reserve(definition_.objects.size() + roomWalls_.size());
     for (const RenderObject& object : definition_.objects) {
       const Vec3 extent = objectExtent(object);
       WorldObject worldObject;
       worldObject.solid = object.solid;
       worldObject.hitBox.minimum = object.position - extent;
       worldObject.hitBox.maximum = object.position + extent;
+      worldObjects_.push_back(worldObject);
+    }
+    for (const RoomWallBox& wall : roomWalls_) {
+      WorldObject worldObject;
+      worldObject.solid = true;
+      worldObject.hitBox.minimum = wall.centre - wall.halfExtent;
+      worldObject.hitBox.maximum = wall.centre + wall.halfExtent;
       worldObjects_.push_back(worldObject);
     }
   }
@@ -681,13 +867,20 @@ private:
     bounds_.focus = BASE_FOCUS;
     bounds_.points.clear();
     bounds_.points.reserve(
-      4 + definition_.objects.size() * 8 + definition_.staircases.size() * 8
+      definition_.roomLayout.rooms.size() * 8 +
+      definition_.objects.size() * 8 + definition_.staircases.size() * 8
     );
 
-    bounds_.points.push_back({-GROUND_LIMIT, -GROUND_LIMIT, 0.0f});
-    bounds_.points.push_back({GROUND_LIMIT, -GROUND_LIMIT, 0.0f});
-    bounds_.points.push_back({-GROUND_LIMIT, GROUND_LIMIT, 0.0f});
-    bounds_.points.push_back({GROUND_LIMIT, GROUND_LIMIT, 0.0f});
+    for (const Room& room : definition_.roomLayout.rooms) {
+      const float halfWidth = room.width * 0.5f;
+      const float halfDepth = room.depth * 0.5f;
+      for (float x : {room.centre.x - halfWidth, room.centre.x + halfWidth}) {
+        for (float y : {room.centre.y - halfDepth, room.centre.y + halfDepth}) {
+          bounds_.points.push_back({x, y, room.floorZ});
+          bounds_.points.push_back({x, y, room.floorZ + room.wallHeight});
+        }
+      }
+    }
 
     for (const RenderObject& object : definition_.objects) {
       const Vec3 extent = objectExtent(object);
@@ -1099,21 +1292,27 @@ private:
 
   bool intersectGround(const Ray& ray, float minimum, float maximum, Hit& hit) const {
     if (std::fabs(ray.direction.z) < 1e-7f) return false;
-    const float t = -ray.origin.z / ray.direction.z;
-    if (t < minimum || t > maximum) return false;
+    bool found = false;
+    float closest = maximum;
 
-    const Vec3 point = ray.origin + ray.direction * t;
-    if (std::fabs(point.x) > GROUND_LIMIT || std::fabs(point.y) > GROUND_LIMIT) return false;
-    if (insideFloorHole(point)) return false;
+    for (const Room& room : definition_.roomLayout.rooms) {
+      const float t = (room.floorZ - ray.origin.z) / ray.direction.z;
+      if (t < minimum || t > closest) continue;
+      const Vec3 point = ray.origin + ray.direction * t;
+      if (!room.containsXY(point.x, point.y, EPSILON)) continue;
+      if (insideFloorHole(point)) continue;
 
-    hit.found = true;
-    hit.t = t;
-    hit.point = point;
-    hit.normal = {0.0f, 0.0f, 1.0f};
-    hit.colour = floorColour(point);
-    hit.kind = SceneSurfaceKind::Ground;
-    hit.walkable = true;
-    return true;
+      found = true;
+      closest = t;
+      hit.found = true;
+      hit.t = t;
+      hit.point = point;
+      hit.normal = {0.0f, 0.0f, 1.0f};
+      hit.colour = floorColour(point);
+      hit.kind = SceneSurfaceKind::Ground;
+      hit.walkable = true;
+    }
+    return found;
   }
 
   Hit traceClosest(const Ray& ray, float minimum, float maximum) const {
@@ -1121,6 +1320,17 @@ private:
     for (const RenderObject& object : definition_.objects) {
       Hit hit;
       if (intersectObject(ray, object, minimum, maximum, hit)) {
+        result = hit;
+        maximum = hit.t;
+      }
+    }
+
+    for (const RoomWallBox& wall : roomWalls_) {
+      Hit hit;
+      if (intersectAxisAlignedBox(ray, wall.centre, wall.halfExtent, minimum, maximum, hit)) {
+        hit.colour = wall.colour;
+        hit.kind = SceneSurfaceKind::Object;
+        hit.walkable = false;
         result = hit;
         maximum = hit.t;
       }
@@ -1151,6 +1361,9 @@ private:
     Hit hit;
     for (const RenderObject& object : definition_.objects) {
       if (intersectObject(ray, object, minimum, maximum, hit)) return true;
+    }
+    for (const RoomWallBox& wall : roomWalls_) {
+      if (intersectAxisAlignedBox(ray, wall.centre, wall.halfExtent, minimum, maximum, hit)) return true;
     }
     for (std::size_t index = 0; index < stairSteps_.size(); ++index) {
       if (intersectStaircase(ray, index, minimum, maximum, hit)) return true;
@@ -1190,11 +1403,13 @@ private:
   LevelDefinition definition_;
   WorldBounds bounds_;
   std::vector<WorldObject> worldObjects_;
+  std::vector<RoomWallBox> roomWalls_;
   std::vector<std::array<StairStep, STAIR_STEP_COUNT>> stairSteps_;
 };
 
 LevelDefinition lowerLevel() {
   LevelDefinition level;
+  level.roomLayout = lowerRoomLayout();
   level.lightPosition = {4.20f, -3.20f, 5.60f};
   level.floorDark = LOWER_FLOOR_DARK;
   level.floorLight = LOWER_FLOOR_LIGHT;
@@ -1206,6 +1421,7 @@ LevelDefinition lowerLevel() {
 
 LevelDefinition middleLevel() {
   LevelDefinition level;
+  level.roomLayout = middleRoomLayout();
   level.lightPosition = {-3.60f, -4.20f, 6.50f};
   level.floorDark = MIDDLE_FLOOR_DARK;
   level.floorLight = MIDDLE_FLOOR_LIGHT;
@@ -1214,18 +1430,13 @@ LevelDefinition middleLevel() {
 
   level.floorHoles.push_back(stairHole(LOWER_MIDDLE_STAIR));
   level.staircases.push_back(descendingStaircase(LOWER_MIDDLE_STAIR));
-  level.floorProxies.push_back({
-    -STAIR_RISE,
-    LOWER_FLOOR_DARK,
-    LOWER_FLOOR_LIGHT
-  });
-
   level.staircases.push_back(ascendingStaircase(MIDDLE_UPPER_STAIR));
   return level;
 }
 
 LevelDefinition upperLevel() {
   LevelDefinition level;
+  level.roomLayout = upperRoomLayout();
   level.lightPosition = {3.80f, 4.40f, 7.20f};
   level.floorDark = UPPER_FLOOR_DARK;
   level.floorLight = UPPER_FLOOR_LIGHT;
@@ -1234,11 +1445,6 @@ LevelDefinition upperLevel() {
 
   level.floorHoles.push_back(stairHole(MIDDLE_UPPER_STAIR));
   level.staircases.push_back(descendingStaircase(MIDDLE_UPPER_STAIR));
-  level.floorProxies.push_back({
-    -STAIR_RISE,
-    MIDDLE_FLOOR_DARK,
-    MIDDLE_FLOOR_LIGHT
-  });
   return level;
 }
 
@@ -1258,6 +1464,10 @@ DemoWorld::DemoWorld()
   setLevelId(0, "lower");
   setLevelId(1, "middle");
   setLevelId(2, "upper");
+  setLevelViewOrigin("lower", {0.0f, 0.0f, 0.0f});
+  setLevelViewOrigin("middle", {0.0f, 0.0f, STAIR_RISE});
+  setLevelViewOrigin("upper", {0.0f, 0.0f, STAIR_RISE * 2.0f});
+  setLowerLevelPreviewDepth(2);
   setNavigationLinks({
     navigationLink(LOWER_MIDDLE_STAIR),
     navigationLink(MIDDLE_UPPER_STAIR)

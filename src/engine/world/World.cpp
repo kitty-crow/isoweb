@@ -136,6 +136,7 @@ World::World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defau
   activeLevelIndex_ = defaultLevelIndex_;
   levelIds_.reserve(levels_.size());
   levelXYBounds_.resize(levels_.size());
+  levelViewOrigins_.resize(levels_.size());
 
   for (std::size_t index = 0; index < levels_.size(); ++index) {
     levelIds_.push_back(std::to_string(index));
@@ -157,6 +158,8 @@ World::World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defau
     }
   }
   levelLights_.resize(levels_.size());
+  updateLevelResidency();
+  updateVisibleBounds();
 }
 
 const IWorldLevel& World::activeLevel() const {
@@ -190,15 +193,144 @@ std::size_t World::levelIndex(const std::string& levelId) const {
 }
 
 const WorldBounds& World::bounds() const {
-  return activeLevel().bounds();
+  return visibleBounds_;
 }
 
 const WorldBounds& World::bounds(const std::string& levelId) const {
   return levelFor(levelId).bounds();
 }
 
+
+const RoomLayout* World::roomLayout(const std::string& levelId) const {
+  const std::size_t index = levelIndex(levelId);
+  return index < levels_.size() ? levels_[index]->roomLayout() : nullptr;
+}
+
+Vec3 World::levelOffsetInActiveView(std::size_t index) const {
+  if (index >= levelViewOrigins_.size() || activeLevelIndex_ >= levelViewOrigins_.size()) {
+    return Vec3();
+  }
+  return levelViewOrigins_[index] - levelViewOrigins_[activeLevelIndex_];
+}
+
+void World::setLowerLevelPreviewDepth(std::size_t depth) {
+  const std::size_t maximum = levels_.empty() ? 0 : levels_.size() - 1;
+  lowerLevelPreviewDepth_ = std::min(depth, maximum);
+  updateLevelResidency();
+  updateVisibleBounds();
+  runtimeRenderCachePrepared_ = false;
+}
+
+bool World::setLevelViewOrigin(const std::string& levelId, const Vec3& origin) {
+  const std::size_t index = levelIndex(levelId);
+  if (index >= levelViewOrigins_.size()) return false;
+  levelViewOrigins_[index] = origin;
+  updateVisibleBounds();
+  runtimeRenderCachePrepared_ = false;
+  return true;
+}
+
+Vec3 World::levelViewOrigin(const std::string& levelId) const {
+  const std::size_t index = levelIndex(levelId);
+  return index < levelViewOrigins_.size() ? levelViewOrigins_[index] : Vec3();
+}
+
+Vec3 World::sampleVisibleEnvironment(
+  const Ray& ray,
+  float backgroundY,
+  SceneSurfaceHit& hit,
+  std::size_t* sourceLevelIndex,
+  Vec3* sourceLocalPoint
+) const {
+  hit = SceneSurfaceHit();
+  if (sourceLevelIndex) *sourceLevelIndex = activeLevelIndex_;
+  if (sourceLocalPoint) *sourceLocalPoint = Vec3();
+
+  SceneSurfaceHit activeHit;
+  const Vec3 activeColour = activeLevel().sampleWithHit(ray, backgroundY, activeHit);
+  if (activeHit.found) {
+    hit = activeHit;
+    if (sourceLocalPoint) *sourceLocalPoint = activeHit.point;
+    return activeColour;
+  }
+
+  // Upper layers intentionally win before lower layers are consulted. This is
+  // both the desired stacked-room compositing rule and an important early-out:
+  // pixels covered by the active level never trace either preview level.
+  for (
+    std::size_t depth = 1;
+    depth <= lowerLevelPreviewDepth_ && depth <= activeLevelIndex_;
+    ++depth
+  ) {
+    const std::size_t index = activeLevelIndex_ - depth;
+    const Vec3 offset = levelOffsetInActiveView(index);
+    const Ray localRay{ray.origin - offset, ray.direction};
+    SceneSurfaceHit localHit;
+    const Vec3 colour = levels_[index]->sampleWithHit(localRay, backgroundY, localHit);
+    if (!localHit.found) continue;
+
+    if (sourceLevelIndex) *sourceLevelIndex = index;
+    if (sourceLocalPoint) *sourceLocalPoint = localHit.point;
+    localHit.point = localHit.point + offset;
+    hit = localHit;
+    return colour;
+  }
+
+  return activeColour;
+}
+
+bool World::traceVisibleEnvironment(
+  const Ray& ray,
+  SceneSurfaceHit& hit,
+  std::size_t* sourceLevelIndex,
+  Vec3* sourceLocalPoint
+) const {
+  hit = SceneSurfaceHit();
+  if (sourceLevelIndex) *sourceLevelIndex = activeLevelIndex_;
+  if (sourceLocalPoint) *sourceLocalPoint = Vec3();
+
+  SceneSurfaceHit activeHit;
+  if (activeLevel().traceEnvironment(ray, activeHit)) {
+    hit = activeHit;
+    if (sourceLocalPoint) *sourceLocalPoint = activeHit.point;
+    return true;
+  }
+
+  for (
+    std::size_t depth = 1;
+    depth <= lowerLevelPreviewDepth_ && depth <= activeLevelIndex_;
+    ++depth
+  ) {
+    const std::size_t index = activeLevelIndex_ - depth;
+    const Vec3 offset = levelOffsetInActiveView(index);
+    const Ray localRay{ray.origin - offset, ray.direction};
+    SceneSurfaceHit localHit;
+    if (!levels_[index]->traceEnvironment(localRay, localHit)) continue;
+
+    if (sourceLevelIndex) *sourceLevelIndex = index;
+    if (sourceLocalPoint) *sourceLocalPoint = localHit.point;
+    localHit.point = localHit.point + offset;
+    hit = localHit;
+    return true;
+  }
+  return false;
+}
+
+Vec3 World::sampleEnvironment(
+  const Ray& ray,
+  float backgroundY,
+  float& environmentDistance
+) const {
+  SceneSurfaceHit hit;
+  const Vec3 colour = sampleVisibleEnvironment(ray, backgroundY, hit);
+  environmentDistance = hit.found
+    ? hit.distance
+    : std::numeric_limits<float>::max();
+  return colour;
+}
+
 bool World::traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const {
-  return activeLevel().traceEnvironment(ray, hit);
+  return traceVisibleEnvironment(ray, hit);
 }
 
 bool World::traceEnvironment(const std::string& levelId, const Ray& ray, SceneSurfaceHit& hit) const {
@@ -518,7 +650,7 @@ float World::runtimeSpriteLightFactor(const std::string& levelId, const Vec3& po
 
 Vec3 World::sample(const Ray& ray, float backgroundY) const {
   SceneSurfaceHit environmentHit;
-  const Vec3 environmentColour = activeLevel().sampleWithHit(ray, backgroundY, environmentHit);
+  const Vec3 environmentColour = sampleVisibleEnvironment(ray, backgroundY, environmentHit);
   const float environmentHitDistance = environmentHit.found
     ? environmentHit.distance
     : std::numeric_limits<float>::max();
@@ -718,6 +850,32 @@ std::size_t World::residentLevelCount() const {
   return count;
 }
 
+
+void World::updateLevelResidency() {
+  for (std::size_t index = 0; index < levels_.size(); ++index) {
+    const bool previewResident =
+      index <= activeLevelIndex_ &&
+      activeLevelIndex_ - index <= lowerLevelPreviewDepth_;
+    levels_[index]->setResident(previewResident);
+  }
+}
+
+void World::updateVisibleBounds() {
+  visibleBounds_ = activeLevel().bounds();
+  visibleBounds_.focus = activeLevel().bounds().focus;
+  for (
+    std::size_t depth = 1;
+    depth <= lowerLevelPreviewDepth_ && depth <= activeLevelIndex_;
+    ++depth
+  ) {
+    const std::size_t index = activeLevelIndex_ - depth;
+    const Vec3 offset = levelOffsetInActiveView(index);
+    const WorldBounds& lower = levels_[index]->bounds();
+    visibleBounds_.points.reserve(visibleBounds_.points.size() + lower.points.size());
+    for (const Vec3& point : lower.points) visibleBounds_.points.push_back(point + offset);
+  }
+}
+
 bool World::intersectsSolid(const HitBox& hitBox) const {
   return activeLevel().intersectsSolid(hitBox);
 }
@@ -778,8 +936,31 @@ bool World::containsPosition(const std::string& levelId, const Vec3& position) c
 }
 
 bool World::pickWalkableSurface(const Ray& ray, SceneSurfaceHit& hit) const {
-  if (!traceEnvironment(ray, hit)) return false;
+  // Compatibility API remains active-level only. Callers that want an exposed
+  // lower preview as a destination use pickWalkableDestination().
+  if (!activeLevel().traceEnvironment(ray, hit)) return false;
   return hit.walkable;
+}
+
+bool World::pickWalkableDestination(
+  const Ray& ray,
+  EntityLocation& destination,
+  SceneSurfaceHit* hit
+) const {
+  SceneSurfaceHit visible;
+  std::size_t sourceIndex = activeLevelIndex_;
+  Vec3 sourcePoint;
+  if (!traceVisibleEnvironment(ray, visible, &sourceIndex, &sourcePoint) || !visible.walkable) {
+    return false;
+  }
+
+  destination.levelId = levelIds_[sourceIndex];
+  destination.position = sourcePoint;
+  if (hit) {
+    *hit = visible;
+    hit->point = sourcePoint;
+  }
+  return true;
 }
 
 bool World::walkableSurfaceAt(
@@ -835,9 +1016,9 @@ bool World::isDefaultLevel() const {
 
 bool World::setActiveLevel(std::size_t index) {
   if (index >= levels_.size() || index == activeLevelIndex_) return false;
-  levels_[activeLevelIndex_]->setResident(false);
   activeLevelIndex_ = index;
-  levels_[activeLevelIndex_]->setResident(true);
+  updateLevelResidency();
+  updateVisibleBounds();
   runtimeRenderCachePrepared_ = false;
   return true;
 }

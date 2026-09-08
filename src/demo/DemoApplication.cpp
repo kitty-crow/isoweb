@@ -156,11 +156,8 @@ bool DemoApplication::pointerTap(float x, float y, bool additive) {
   if (characters_.selection().ids().empty()) return false;
 
   engine::SceneSurfaceHit surface;
-  if (!world_.pickWalkableSurface(ray, surface)) return false;
-
   engine::EntityLocation destination;
-  destination.levelId = world_.activeLevelId();
-  destination.position = surface.point;
+  if (!world_.pickWalkableDestination(ray, destination, &surface)) return false;
   const std::size_t commanded = characters_.commandSelected(destination);
   if (commanded > 0) redraw();
   return commanded > 0;
@@ -189,8 +186,8 @@ bool DemoApplication::pointerDoubleTap(float x, float y) {
 bool DemoApplication::pointerWalkable(float x, float y) const {
   const engine::Ray ray = renderer_.rayForPixel(x, y);
   if (characters_.pick(ray)) return false;
-  engine::SceneSurfaceHit surface;
-  return world_.pickWalkableSurface(ray, surface);
+  engine::EntityLocation destination;
+  return world_.pickWalkableDestination(ray, destination);
 }
 
 std::size_t DemoApplication::dragSelect(float x0, float y0, float x1, float y1, bool additive) {
