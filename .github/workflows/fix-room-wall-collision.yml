@@ -1,0 +1,56 @@
+name: Fix room wall collision integration
+
+on:
+  push:
+    branches: [feat/generic-room-layouts-preview-stack]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.head_commit.message == 'Fix room wall collision integration'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve world object API and isolate room-boundary collision
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def rep(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              if s.count(old) != 1:
+                  raise SystemExit(f'{path}: expected 1 match, got {s.count(old)} for {old[:100]!r}')
+              p.write_text(s.replace(old, new, 1))
+
+          rep('src/engine/world/World.hpp',
+              '  virtual bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const = 0;\n  virtual bool intersectsSolid(const HitBox& hitBox) const = 0;\n',
+              '  virtual bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const = 0;\n  // Static boundaries that are structural rather than ordinary world objects\n  // may participate in collision without changing objects() API semantics.\n  virtual bool overlapsAdditionalStatic(const Object&) const { return false; }\n  virtual bool intersectsSolid(const HitBox& hitBox) const = 0;\n')
+
+          rep('src/engine/world/World.cpp',
+              '    if (enabled && targetLevel.overlapsStatic(index, candidate)) return true;\n  }\n\n  for (const Object* object : entities_.all()) {\n',
+              '    if (enabled && targetLevel.overlapsStatic(index, candidate)) return true;\n  }\n  if (targetLevel.overlapsAdditionalStatic(candidate)) return true;\n\n  for (const Object* object : entities_.all()) {\n')
+
+          old = '''  bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const {\n    if (objectIndex < definition_.objects.size()) {\n      const RenderObject& object = definition_.objects[objectIndex];\n      return object.solid && overlapsConvexObject(candidate, object);\n    }\n\n    const std::size_t wallIndex = objectIndex - definition_.objects.size();\n    if (wallIndex >= roomWalls_.size()) return false;\n    Object wall;\n    wall.location = candidate.location;\n    wall.location.position = {0.0f, 0.0f, 0.0f};\n    wall.hitBox.minimum = roomWalls_[wallIndex].centre - roomWalls_[wallIndex].halfExtent;\n    wall.hitBox.maximum = roomWalls_[wallIndex].centre + roomWalls_[wallIndex].halfExtent;\n    wall.solid = true;\n    return wall.overlaps(candidate);\n  }\n\n  bool intersectsSolid(const HitBox& hitBox) const override {\n    Object candidate;\n    candidate.hitBox = hitBox;\n    for (std::size_t index = 0; index < worldObjects_.size(); ++index) {\n      if (overlapsStatic(index, candidate)) return true;\n    }\n    return false;\n  }\n'''
+          new = '''  bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const override {\n    if (objectIndex >= definition_.objects.size()) return false;\n    const RenderObject& object = definition_.objects[objectIndex];\n    return object.solid && overlapsConvexObject(candidate, object);\n  }\n\n  bool overlapsAdditionalStatic(const Object& candidate) const override {\n    for (const RoomWallBox& box : roomWalls_) {\n      Object wall;\n      wall.location = candidate.location;\n      wall.location.position = {0.0f, 0.0f, 0.0f};\n      wall.hitBox.minimum = box.centre - box.halfExtent;\n      wall.hitBox.maximum = box.centre + box.halfExtent;\n      wall.solid = true;\n      if (wall.overlaps(candidate)) return true;\n    }\n    return false;\n  }\n\n  bool intersectsSolid(const HitBox& hitBox) const override {\n    Object candidate;\n    candidate.hitBox = hitBox;\n    for (std::size_t index = 0; index < definition_.objects.size(); ++index) {\n      if (overlapsStatic(index, candidate)) return true;\n    }\n    return overlapsAdditionalStatic(candidate);\n  }\n'''
+          rep('src/demo/DemoWorld.cpp', old, new)
+
+          rep('src/demo/DemoWorld.cpp',
+              '    worldObjects_.reserve(definition_.objects.size() + roomWalls_.size());\n',
+              '    worldObjects_.reserve(definition_.objects.size());\n')
+
+          old_push = '''    for (const RoomWallBox& wall : roomWalls_) {\n      WorldObject worldObject;\n      worldObject.solid = true;\n      worldObject.hitBox.minimum = wall.centre - wall.halfExtent;\n      worldObject.hitBox.maximum = wall.centre + wall.halfExtent;\n      worldObjects_.push_back(worldObject);\n    }\n'''
+          rep('src/demo/DemoWorld.cpp', old_push, '')
+          PY
+      - name: Commit fix
+        run: |
+          rm .github/workflows/fix-room-wall-collision.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Keep room boundaries out of world object listings"
+          git push
