@@ -285,7 +285,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_set_character_speed(const char* id, f
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_set_character_crouched_height(const char* id, float height) {
   auto* character = application().character(text(id));
   if (!character) return 0;
-  character->crouchedHeight = std::max(0.0f, height);
+  character->crouchedHeight = height > 0.0f ? height : 0.0f;
   if (!character->canCrouch()) character->crouching = false;
   return 1;
 }
