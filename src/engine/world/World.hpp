@@ -249,6 +249,8 @@ private:
   struct RuntimeRenderEntry {
     const Character* character = nullptr;
     Vec3 renderPosition;
+    Vec3 viewOffset;
+    std::size_t levelIndex = 0;
     Object proxy;
     bool selected = false;
 

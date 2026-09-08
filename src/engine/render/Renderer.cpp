@@ -13,6 +13,20 @@ namespace {
 constexpr std::size_t MAX_STATIC_CACHE_PIXELS = 600000;
 constexpr float PAN_SHIFT_EPSILON = 0.025f;
 constexpr float NO_HIT_DISTANCE = 1.0e30f;
+constexpr float BASE_RAY_ORIGIN_DISTANCE = 9.0f;
+constexpr float RAY_ORIGIN_MARGIN = 4.0f;
+
+float rayOriginDistance(const WorldBounds& bounds, const Vec3& forward) {
+  float distance = BASE_RAY_ORIGIN_DISTANCE;
+  for (const Vec3& point : bounds.points) {
+    // A ray begins at focus - forward * distance. Ensure every visible-bound
+    // point is comfortably in front of that plane. The margin also covers
+    // normal Character height beyond a floor-only edge of the static bounds.
+    const float projection = dot(point - bounds.focus, forward);
+    distance = std::max(distance, -projection + RAY_ORIGIN_MARGIN);
+  }
+  return distance;
+}
 
 const std::array<float, 255>& gammaThresholds() {
   // The old conversion was round(pow(linear, 1/2.2) * 255). The boundary at
@@ -230,7 +244,10 @@ Ray Renderer::rayForPixel(float px, float py) const {
     ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
     : bounds.focus;
 
-  return {focus - forward * 9.0f + right * screenX + up * screenY, forward};
+  return {
+    focus - forward * rayOriginDistance(bounds, forward) + right * screenX + up * screenY,
+    forward
+  };
 }
 
 bool Renderer::groundPointForPixel(float px, float py, float groundZ, Vec3& point) const {
@@ -332,7 +349,9 @@ void Renderer::render() {
   const float inverseFrameHeight = 1.0f / static_cast<float>(frameHeight_);
   const Vec3 rightStep = right * (width * inverseFrameWidth);
   const Vec3 downStep = up * (-height * inverseFrameHeight);
-  const Vec3 cornerOrigin = focus - forward * 9.0f - right * (width * 0.5f) + up * (height * 0.5f);
+  const float originDistance = rayOriginDistance(bounds, forward);
+  const Vec3 cornerOrigin =
+    focus - forward * originDistance - right * (width * 0.5f) + up * (height * 0.5f);
 
   const Vec3 sampleOffsets[4] = {
     rightStep * 0.25f + downStep * 0.25f,

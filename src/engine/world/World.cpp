@@ -444,7 +444,21 @@ bool World::characterVisibleOnActiveLevel(const Character& character) const {
 }
 
 bool World::renderPositionFor(const Character& character, Vec3& position) const {
-  return mapLiminalPosition(character.location, activeLevelId(), position);
+  // Liminal Characters are only visible through connector endpoint mapping.
+  // Do not reinterpret a Character on an unrelated connector as an ordinary
+  // lower-level preview entity merely because its simulation level is resident.
+  if (!character.location.liminalObjectId.empty()) {
+    return mapLiminalPosition(character.location, activeLevelId(), position);
+  }
+
+  // Ordinary Characters on resident lower preview levels are translated into
+  // the same active-view coordinate stack as static preview geometry. Levels
+  // above the active one, or below the configured preview depth, stay hidden.
+  const std::size_t index = levelIndex(character.location.levelId);
+  if (index >= levels_.size() || index > activeLevelIndex_) return false;
+  if (activeLevelIndex_ - index > lowerLevelPreviewDepth_) return false;
+  position = character.location.position + levelOffsetInActiveView(index);
+  return true;
 }
 
 void World::prepareRenderFrame(const Vec3& viewDirection) const {
@@ -478,13 +492,21 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
   destinationFeedbackMarkers_.reserve(characters.size());
   const std::string& levelId = activeLevelId();
 
+  const auto previewLevelVisible = [&](const std::string& candidateLevelId, std::size_t& index) {
+    index = levelIndex(candidateLevelId);
+    return index < levels_.size() &&
+      index <= activeLevelIndex_ &&
+      activeLevelIndex_ - index <= lowerLevelPreviewDepth_;
+  };
+
   for (const Character* character : characters) {
     if (!character) continue;
 
+    std::size_t destinationLevelIndex = levels_.size();
     if (
       character->moving &&
       character->movement.hasDestination &&
-      character->movement.destination.levelId == levelId
+      previewLevelVisible(character->movement.destination.levelId, destinationLevelIndex)
     ) {
       Vec3 forward = character->movement.destinationForward;
       float magnitudeSquared = forward.x * forward.x + forward.y * forward.y;
@@ -500,7 +522,8 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
       }
 
       DestinationFeedbackMarker marker;
-      marker.position = character->movement.destination.position;
+      marker.position = character->movement.destination.position +
+        levelOffsetInActiveView(destinationLevelIndex);
       marker.forward = forward;
       marker.right = {forward.y, -forward.x, 0.0f};
       marker.minimumX = character->hitBox.minimum.x;
@@ -518,6 +541,24 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
     RuntimeRenderEntry entry;
     entry.character = character;
     entry.renderPosition = renderPosition;
+    entry.viewOffset = renderPosition - character->location.position;
+
+    // A liminal Character explicitly projected into the active endpoint keeps
+    // the active endpoint's lighting, matching the pre-preview behaviour.
+    // Otherwise a lower preview Character uses the light/shadow geometry of
+    // the level it actually occupies.
+    Vec3 activeMappedPosition;
+    const bool mappedToActive = mapLiminalPosition(
+      character->location,
+      levelId,
+      activeMappedPosition
+    );
+    entry.levelIndex = activeLevelIndex_;
+    if (!mappedToActive) {
+      const std::size_t characterLevelIndex = levelIndex(character->location.levelId);
+      if (characterLevelIndex < levels_.size()) entry.levelIndex = characterLevelIndex;
+    }
+
     entry.proxy = renderProxy(*character, renderPosition, levelId);
     entry.selected = characterSystem_ && characterSystem_->isSelected(character->id);
 
@@ -776,7 +817,10 @@ Vec3 World::sampleRuntimeEntities(
             if (entry.selected && characterSystem_) {
               sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
             }
-            sample.colour = sample.colour * runtimeSpriteLightFactor(activeLevelIndex_, sample.point);
+            sample.colour = sample.colour * runtimeSpriteLightFactor(
+              entry.levelIndex,
+              sample.point - entry.viewOffset
+            );
             samples.push_back(sample);
           }
         }
@@ -798,8 +842,8 @@ Vec3 World::sampleRuntimeEntities(
       sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
     }
     sample.colour = shadeRuntimeSurface(
-      activeLevelIndex_,
-      sample.point,
+      entry.levelIndex,
+      sample.point - entry.viewOffset,
       hit.worldNormal,
       sample.colour
     );

@@ -140,6 +140,58 @@ int main() {
     "destination feedback remained after movement stopped"
   );
 
-  std::cout << "Character destination acknowledgement footprint smoke test passed.\n";
+  // Lower preview runtime entities remain dynamic without rendering a second
+  // complete level. From the upper level, choose a ray that misses upper and
+  // middle geometry before reaching an exposed point on the lower west room.
+  isoweb::demo::DemoWorld previewWorld;
+  CharacterSystem previewCharacters(previewWorld);
+  require(previewWorld.levelUp(), "could not switch preview regression to upper level");
+
+  std::unique_ptr<Character> lowerOwned(new Character());
+  Character* lowerCharacter = lowerOwned.get();
+  lowerCharacter->id = "lower-preview-runner";
+  lowerCharacter->location = {"demo", "default", "lower", {-12.0f, 0.0f, 0.0f}};
+  lowerCharacter->hitBox.minimum = {-0.38f, -0.16f, 0.0f};
+  lowerCharacter->hitBox.maximum = {0.38f, 0.16f, 1.65f};
+  lowerCharacter->forward = {0.0f, 1.0f, 0.0f};
+  lowerCharacter->moving = true;
+  lowerCharacter->movement.hasDestination = true;
+  lowerCharacter->movement.destination = lowerCharacter->location;
+  lowerCharacter->movement.destination.position = {-12.0f, -2.0f, 0.0f};
+  lowerCharacter->movement.destinationForward = {0.0f, -1.0f, 0.0f};
+  lowerCharacter->movement.feedbackElapsedSeconds = 0.08f;
+  previewWorld.entities().add(std::move(lowerOwned));
+
+  previewCharacters.selection().style.tint = {0.92f, 0.18f, 0.86f};
+  previewCharacters.selection().style.strength = 0.72f;
+
+  const Vec3 previewDirection = normalisedHorizontal({1.0f, 1.0f, 0.0f}) * 0.81649658f +
+    Vec3(0.0f, 0.0f, -0.57735027f);
+  auto previewSample = [&](const Vec3& activeViewPoint) {
+    const Ray ray{activeViewPoint - previewDirection * 24.0f, previewDirection};
+    float environmentDistance = 0.0f;
+    SamplePair pair;
+    pair.environment = previewWorld.sampleEnvironment(ray, 0.5f, environmentDistance);
+    pair.runtime = previewWorld.compositeRuntime(ray, pair.environment, environmentDistance);
+    return pair;
+  };
+
+  previewWorld.prepareRenderFrame(previewDirection);
+
+  // Lower floor is displayed 2.8 units beneath upper in this demo. Sample the
+  // Character body above that floor at a screen ray known to be exposed.
+  const SamplePair lowerBody = previewSample({-12.0f, 0.0f, -2.0f});
+  require(
+    colourDistance(lowerBody.environment, lowerBody.runtime) > 0.03f,
+    "Character on second lower preview level was not visible from upper"
+  );
+
+  const SamplePair lowerDestinationFeedback = previewSample({-12.0f, -2.0f, -2.8f});
+  require(
+    colourDistance(lowerDestinationFeedback.environment, lowerDestinationFeedback.runtime) > 0.02f,
+    "destination feedback on second lower preview level was not visible from upper"
+  );
+
+  std::cout << "Character destination acknowledgement and lower-preview runtime smoke test passed.\n";
   return 0;
 }
