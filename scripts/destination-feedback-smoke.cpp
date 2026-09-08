@@ -169,31 +169,37 @@ int main() {
 
   const Vec3 previewDirection = normalisedHorizontal({1.0f, 1.0f, 0.0f}) * 0.81649658f +
     Vec3(0.0f, 0.0f, -0.57735027f);
-  auto previewSample = [&](const Vec3& activeViewPoint) {
-    const Ray ray{activeViewPoint - previewDirection * 24.0f, previewDirection};
-    float environmentDistance = 0.0f;
-    SamplePair pair;
-    pair.environment = previewWorld.sampleEnvironment(ray, 0.5f, environmentDistance);
-    pair.runtime = previewWorld.compositeRuntime(ray, pair.environment, environmentDistance);
-    return pair;
-  };
-
   previewWorld.prepareRenderFrame(previewDirection);
 
   const float lowerPreviewZ = previewWorld.levelViewOrigin("lower").z -
     previewWorld.levelViewOrigin("upper").z;
-  // Sample the Character body above the configured lower-floor offset at a
-  // screen ray known to be exposed.
-  const SamplePair lowerBody = previewSample({-12.0f, 0.0f, lowerPreviewZ + 0.80f});
+  auto cheapPreview = [&](const Vec3& floorPoint, Vec3& colour) {
+    const Ray ray{floorPoint - previewDirection * 24.0f, previewDirection};
+    return previewWorld.sampleLowDetailLowerPreview(ray, colour);
+  };
+
+  Vec3 lowerBody;
   require(
-    colourDistance(lowerBody.environment, lowerBody.runtime) > 0.03f,
-    "Character on second lower preview level was not visible from upper"
+    cheapPreview({-12.0f, 0.0f, lowerPreviewZ}, lowerBody),
+    "second lower preview floor was not available to the cheap sampler"
+  );
+  require(
+    colourDistance(lowerBody, {0.82f, 0.84f, 0.88f}) < 0.05f,
+    "Character on second lower preview level was not visible in the cheap preview"
   );
 
-  const SamplePair lowerDestinationFeedback = previewSample({-11.0f, -2.0f, lowerPreviewZ});
+  Vec3 withMarker;
   require(
-    colourDistance(lowerDestinationFeedback.environment, lowerDestinationFeedback.runtime) > 0.02f,
-    "destination feedback on second lower preview level was not visible from upper"
+    cheapPreview({-11.0f, -2.0f, lowerPreviewZ}, withMarker),
+    "lower destination preview floor was not available"
+  );
+  lowerCharacter->moving = false;
+  previewWorld.prepareRenderFrame(previewDirection);
+  Vec3 withoutMarker;
+  require(cheapPreview({-11.0f, -2.0f, lowerPreviewZ}, withoutMarker), "marker baseline preview missing");
+  require(
+    colourDistance(withMarker, withoutMarker) > 0.02f,
+    "destination feedback on second lower preview level was not visible in the cheap preview"
   );
 
   std::cout << "Character destination acknowledgement and lower-preview runtime smoke test passed.\n";

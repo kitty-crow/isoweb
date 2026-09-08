@@ -33,6 +33,14 @@ public:
   // unchanged. Defaults preserve compatibility for worlds that do not opt in.
   virtual bool supportsStaticSampleCache() const { return false; }
 
+  // Lower levels are decorative previews, not additional fully rendered scenes.
+  // Implementations may expose a cheap analytic preview sampler which the
+  // renderer evaluates at reduced resolution. This must not perform scene
+  // ray-tracing, shadow queries, or other active-level-quality work.
+  virtual bool supportsLowDetailLowerPreview() const { return false; }
+  virtual float lowerPreviewResolutionScale() const { return 0.25f; }
+  virtual bool sampleLowDetailLowerPreview(const Ray&, Vec3&) const { return false; }
+
   virtual Vec3 sampleEnvironment(
     const Ray& ray,
     float backgroundY,

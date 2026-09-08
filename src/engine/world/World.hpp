@@ -93,6 +93,11 @@ public:
   const WorldBounds& bounds() const override;
   Vec3 sample(const Ray& ray, float backgroundY) const override;
   bool supportsStaticSampleCache() const override { return true; }
+  bool supportsLowDetailLowerPreview() const override {
+    return lowerLevelPreviewDepth_ > 0 && activeLevelIndex_ > 0;
+  }
+  float lowerPreviewResolutionScale() const override { return lowerPreviewResolutionScale_; }
+  bool sampleLowDetailLowerPreview(const Ray& ray, Vec3& colour) const override;
 
   Vec3 sampleEnvironment(
     const Ray& ray,
@@ -141,11 +146,12 @@ public:
   const WorldBounds& bounds(const std::string& levelId) const;
   const RoomLayout* roomLayout(const std::string& levelId) const;
 
-  // Preview depth is configuration, not a fixed engine limit. A depth of two
-  // means active + first lower + second lower may participate in the static
-  // environment render, with upper layers taking visual precedence.
+  // Preview depth is configuration, not a fixed engine limit. Lower levels
+  // remain available for topology/input but normal rendering uses only a cheap
+  // reduced-resolution floor-plan preview; only the active level is full quality.
   void setLowerLevelPreviewDepth(std::size_t depth);
   std::size_t lowerLevelPreviewDepth() const { return lowerLevelPreviewDepth_; }
+  void setLowerPreviewResolutionScale(float scale);
   bool setLevelViewOrigin(const std::string& levelId, const Vec3& origin);
   Vec3 levelViewOrigin(const std::string& levelId) const;
 
@@ -282,6 +288,30 @@ private:
     float elapsedSeconds = 0.0f;
   };
 
+  struct LowDetailPreviewCharacter {
+    std::size_t levelIndex = 0;
+    Vec3 position;
+    Vec3 forward = {0.0f, 1.0f, 0.0f};
+    Vec3 right = {1.0f, 0.0f, 0.0f};
+    float minimumX = 0.0f;
+    float maximumX = 0.0f;
+    float minimumY = 0.0f;
+    float maximumY = 0.0f;
+    bool selected = false;
+  };
+
+  struct LowDetailPreviewMarker {
+    std::size_t levelIndex = 0;
+    Vec3 position;
+    Vec3 forward = {0.0f, 1.0f, 0.0f};
+    Vec3 right = {1.0f, 0.0f, 0.0f};
+    float minimumX = 0.0f;
+    float maximumX = 0.0f;
+    float minimumY = 0.0f;
+    float maximumY = 0.0f;
+    float elapsedSeconds = 0.0f;
+  };
+
   const IWorldLevel& activeLevel() const;
   const IWorldLevel& levelFor(const std::string& levelId) const;
   Vec3 sampleVisibleEnvironment(
@@ -328,6 +358,7 @@ private:
   std::vector<LevelLight> levelLights_;
   std::vector<Vec3> levelViewOrigins_;
   std::size_t lowerLevelPreviewDepth_ = 0;
+  float lowerPreviewResolutionScale_ = 0.25f;
   WorldBounds visibleBounds_;
   std::size_t activeLevelIndex_ = 0;
   std::size_t defaultLevelIndex_ = 0;
@@ -339,6 +370,8 @@ private:
 
   mutable std::vector<RuntimeRenderEntry> runtimeRenderEntries_;
   mutable std::vector<DestinationFeedbackMarker> destinationFeedbackMarkers_;
+  mutable std::vector<LowDetailPreviewCharacter> lowDetailPreviewCharacters_;
+  mutable std::vector<LowDetailPreviewMarker> lowDetailPreviewMarkers_;
   mutable std::vector<RuntimeSample> runtimeSampleScratch_;
   mutable Vec3 runtimeSpritePlaneNormal_;
   mutable Vec3 runtimeSpriteScreenRight_;

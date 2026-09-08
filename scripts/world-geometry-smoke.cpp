@@ -42,7 +42,7 @@ int main() {
   if (!middleRooms->connected("north", "north-west") || !middleRooms->connected("south", "south-east")) return 23;
   if (!upperRooms->connected("centre", "south") || !upperRooms->connected("south", "far-south")) return 24;
   if (world.lowerLevelPreviewDepth() != 2) return 25;
-  if (world.residentLevelCount() != 2 || !world.isLevelResident("lower") || !world.isLevelResident("middle")) return 26;
+  if (world.residentLevelCount() != 1 || world.isLevelResident("lower") || !world.isLevelResident("middle")) return 26;
   const float nominalCharacterHeight = 1.65f;
   const float storeyHeight = world.levelViewOrigin("middle").z - world.levelViewOrigin("lower").z;
   if (storeyHeight + 0.001f < nominalCharacterHeight * 1.25f) return 36;
@@ -97,8 +97,8 @@ int main() {
   if (!near(exposedDestination.position.x, -8.80f) || !near(exposedDestination.position.z, 0.0f)) return 31;
 
   if (!world.levelUp()) return 32;
-  if (world.activeLevelId() != "upper" || world.residentLevelCount() != 3) return 33;
-  if (!world.isLevelResident("middle") || !world.isLevelResident("lower")) return 34;
+  if (world.activeLevelId() != "upper" || world.residentLevelCount() != 1) return 33;
+  if (world.isLevelResident("middle") || world.isLevelResident("lower")) return 34;
   if (!world.levelDown()) return 35;
 
   // This ray lies inside the old sphere AABB but outside the actual sphere.

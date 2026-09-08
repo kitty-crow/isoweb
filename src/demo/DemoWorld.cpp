@@ -1593,6 +1593,9 @@ LevelDefinition lowerLevel() {
   level.lightPosition = {4.20f, -3.20f, 5.60f};
   level.floorDark = LOWER_FLOOR_DARK;
   level.floorLight = LOWER_FLOOR_LIGHT;
+  level.roomLayout.previewFloorDark = LOWER_FLOOR_DARK;
+  level.roomLayout.previewFloorLight = LOWER_FLOOR_LIGHT;
+  level.roomLayout.previewWall = LOWER_FLOOR_DARK * 0.68f;
   level.objects.push_back({ShapeKind::Cone, {-1.30f, -0.80f, 0.82f}, 0.86f, 1.64f, {0.62f, 0.25f, 0.82f}, true});
   level.objects.push_back({ShapeKind::Pyramid, {1.20f, 0.85f, 0.83f}, 0.92f, 1.66f, {0.96f, 0.78f, 0.16f}, true});
   level.staircases.push_back(ascendingStaircase(LOWER_MIDDLE_STAIR));
@@ -1605,6 +1608,9 @@ LevelDefinition middleLevel() {
   level.lightPosition = {-3.60f, -4.20f, 6.50f};
   level.floorDark = MIDDLE_FLOOR_DARK;
   level.floorLight = MIDDLE_FLOOR_LIGHT;
+  level.roomLayout.previewFloorDark = MIDDLE_FLOOR_DARK;
+  level.roomLayout.previewFloorLight = MIDDLE_FLOOR_LIGHT;
+  level.roomLayout.previewWall = MIDDLE_FLOOR_DARK * 0.68f;
   level.objects.push_back({ShapeKind::Cube, {-1.05f, 0.65f, 0.775f}, 0.80f, 1.55f, {0.18f, 0.48f, 0.88f}, true});
   level.objects.push_back({ShapeKind::Sphere, {1.05f, -0.25f, 0.90f}, 0.90f, 1.80f, {0.95f, 0.43f, 0.12f}, true});
 
@@ -1620,6 +1626,9 @@ LevelDefinition upperLevel() {
   level.lightPosition = {3.80f, 4.40f, 7.20f};
   level.floorDark = UPPER_FLOOR_DARK;
   level.floorLight = UPPER_FLOOR_LIGHT;
+  level.roomLayout.previewFloorDark = UPPER_FLOOR_DARK;
+  level.roomLayout.previewFloorLight = UPPER_FLOOR_LIGHT;
+  level.roomLayout.previewWall = UPPER_FLOOR_DARK * 0.68f;
   level.objects.push_back({ShapeKind::Dodecahedron, {-1.35f, 0.95f, 1.00f}, 0.72f, 0.0f, {0.18f, 0.50f, 0.94f}, true});
   level.objects.push_back({ShapeKind::Icosahedron, {1.30f, -0.95f, 1.10f}, 0.78f, 0.0f, {0.90f, 0.16f, 0.14f}, true});
 
@@ -1648,6 +1657,7 @@ DemoWorld::DemoWorld()
   setLevelViewOrigin("middle", {0.0f, 0.0f, DEMO_STOREY_HEIGHT});
   setLevelViewOrigin("upper", {0.0f, 0.0f, DEMO_STOREY_HEIGHT * 2.0f});
   setLowerLevelPreviewDepth(2);
+  setLowerPreviewResolutionScale(0.25f);
   setNavigationLinks({
     navigationLink(LOWER_MIDDLE_STAIR),
     navigationLink(MIDDLE_UPPER_STAIR)

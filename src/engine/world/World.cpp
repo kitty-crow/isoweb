@@ -221,6 +221,10 @@ void World::setLowerLevelPreviewDepth(std::size_t depth) {
   runtimeRenderCachePrepared_ = false;
 }
 
+void World::setLowerPreviewResolutionScale(float scale) {
+  lowerPreviewResolutionScale_ = std::max(0.0625f, std::min(0.5f, scale));
+}
+
 bool World::setLevelViewOrigin(const std::string& levelId, const Vec3& origin) {
   const std::size_t index = levelIndex(levelId);
   if (index >= levelViewOrigins_.size()) return false;
@@ -304,6 +308,8 @@ bool World::traceVisibleEnvironment(
     const std::size_t index = activeLevelIndex_ - depth;
     const Vec3 offset = levelOffsetInActiveView(index);
     const Ray localRay{ray.origin - offset, ray.direction};
+    // This exact lower-level trace is input-time only, never part of frame rendering.
+    levels_[index]->prepareRenderFrame(ray.direction);
     SceneSurfaceHit localHit;
     if (!levels_[index]->traceEnvironment(localRay, localHit)) continue;
 
@@ -321,8 +327,10 @@ Vec3 World::sampleEnvironment(
   float backgroundY,
   float& environmentDistance
 ) const {
+  // Full-quality render work is active-level only. Lower floors are supplied
+  // separately by sampleLowDetailLowerPreview() into a reduced-resolution buffer.
   SceneSurfaceHit hit;
-  const Vec3 colour = sampleVisibleEnvironment(ray, backgroundY, hit);
+  const Vec3 colour = activeLevel().sampleWithHit(ray, backgroundY, hit);
   environmentDistance = hit.found
     ? hit.distance
     : std::numeric_limits<float>::max();
@@ -462,14 +470,14 @@ bool World::renderPositionFor(const Character& character, Vec3& position) const 
 }
 
 void World::prepareRenderFrame(const Vec3& viewDirection) const {
-  // Resident level presentation receives the same camera direction used by
-  // the renderer before either static sampling or runtime compositing begins.
-  for (const auto& level : levels_) {
-    if (level && level->isResident()) level->prepareRenderFrame(viewDirection);
-  }
+  // Only the active level receives full renderer preparation. Lower previews
+  // are flat analytic floor plans and bypass lighting, shadows and wall ray work.
+  activeLevel().prepareRenderFrame(viewDirection);
 
   runtimeRenderEntries_.clear();
   destinationFeedbackMarkers_.clear();
+  lowDetailPreviewCharacters_.clear();
+  lowDetailPreviewMarkers_.clear();
   runtimeSpritePlaneValid_ = false;
 
   const float horizontalLengthSquared =
@@ -527,22 +535,63 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
         forward = {forward.x * inverseMagnitude, forward.y * inverseMagnitude, 0.0f};
       }
 
-      DestinationFeedbackMarker marker;
-      marker.position = character->movement.destination.position +
-        levelOffsetInActiveView(destinationLevelIndex);
-      marker.forward = forward;
-      marker.right = {forward.y, -forward.x, 0.0f};
-      marker.minimumX = character->hitBox.minimum.x;
-      marker.maximumX = character->hitBox.maximum.x;
-      marker.minimumY = character->hitBox.minimum.y;
-      marker.maximumY = character->hitBox.maximum.y;
-      marker.floorZ = marker.position.z + character->hitBox.minimum.z;
-      marker.elapsedSeconds = character->movement.feedbackElapsedSeconds;
-      destinationFeedbackMarkers_.push_back(marker);
+      if (destinationLevelIndex == activeLevelIndex_) {
+        DestinationFeedbackMarker marker;
+        marker.position = character->movement.destination.position;
+        marker.forward = forward;
+        marker.right = {forward.y, -forward.x, 0.0f};
+        marker.minimumX = character->hitBox.minimum.x;
+        marker.maximumX = character->hitBox.maximum.x;
+        marker.minimumY = character->hitBox.minimum.y;
+        marker.maximumY = character->hitBox.maximum.y;
+        marker.floorZ = marker.position.z + character->hitBox.minimum.z;
+        marker.elapsedSeconds = character->movement.feedbackElapsedSeconds;
+        destinationFeedbackMarkers_.push_back(marker);
+      } else {
+        LowDetailPreviewMarker marker;
+        marker.levelIndex = destinationLevelIndex;
+        marker.position = character->movement.destination.position;
+        marker.forward = forward;
+        marker.right = {forward.y, -forward.x, 0.0f};
+        marker.minimumX = character->hitBox.minimum.x;
+        marker.maximumX = character->hitBox.maximum.x;
+        marker.minimumY = character->hitBox.minimum.y;
+        marker.maximumY = character->hitBox.maximum.y;
+        marker.elapsedSeconds = character->movement.feedbackElapsedSeconds;
+        lowDetailPreviewMarkers_.push_back(marker);
+      }
     }
 
     Vec3 renderPosition;
     if (!renderPositionFor(*character, renderPosition)) continue;
+
+    const std::size_t characterLevelIndex = levelIndex(character->location.levelId);
+    if (
+      character->location.liminalObjectId.empty() &&
+      characterLevelIndex < activeLevelIndex_ &&
+      activeLevelIndex_ - characterLevelIndex <= lowerLevelPreviewDepth_
+    ) {
+      LowDetailPreviewCharacter preview;
+      preview.levelIndex = characterLevelIndex;
+      preview.position = character->location.position;
+      Vec3 forward = character->forward;
+      const float magnitudeSquared = forward.x * forward.x + forward.y * forward.y;
+      if (magnitudeSquared > 1e-12f) {
+        const float inverseMagnitude = 1.0f / std::sqrt(magnitudeSquared);
+        forward = {forward.x * inverseMagnitude, forward.y * inverseMagnitude, 0.0f};
+      } else {
+        forward = {0.0f, 1.0f, 0.0f};
+      }
+      preview.forward = forward;
+      preview.right = {forward.y, -forward.x, 0.0f};
+      preview.minimumX = character->hitBox.minimum.x;
+      preview.maximumX = character->hitBox.maximum.x;
+      preview.minimumY = character->hitBox.minimum.y;
+      preview.maximumY = character->hitBox.maximum.y;
+      preview.selected = characterSystem_ && characterSystem_->isSelected(character->id);
+      lowDetailPreviewCharacters_.push_back(preview);
+      continue;
+    }
 
     RuntimeRenderEntry entry;
     entry.character = character;
@@ -697,9 +746,126 @@ float World::runtimeSpriteLightFactor(const std::string& levelId, const Vec3& po
   return runtimeSpriteLightFactor(levelIndex(levelId), point);
 }
 
+bool World::sampleLowDetailLowerPreview(const Ray& ray, Vec3& colour) const {
+  if (lowerLevelPreviewDepth_ == 0 || activeLevelIndex_ == 0) return false;
+  if (std::fabs(ray.direction.z) < 1e-7f) return false;
+
+  std::size_t visibleLevelIndex = levels_.size();
+  Vec3 visibleLocalPoint;
+  const RoomLayout* visibleLayout = nullptr;
+
+  // Higher preview levels win. Every candidate is only an analytic floor-plane
+  // intersection plus rectangle containment. No lower scene traversal occurs.
+  for (
+    std::size_t depth = 1;
+    depth <= lowerLevelPreviewDepth_ && depth <= activeLevelIndex_;
+    ++depth
+  ) {
+    const std::size_t index = activeLevelIndex_ - depth;
+    const RoomLayout* layout = levels_[index]->roomLayout();
+    if (!layout || layout->rooms.empty()) continue;
+    const Vec3 offset = levelOffsetInActiveView(index);
+
+    for (const Room& room : layout->rooms) {
+      const float planeZ = room.floorZ + offset.z;
+      const float t = (planeZ - ray.origin.z) / ray.direction.z;
+      if (t <= 0.001f) continue;
+      const Vec3 localPoint = ray.origin + ray.direction * t - offset;
+      if (!room.containsXY(localPoint.x, localPoint.y, 0.0015f)) continue;
+      visibleLevelIndex = index;
+      visibleLocalPoint = localPoint;
+      visibleLayout = layout;
+      break;
+    }
+    if (visibleLayout) break;
+  }
+
+  if (!visibleLayout) return false;
+
+  const int checkerX = static_cast<int>(std::floor(visibleLocalPoint.x + 20.0f));
+  const int checkerY = static_cast<int>(std::floor(visibleLocalPoint.y + 20.0f));
+  colour = ((checkerX + checkerY) & 1)
+    ? visibleLayout->previewFloorDark
+    : visibleLayout->previewFloorLight;
+
+  const auto portalOpenAt = [&](const Room& room, RoomSide side, float along) {
+    for (const RoomConnection& connection : visibleLayout->connections) {
+      if (!connection.openPassage) continue;
+      const RoomPortal* portal = nullptr;
+      if (connection.a.roomId == room.id && connection.a.side == side) portal = &connection.a;
+      if (connection.b.roomId == room.id && connection.b.side == side) portal = &connection.b;
+      if (!portal) continue;
+      if (std::fabs(along - portal->offset) <= std::max(0.0f, portal->width) * 0.5f) return true;
+    }
+    return false;
+  };
+
+  // Preview walls are floor-plan bands only. Full 3-D walls and Sims-style
+  // cutaways remain an active-level feature.
+  for (const Room& room : visibleLayout->rooms) {
+    if (!room.containsXY(visibleLocalPoint.x, visibleLocalPoint.y, 0.0015f)) continue;
+    const float localX = visibleLocalPoint.x - room.centre.x;
+    const float localY = visibleLocalPoint.y - room.centre.y;
+    const float halfWidth = room.width * 0.5f;
+    const float halfDepth = room.depth * 0.5f;
+    const float band = std::max(0.02f, visibleLayout->previewWallBand);
+    bool wallBand = false;
+    if (halfDepth - std::fabs(localY) <= band) {
+      const RoomSide side = localY >= 0.0f ? RoomSide::North : RoomSide::South;
+      wallBand = !portalOpenAt(room, side, localX);
+    }
+    if (!wallBand && halfWidth - std::fabs(localX) <= band) {
+      const RoomSide side = localX >= 0.0f ? RoomSide::East : RoomSide::West;
+      wallBand = !portalOpenAt(room, side, localY);
+    }
+    if (wallBand) colour = visibleLayout->previewWall;
+    break;
+  }
+
+  const SelectionStyle style = characterSystem_
+    ? characterSystem_->selectionStyle()
+    : SelectionStyle();
+
+  for (const LowDetailPreviewMarker& previewMarker : lowDetailPreviewMarkers_) {
+    if (previewMarker.levelIndex != visibleLevelIndex) continue;
+    const Vec3 delta = visibleLocalPoint - previewMarker.position;
+    const float localX = dot(delta, previewMarker.right);
+    const float localY = dot(delta, previewMarker.forward);
+    if (
+      localX < previewMarker.minimumX || localX > previewMarker.maximumX ||
+      localY < previewMarker.minimumY || localY > previewMarker.maximumY
+    ) continue;
+    const float pulse = 0.5f + 0.5f * std::sin(
+      previewMarker.elapsedSeconds * 6.28318530717958647692f * 1.75f
+    );
+    const float alpha = std::max(0.15f, std::min(0.58f, 0.18f + 0.40f * pulse));
+    colour = style.tint * alpha + colour * (1.0f - alpha);
+  }
+
+  for (const LowDetailPreviewCharacter& previewCharacter : lowDetailPreviewCharacters_) {
+    if (previewCharacter.levelIndex != visibleLevelIndex) continue;
+    const Vec3 delta = visibleLocalPoint - previewCharacter.position;
+    const float localX = dot(delta, previewCharacter.right);
+    const float localY = dot(delta, previewCharacter.forward);
+    if (
+      localX < previewCharacter.minimumX || localX > previewCharacter.maximumX ||
+      localY < previewCharacter.minimumY || localY > previewCharacter.maximumY
+    ) continue;
+    Vec3 characterColour(0.82f, 0.84f, 0.88f);
+    if (previewCharacter.selected) characterColour = applyTint(characterColour, style);
+    colour = characterColour;
+  }
+
+  return true;
+}
+
 Vec3 World::sample(const Ray& ray, float backgroundY) const {
   SceneSurfaceHit environmentHit;
-  const Vec3 environmentColour = sampleVisibleEnvironment(ray, backgroundY, environmentHit);
+  Vec3 environmentColour = activeLevel().sampleWithHit(ray, backgroundY, environmentHit);
+  if (!environmentHit.found) {
+    Vec3 previewColour;
+    if (sampleLowDetailLowerPreview(ray, previewColour)) environmentColour = previewColour;
+  }
   const float environmentHitDistance = environmentHit.found
     ? environmentHit.distance
     : std::numeric_limits<float>::max();
@@ -904,11 +1070,10 @@ std::size_t World::residentLevelCount() const {
 
 
 void World::updateLevelResidency() {
+  // Residency means full render resources. Decorative lower previews use only
+  // room topology/palette, so they must not keep textures or heavy level assets loaded.
   for (std::size_t index = 0; index < levels_.size(); ++index) {
-    const bool previewResident =
-      index <= activeLevelIndex_ &&
-      activeLevelIndex_ - index <= lowerLevelPreviewDepth_;
-    levels_[index]->setResident(previewResident);
+    levels_[index]->setResident(index == activeLevelIndex_);
   }
 }
 

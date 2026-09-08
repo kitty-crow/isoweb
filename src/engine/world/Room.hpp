@@ -58,6 +58,12 @@ struct RoomLayout {
   std::vector<Room> rooms;
   std::vector<RoomConnection> connections;
 
+  // Flat unlit palette used when this level appears only as a cheap lower preview.
+  Vec3 previewFloorDark = {0.34f, 0.34f, 0.36f};
+  Vec3 previewFloorLight = {0.40f, 0.40f, 0.42f};
+  Vec3 previewWall = {0.23f, 0.23f, 0.25f};
+  float previewWallBand = 0.10f;
+
   const Room* room(const std::string& id) const {
     for (const Room& candidate : rooms) {
       if (candidate.id == id) return &candidate;

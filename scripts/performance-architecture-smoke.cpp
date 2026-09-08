@@ -173,6 +173,27 @@ int main() {
     return 10;
   }
 
-  std::cout << "Performance architecture smoke test passed: one primary trace, any-hit shadows, cached entity views, dynamic broad phase and fixed-density tiled UVs.\n";
+  std::unique_ptr<CountingLevel> previewLowerOwned(new CountingLevel());
+  std::unique_ptr<CountingLevel> previewUpperOwned(new CountingLevel());
+  CountingLevel* previewLower = previewLowerOwned.get();
+  CountingLevel* previewUpper = previewUpperOwned.get();
+  std::vector<std::unique_ptr<IWorldLevel>> previewLevels;
+  previewLevels.push_back(std::move(previewLowerOwned));
+  previewLevels.push_back(std::move(previewUpperOwned));
+  World previewWorld(std::move(previewLevels), 1);
+  previewWorld.setLevelId(0, "preview-lower");
+  previewWorld.setLevelId(1, "preview-upper");
+  previewWorld.setLowerLevelPreviewDepth(1);
+  float previewDistance = 0.0f;
+  previewWorld.sampleEnvironment(
+    {{0.0f, 0.0f, 5.0f}, {0.0f, 0.0f, -1.0f}},
+    0.5f,
+    previewDistance
+  );
+  if (previewUpper->combinedSampleCalls != 1) return 11;
+  if (previewLower->combinedSampleCalls != 0 || previewLower->traceCalls != 0) return 12;
+  if (previewWorld.residentLevelCount() != 1 || !previewWorld.isLevelResident("preview-upper")) return 13;
+
+  std::cout << "Performance architecture smoke test passed: one active-level trace, zero lower-preview render traces, active-only residency, any-hit shadows, cached entity views, dynamic broad phase and fixed-density tiled UVs.\n";
   return 0;
 }
