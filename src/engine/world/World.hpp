@@ -12,6 +12,7 @@
 #include "engine/world/EntityStore.hpp"
 #include "engine/world/IWorld.hpp"
 #include "engine/world/LiminalObject.hpp"
+#include "engine/world/Room.hpp"
 
 namespace isoweb {
 namespace engine {
@@ -67,7 +68,11 @@ public:
 
   virtual bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const = 0;
   virtual const std::vector<Object>& objects() const = 0;
+  virtual const RoomLayout* roomLayout() const { return nullptr; }
   virtual bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const = 0;
+  // Static boundaries that are structural rather than ordinary world objects
+  // may participate in collision without changing objects() API semantics.
+  virtual bool overlapsAdditionalStatic(const Object&) const { return false; }
   virtual bool intersectsSolid(const HitBox& hitBox) const = 0;
 
 protected:
@@ -89,14 +94,7 @@ public:
     const Ray& ray,
     float backgroundY,
     float& environmentDistance
-  ) const override {
-    SceneSurfaceHit hit;
-    const Vec3 colour = activeLevel().sampleWithHit(ray, backgroundY, hit);
-    environmentDistance = hit.found
-      ? hit.distance
-      : std::numeric_limits<float>::max();
-    return colour;
-  }
+  ) const override;
 
   Vec3 compositeRuntime(
     const Ray& ray,
@@ -137,6 +135,16 @@ public:
   bool setLevelId(std::size_t index, const std::string& id);
   std::size_t levelIndex(const std::string& levelId) const;
   const WorldBounds& bounds(const std::string& levelId) const;
+  const RoomLayout* roomLayout(const std::string& levelId) const;
+
+  // Preview depth is configuration, not a fixed engine limit. A depth of two
+  // means active + first lower + second lower may participate in the static
+  // environment render, with upper layers taking visual precedence.
+  void setLowerLevelPreviewDepth(std::size_t depth);
+  std::size_t lowerLevelPreviewDepth() const { return lowerLevelPreviewDepth_; }
+  bool setLevelViewOrigin(const std::string& levelId, const Vec3& origin);
+  Vec3 levelViewOrigin(const std::string& levelId) const;
+
   const std::vector<Object>& objects(const std::string& levelId) const;
 
   bool isLevelResident(std::size_t index) const;
@@ -154,6 +162,11 @@ public:
   bool traceEnvironment(const std::string& levelId, const Ray& ray, SceneSurfaceHit& hit) const;
   float environmentDistance(const Ray& ray) const;
   bool pickWalkableSurface(const Ray& ray, SceneSurfaceHit& hit) const;
+  bool pickWalkableDestination(
+    const Ray& ray,
+    EntityLocation& destination,
+    SceneSurfaceHit* hit = nullptr
+  ) const;
   bool walkableSurfaceAt(const std::string& levelId, float x, float y, SceneSurfaceHit& hit) const;
   bool resolveWalkablePosition(
     const Object& object,
@@ -264,6 +277,22 @@ private:
 
   const IWorldLevel& activeLevel() const;
   const IWorldLevel& levelFor(const std::string& levelId) const;
+  Vec3 sampleVisibleEnvironment(
+    const Ray& ray,
+    float backgroundY,
+    SceneSurfaceHit& hit,
+    std::size_t* sourceLevelIndex = nullptr,
+    Vec3* sourceLocalPoint = nullptr
+  ) const;
+  bool traceVisibleEnvironment(
+    const Ray& ray,
+    SceneSurfaceHit& hit,
+    std::size_t* sourceLevelIndex = nullptr,
+    Vec3* sourceLocalPoint = nullptr
+  ) const;
+  Vec3 levelOffsetInActiveView(std::size_t levelIndex) const;
+  void updateLevelResidency();
+  void updateVisibleBounds();
   Vec3 compositeDestinationFeedback(
     const Ray& ray,
     const Vec3& environmentColour,
@@ -290,6 +319,9 @@ private:
   std::unordered_map<std::string, std::size_t> levelLookup_;
   std::vector<LevelXYBounds> levelXYBounds_;
   std::vector<LevelLight> levelLights_;
+  std::vector<Vec3> levelViewOrigins_;
+  std::size_t lowerLevelPreviewDepth_ = 0;
+  WorldBounds visibleBounds_;
   std::size_t activeLevelIndex_ = 0;
   std::size_t defaultLevelIndex_ = 0;
   EntityStore entities_;

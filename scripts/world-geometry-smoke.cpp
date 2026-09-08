@@ -28,6 +28,37 @@ bool near(float a, float b, float tolerance = 0.03f) {
 int main() {
   isoweb::demo::DemoWorld world;
 
+
+  const auto* lowerRooms = world.roomLayout("lower");
+  const auto* middleRooms = world.roomLayout("middle");
+  const auto* upperRooms = world.roomLayout("upper");
+  if (!lowerRooms || !middleRooms || !upperRooms) return 18;
+  if (lowerRooms->rooms.size() != 5 || lowerRooms->connections.size() != 4) return 19;
+  if (middleRooms->rooms.size() != 5 || middleRooms->connections.size() != 4) return 20;
+  if (upperRooms->rooms.size() != 5 || upperRooms->connections.size() != 4) return 21;
+  if (!lowerRooms->connected("centre", "north") || !lowerRooms->connected("centre", "west")) return 22;
+  if (!middleRooms->connected("north", "north-west") || !middleRooms->connected("south", "south-east")) return 23;
+  if (!upperRooms->connected("centre", "south") || !upperRooms->connected("south", "far-south")) return 24;
+  if (world.lowerLevelPreviewDepth() != 2) return 25;
+  if (world.residentLevelCount() != 2 || !world.isLevelResident("lower") || !world.isLevelResident("middle")) return 26;
+
+  // The west arm of the lower cross is not covered by the middle Z. A visible
+  // ray there must hit the real lower room at its stacked height and pick a
+  // destination in lower-level local coordinates rather than middle.
+  const Ray exposedLowerRay{{-8.80f, 0.0f, 8.0f}, {0.0f, 0.0f, -1.0f}};
+  SceneSurfaceHit exposedLower;
+  if (!world.traceEnvironment(exposedLowerRay, exposedLower)) return 27;
+  if (exposedLower.kind != SceneSurfaceKind::Ground || !near(exposedLower.point.z, -1.40f)) return 28;
+  EntityLocation exposedDestination;
+  if (!world.pickWalkableDestination(exposedLowerRay, exposedDestination)) return 29;
+  if (exposedDestination.levelId != "lower") return 30;
+  if (!near(exposedDestination.position.x, -8.80f) || !near(exposedDestination.position.z, 0.0f)) return 31;
+
+  if (!world.levelUp()) return 32;
+  if (world.activeLevelId() != "upper" || world.residentLevelCount() != 3) return 33;
+  if (!world.isLevelResident("middle") || !world.isLevelResident("lower")) return 34;
+  if (!world.levelDown()) return 35;
+
   // This ray lies inside the old sphere AABB but outside the actual sphere.
   // The authoritative world must therefore see the real floor, not a fake box.
   SceneSurfaceHit sphereCorner;
@@ -107,6 +138,6 @@ int main() {
   if (character->location.levelId != "lower") return 16;
   if (character->moving) return 17;
 
-  std::cout << "Unified world geometry and physical stair traversal smoke test passed.\n";
+  std::cout << "Room graphs, stacked previews, preview picking, and physical stair traversal smoke test passed.\n";
   return 0;
 }
