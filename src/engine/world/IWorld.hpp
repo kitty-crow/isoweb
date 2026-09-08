@@ -36,16 +36,27 @@ public:
   virtual Vec3 sampleEnvironment(
     const Ray& ray,
     float backgroundY,
-    float& environmentDistance
+    float& environmentDistance,
+    SceneSurfaceHit* environmentHit = nullptr
   ) const {
     environmentDistance = std::numeric_limits<float>::max();
+    if (environmentHit) {
+      SceneSurfaceHit hit;
+      if (traceEnvironment(ray, hit)) {
+        *environmentHit = hit;
+        environmentDistance = hit.distance;
+      } else {
+        *environmentHit = SceneSurfaceHit();
+      }
+    }
     return sample(ray, backgroundY);
   }
 
   virtual Vec3 compositeRuntime(
     const Ray&,
     const Vec3& environmentColour,
-    float
+    float,
+    const SceneSurfaceHit* = nullptr
   ) const {
     return environmentColour;
   }
@@ -53,6 +64,11 @@ public:
   // Called once immediately before a render pass. Worlds can use this to cache
   // frame-invariant entity projection/presentation state out of the ray loop.
   virtual void prepareRenderFrame(const Vec3&) const {}
+
+  // Called after prepareRenderFrame(), once the runtime render entries exist.
+  // Worlds may build per-frame acceleration structures and dynamic-light data
+  // here without putting that work inside the supersample loop.
+  virtual void prepareRuntimeAcceleration(const Vec3&) const {}
 
   virtual std::size_t levelCount() const = 0;
   virtual std::size_t activeLevelIndex() const = 0;

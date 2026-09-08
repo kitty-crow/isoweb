@@ -120,6 +120,7 @@ public:
   float textureWorldUnitsPerTile = 1.0f;
 
   bool solid = true;
+  bool castsShadow = true;
   std::vector<std::string> collisionTags;
   std::vector<std::string> mustCollideWith;
 
@@ -383,7 +384,13 @@ public:
 
   bool intersectRay(const Ray& ray, float minimum, float maximum, ObjectRayHit& hit) const {
     if (!rayMayHit(ray)) return false;
+    return intersectRayExact(ray, minimum, maximum, hit);
+  }
 
+  // Exact intersection without rebuilding the camera-direction projection
+  // cache. Point-light shadow rays change direction per texel, so using the
+  // orthographic camera broad phase there would be more expensive than useful.
+  bool intersectRayExact(const Ray& ray, float minimum, float maximum, ObjectRayHit& hit) const {
     Vec3 facing;
     Vec3 right;
     horizontalBasis(facing, right);
