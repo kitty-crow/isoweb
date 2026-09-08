@@ -702,30 +702,32 @@ public:
     return &definition_.roomLayout;
   }
 
-  bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const {
-    if (objectIndex < definition_.objects.size()) {
-      const RenderObject& object = definition_.objects[objectIndex];
-      return object.solid && overlapsConvexObject(candidate, object);
-    }
+  bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const override {
+    if (objectIndex >= definition_.objects.size()) return false;
+    const RenderObject& object = definition_.objects[objectIndex];
+    return object.solid && overlapsConvexObject(candidate, object);
+  }
 
-    const std::size_t wallIndex = objectIndex - definition_.objects.size();
-    if (wallIndex >= roomWalls_.size()) return false;
-    Object wall;
-    wall.location = candidate.location;
-    wall.location.position = {0.0f, 0.0f, 0.0f};
-    wall.hitBox.minimum = roomWalls_[wallIndex].centre - roomWalls_[wallIndex].halfExtent;
-    wall.hitBox.maximum = roomWalls_[wallIndex].centre + roomWalls_[wallIndex].halfExtent;
-    wall.solid = true;
-    return wall.overlaps(candidate);
+  bool overlapsAdditionalStatic(const Object& candidate) const override {
+    for (const RoomWallBox& box : roomWalls_) {
+      Object wall;
+      wall.location = candidate.location;
+      wall.location.position = {0.0f, 0.0f, 0.0f};
+      wall.hitBox.minimum = box.centre - box.halfExtent;
+      wall.hitBox.maximum = box.centre + box.halfExtent;
+      wall.solid = true;
+      if (wall.overlaps(candidate)) return true;
+    }
+    return false;
   }
 
   bool intersectsSolid(const HitBox& hitBox) const override {
     Object candidate;
     candidate.hitBox = hitBox;
-    for (std::size_t index = 0; index < worldObjects_.size(); ++index) {
+    for (std::size_t index = 0; index < definition_.objects.size(); ++index) {
       if (overlapsStatic(index, candidate)) return true;
     }
-    return false;
+    return overlapsAdditionalStatic(candidate);
   }
 
 private:
@@ -810,20 +812,13 @@ private:
 
   void buildCollisionObjects() {
     worldObjects_.clear();
-    worldObjects_.reserve(definition_.objects.size() + roomWalls_.size());
+    worldObjects_.reserve(definition_.objects.size());
     for (const RenderObject& object : definition_.objects) {
       const Vec3 extent = objectExtent(object);
       WorldObject worldObject;
       worldObject.solid = object.solid;
       worldObject.hitBox.minimum = object.position - extent;
       worldObject.hitBox.maximum = object.position + extent;
-      worldObjects_.push_back(worldObject);
-    }
-    for (const RoomWallBox& wall : roomWalls_) {
-      WorldObject worldObject;
-      worldObject.solid = true;
-      worldObject.hitBox.minimum = wall.centre - wall.halfExtent;
-      worldObject.hitBox.maximum = wall.centre + wall.halfExtent;
       worldObjects_.push_back(worldObject);
     }
   }

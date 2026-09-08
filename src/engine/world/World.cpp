@@ -898,6 +898,7 @@ bool World::collidesWith(const Object& candidate, const Object* ignored) const {
       : object.collisionEnabledWith(candidate);
     if (enabled && targetLevel.overlapsStatic(index, candidate)) return true;
   }
+  if (targetLevel.overlapsAdditionalStatic(candidate)) return true;
 
   for (const Object* object : entities_.all()) {
     if (!object || object == ignored || object == &candidate) continue;

@@ -70,6 +70,9 @@ public:
   virtual const std::vector<Object>& objects() const = 0;
   virtual const RoomLayout* roomLayout() const { return nullptr; }
   virtual bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const = 0;
+  // Static boundaries that are structural rather than ordinary world objects
+  // may participate in collision without changing objects() API semantics.
+  virtual bool overlapsAdditionalStatic(const Object&) const { return false; }
   virtual bool intersectsSolid(const HitBox& hitBox) const = 0;
 
 protected:
