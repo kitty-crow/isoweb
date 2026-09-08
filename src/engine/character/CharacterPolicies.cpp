@@ -220,6 +220,33 @@ bool sameLevelPath(
     }
 
     const Vec3 currentPoint = positions[current];
+
+    // A quantised XY/Z grid is an acceleration structure, not the destination
+    // contract. Changing a level's bounds can shift grid sampling relative to
+    // a staircase, so the quantised goal cell may resolve to a nearby stair
+    // height even though the exact requested endpoint is physically reachable.
+    // Once search reaches the goal neighbourhood, validate the real segment to
+    // the exact destination instead of exhaustively searching for one specific
+    // quantised cell/height combination.
+    const int goalDeltaX = std::abs(goalGrid.x - current.x);
+    const int goalDeltaY = std::abs(goalGrid.y - current.y);
+    if (goalDeltaX <= 1 && goalDeltaY <= 1) {
+      Vec3 exactGoal;
+      if (segmentClear(
+        world,
+        character,
+        levelId,
+        currentPoint,
+        destination,
+        defaults,
+        &exactGoal
+      )) {
+        found = true;
+        foundGoal = current;
+        break;
+      }
+    }
+
     for (const auto& direction : directions) {
       const int nextX = current.x + direction[0];
       const int nextY = current.y + direction[1];

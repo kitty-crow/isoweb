@@ -709,7 +709,32 @@ public:
   }
 
   bool overlapsAdditionalStatic(const Object& candidate) const override {
+    // Room boundaries are axis-aligned. Reject distant walls against the
+    // candidate's conservative world AABB before paying for exact OBB SAT.
+    // Navigation probes collision many times, so this keeps extra rooms from
+    // multiplying collision cost for Characters nowhere near their walls.
+    Vec3 facing;
+    Vec3 right;
+    candidate.horizontalBasis(facing, right);
+    const Vec3 localCentre = candidate.hitBox.centre();
+    const Vec3 localHalf = candidate.hitBox.halfExtent();
+    const Vec3 candidateCentre = candidate.location.position +
+      right * localCentre.x + facing * localCentre.y + Vec3(0.0f, 0.0f, localCentre.z);
+    const Vec3 candidateHalf(
+      std::fabs(right.x) * localHalf.x + std::fabs(facing.x) * localHalf.y,
+      std::fabs(right.y) * localHalf.x + std::fabs(facing.y) * localHalf.y,
+      localHalf.z
+    );
+
     for (const RoomWallBox& box : roomWalls_) {
+      if (
+        std::fabs(candidateCentre.x - box.centre.x) >= candidateHalf.x + box.halfExtent.x ||
+        std::fabs(candidateCentre.y - box.centre.y) >= candidateHalf.y + box.halfExtent.y ||
+        std::fabs(candidateCentre.z - box.centre.z) >= candidateHalf.z + box.halfExtent.z
+      ) {
+        continue;
+      }
+
       Object wall;
       wall.location = candidate.location;
       wall.location.position = {0.0f, 0.0f, 0.0f};
