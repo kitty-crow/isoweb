@@ -42,6 +42,7 @@ constexpr float STAIR_HIGH_Y = -1.20f;
 constexpr float LOWER_MIDDLE_STAIR_X = 2.15f;
 constexpr float MIDDLE_UPPER_STAIR_X = 3.20f;
 constexpr float STAIR_HOLE_INSET = 0.015f;
+constexpr float STAIR_LANDING_MARGIN = 0.25f;
 
 const Vec3 LOWER_FLOOR_DARK(0.34f, 0.34f, 0.36f);
 const Vec3 LOWER_FLOOR_LIGHT(0.40f, 0.40f, 0.42f);
@@ -210,8 +211,20 @@ NavigationLink navigationLink(const StairConnection& connection) {
   NavigationLink link;
   link.fromLevelId = connection.lowerLevelId;
   link.toLevelId = connection.upperLevelId;
-  link.fromPosition = {connection.centreX, connection.lowY, 0.0f};
-  link.toPosition = {connection.centreX, connection.highY, 0.0f};
+  // Connector endpoints are floor landings outside the stair footprint.
+  // Keeping approach/arrival points off the first/last tread prevents runtime
+  // movement from entering a higher stair step sideways because its tick
+  // sampling phase differs slightly from the path planner's sampling phase.
+  link.fromPosition = {
+    connection.centreX,
+    connection.lowY - STAIR_LANDING_MARGIN,
+    0.0f
+  };
+  link.toPosition = {
+    connection.centreX,
+    connection.highY + STAIR_LANDING_MARGIN,
+    0.0f
+  };
   link.forwardTraversal = staircaseTraversal(ascendingStaircase(connection));
   link.reverseTraversal = staircaseTraversal(descendingStaircase(connection));
   link.bidirectional = true;
