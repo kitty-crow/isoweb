@@ -71,10 +71,11 @@ int main() {
   if (sphereCorner.kind != SceneSurfaceKind::Ground) return 2;
   if (!near(sphereCorner.point.z, 0.0f)) return 3;
 
-  // A point in the middle->lower opening must stand on the rendered descending
-  // staircase, below z=0. It must never resolve to an imaginary floor over the hole.
+  // Sample the centre of a tread in the middle->lower opening. This must stand
+  // on the rendered descending staircase, below z=0, rather than depending on
+  // a tread boundary that changes when the authored step count changes.
   SceneSurfaceHit stairSupport;
-  if (!world.walkableSurfaceAt("middle", 2.15f, -2.25f, stairSupport)) return 4;
+  if (!world.walkableSurfaceAt("middle", 2.15f, -2.355f, stairSupport)) return 4;
   if (stairSupport.kind != SceneSurfaceKind::Stair) return 5;
   if (stairSupport.point.z >= -0.05f) return 6;
 
