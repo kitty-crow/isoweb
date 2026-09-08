@@ -57,11 +57,11 @@ int main() {
   if (distance(renderPosition, expected) > 0.002f) return 9;
 
   // Looking at an unrelated level must not project this connector into it.
-  // The active level plus its configured lower previews remain render-resident.
+  // Only the active level keeps full render residency; lower previews are cheap.
   if (!world.levelUp()) return 10;
   if (world.renderPositionFor(character, renderPosition)) return 11;
   if (world.residentLevelCount() != 1) return 29;
-  if (!world.isLevelResident("upper") || !world.isLevelResident("middle") || world.isLevelResident("lower")) return 30;
+  if (!world.isLevelResident("upper") || world.isLevelResident("middle") || world.isLevelResident("lower")) return 30;
   if (!world.levelDown()) return 12;
   if (world.residentLevelCount() != 1) return 31;
   if (!world.isLevelResident("middle") || world.isLevelResident("lower") || world.isLevelResident("upper")) return 32;
