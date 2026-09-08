@@ -124,6 +124,7 @@ Object renderProxy(const Object& object, const Vec3& position, const std::string
   proxy.forward = object.forward;
   proxy.hitBox = object.hitBox;
   proxy.solid = object.solid;
+  proxy.castsShadow = object.castsShadow;
   return proxy;
 }
 
@@ -522,17 +523,23 @@ Vec3 World::sample(const Ray& ray, float backgroundY) const {
   const float environmentHitDistance = environmentHit.found
     ? environmentHit.distance
     : std::numeric_limits<float>::max();
+  const Vec3 shadowedEnvironment = applyRuntimeEnvironmentShadow(
+    ray,
+    environmentColour,
+    environmentHitDistance,
+    &environmentHit
+  );
 
   if (!runtimeRenderCachePrepared_) prepareRenderFrame(ray.direction);
 
   bool runtimeFound = false;
   const Vec3 runtime = sampleRuntimeEntities(
     ray,
-    environmentColour,
+    shadowedEnvironment,
     environmentHitDistance,
     runtimeFound
   );
-  return runtimeFound ? runtime : environmentColour;
+  return runtimeFound ? runtime : shadowedEnvironment;
 }
 
 Vec3 World::compositeDestinationFeedback(
@@ -613,7 +620,8 @@ Vec3 World::sampleRuntimeEntities(
   std::vector<RuntimeSample>& samples = runtimeSampleScratch_;
   samples.clear();
 
-  for (const RuntimeRenderEntry& entry : runtimeRenderEntries_) {
+  for (std::size_t entryIndex : runtimeCandidateIndices(ray)) {
+    const RuntimeRenderEntry& entry = runtimeRenderEntries_[entryIndex];
     const Character* character = entry.character;
     if (!character) continue;
 
@@ -644,7 +652,7 @@ Vec3 World::sampleRuntimeEntities(
             if (entry.selected && characterSystem_) {
               sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
             }
-            sample.colour = sample.colour * runtimeSpriteLightFactor(activeLevelIndex_, sample.point);
+            sample.colour = sample.colour * runtimeEntrySpriteLightFactor(entry);
             samples.push_back(sample);
           }
         }
@@ -665,12 +673,7 @@ Vec3 World::sampleRuntimeEntities(
     if (entry.selected && characterSystem_) {
       sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
     }
-    sample.colour = shadeRuntimeSurface(
-      activeLevelIndex_,
-      sample.point,
-      hit.worldNormal,
-      sample.colour
-    );
+    sample.colour = shadeRuntimeEntryFace(entry, hit, sample.colour);
     samples.push_back(sample);
   }
 
