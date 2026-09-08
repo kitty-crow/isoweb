@@ -47,7 +47,8 @@ struct RoomConnection {
 
   // Structural connectivity is separate from future door state. For now the
   // demo connections are plain openings. A door system can later own whether
-  // a connection is currently traversable without changing the room graph.
+  // a connection is currently traversable without changing the room graph or
+  // requiring named layout types in the engine.
   bool openPassage = true;
 };
 
