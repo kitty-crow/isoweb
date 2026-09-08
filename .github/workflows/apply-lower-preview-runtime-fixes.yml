@@ -1,0 +1,319 @@
+name: Apply lower preview runtime fixes
+
+on:
+  push:
+    branches: [feat/lower-preview-characters-feedback]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Stage lower preview runtime and ray-origin fixes'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply preview runtime and renderer fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # Runtime entries retain the level whose lighting/geometry frame they
+          # belong to while their render position is translated into active view.
+          p = Path('src/engine/world/World.hpp')
+          s = p.read_text()
+          old = '''  struct RuntimeRenderEntry {
+    const Character* character = nullptr;
+    Vec3 renderPosition;
+    Object proxy;
+    bool selected = false;
+'''
+          new = '''  struct RuntimeRenderEntry {
+    const Character* character = nullptr;
+    Vec3 renderPosition;
+    Vec3 viewOffset;
+    std::size_t levelIndex = 0;
+    Object proxy;
+    bool selected = false;
+'''
+          if s.count(old) != 1:
+              raise SystemExit('World.hpp runtime entry anchor mismatch')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('src/engine/world/World.cpp')
+          s = p.read_text()
+          old = '''bool World::renderPositionFor(const Character& character, Vec3& position) const {
+  return mapLiminalPosition(character.location, activeLevelId(), position);
+}
+'''
+          new = '''bool World::renderPositionFor(const Character& character, Vec3& position) const {
+  // Preserve the existing liminal projection when a Character occupies a
+  // connector touching the active level.
+  if (mapLiminalPosition(character.location, activeLevelId(), position)) return true;
+
+  // Ordinary Characters on resident lower preview levels are translated into
+  // the same active-view coordinate stack as static preview geometry. Levels
+  // above the active one, or below the configured preview depth, stay hidden.
+  const std::size_t index = levelIndex(character.location.levelId);
+  if (index >= levels_.size() || index > activeLevelIndex_) return false;
+  if (activeLevelIndex_ - index > lowerLevelPreviewDepth_) return false;
+  position = character.location.position + levelOffsetInActiveView(index);
+  return true;
+}
+'''
+          if s.count(old) != 1:
+              raise SystemExit('World.cpp renderPositionFor anchor mismatch')
+          s = s.replace(old, new, 1)
+
+          old = '''  const auto& characters = entities_.characters();
+  runtimeRenderEntries_.reserve(characters.size());
+  destinationFeedbackMarkers_.reserve(characters.size());
+  const std::string& levelId = activeLevelId();
+
+  for (const Character* character : characters) {
+    if (!character) continue;
+
+    if (
+      character->moving &&
+      character->movement.hasDestination &&
+      character->movement.destination.levelId == levelId
+    ) {
+'''
+          new = '''  const auto& characters = entities_.characters();
+  runtimeRenderEntries_.reserve(characters.size());
+  destinationFeedbackMarkers_.reserve(characters.size());
+  const std::string& levelId = activeLevelId();
+
+  const auto previewLevelVisible = [&](const std::string& candidateLevelId, std::size_t& index) {
+    index = levelIndex(candidateLevelId);
+    return index < levels_.size() &&
+      index <= activeLevelIndex_ &&
+      activeLevelIndex_ - index <= lowerLevelPreviewDepth_;
+  };
+
+  for (const Character* character : characters) {
+    if (!character) continue;
+
+    std::size_t destinationLevelIndex = levels_.size();
+    if (
+      character->moving &&
+      character->movement.hasDestination &&
+      previewLevelVisible(character->movement.destination.levelId, destinationLevelIndex)
+    ) {
+'''
+          if s.count(old) != 1:
+              raise SystemExit('World.cpp prepare header anchor mismatch')
+          s = s.replace(old, new, 1)
+
+          old = '''      DestinationFeedbackMarker marker;
+      marker.position = character->movement.destination.position;
+      marker.forward = forward;
+'''
+          new = '''      DestinationFeedbackMarker marker;
+      marker.position = character->movement.destination.position +
+        levelOffsetInActiveView(destinationLevelIndex);
+      marker.forward = forward;
+'''
+          if s.count(old) != 1:
+              raise SystemExit('World.cpp destination marker anchor mismatch')
+          s = s.replace(old, new, 1)
+
+          old = '''    RuntimeRenderEntry entry;
+    entry.character = character;
+    entry.renderPosition = renderPosition;
+    entry.proxy = renderProxy(*character, renderPosition, levelId);
+    entry.selected = characterSystem_ && characterSystem_->isSelected(character->id);
+'''
+          new = '''    RuntimeRenderEntry entry;
+    entry.character = character;
+    entry.renderPosition = renderPosition;
+    entry.viewOffset = renderPosition - character->location.position;
+
+    // A liminal Character explicitly projected into the active endpoint keeps
+    // the active endpoint's lighting, matching the pre-preview behaviour.
+    // Otherwise a lower preview Character uses the light/shadow geometry of
+    // the level it actually occupies.
+    Vec3 activeMappedPosition;
+    const bool mappedToActive = mapLiminalPosition(
+      character->location,
+      levelId,
+      activeMappedPosition
+    );
+    entry.levelIndex = activeLevelIndex_;
+    if (!mappedToActive) {
+      const std::size_t characterLevelIndex = levelIndex(character->location.levelId);
+      if (characterLevelIndex < levels_.size()) entry.levelIndex = characterLevelIndex;
+    }
+
+    entry.proxy = renderProxy(*character, renderPosition, levelId);
+    entry.selected = characterSystem_ && characterSystem_->isSelected(character->id);
+'''
+          if s.count(old) != 1:
+              raise SystemExit('World.cpp runtime entry anchor mismatch')
+          s = s.replace(old, new, 1)
+
+          old = '''            sample.colour = sample.colour * runtimeSpriteLightFactor(activeLevelIndex_, sample.point);
+'''
+          new = '''            sample.colour = sample.colour * runtimeSpriteLightFactor(
+              entry.levelIndex,
+              sample.point - entry.viewOffset
+            );
+'''
+          if s.count(old) != 1:
+              raise SystemExit('World.cpp sprite lighting anchor mismatch')
+          s = s.replace(old, new, 1)
+
+          old = '''    sample.colour = shadeRuntimeSurface(
+      activeLevelIndex_,
+      sample.point,
+      hit.worldNormal,
+      sample.colour
+    );
+'''
+          new = '''    sample.colour = shadeRuntimeSurface(
+      entry.levelIndex,
+      sample.point - entry.viewOffset,
+      hit.worldNormal,
+      sample.colour
+    );
+'''
+          if s.count(old) != 1:
+              raise SystemExit('World.cpp box lighting anchor mismatch')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          # Expanded room layouts can extend farther toward the camera than the
+          # original hard-coded 9-unit ray origin. Derive a safe origin plane
+          # from visible stacked bounds once per frame / picking ray instead.
+          p = Path('src/engine/render/Renderer.cpp')
+          s = p.read_text()
+          old = '''constexpr std::size_t MAX_STATIC_CACHE_PIXELS = 600000;
+constexpr float PAN_SHIFT_EPSILON = 0.025f;
+constexpr float NO_HIT_DISTANCE = 1.0e30f;
+
+const std::array<float, 255>& gammaThresholds() {
+'''
+          new = '''constexpr std::size_t MAX_STATIC_CACHE_PIXELS = 600000;
+constexpr float PAN_SHIFT_EPSILON = 0.025f;
+constexpr float NO_HIT_DISTANCE = 1.0e30f;
+constexpr float BASE_RAY_ORIGIN_DISTANCE = 9.0f;
+constexpr float RAY_ORIGIN_MARGIN = 4.0f;
+
+float rayOriginDistance(const WorldBounds& bounds, const Vec3& forward) {
+  float distance = BASE_RAY_ORIGIN_DISTANCE;
+  for (const Vec3& point : bounds.points) {
+    // A ray begins at focus - forward * distance. Ensure every visible-bound
+    // point is comfortably in front of that plane. The margin also covers
+    // normal Character height beyond a floor-only edge of the static bounds.
+    const float projection = dot(point - bounds.focus, forward);
+    distance = std::max(distance, -projection + RAY_ORIGIN_MARGIN);
+  }
+  return distance;
+}
+
+const std::array<float, 255>& gammaThresholds() {
+'''
+          if s.count(old) != 1:
+              raise SystemExit('Renderer.cpp helper anchor mismatch')
+          s = s.replace(old, new, 1)
+
+          old = '''  return {focus - forward * 9.0f + right * screenX + up * screenY, forward};
+'''
+          new = '''  return {
+    focus - forward * rayOriginDistance(bounds, forward) + right * screenX + up * screenY,
+    forward
+  };
+'''
+          if s.count(old) != 1:
+              raise SystemExit('Renderer.cpp rayForPixel anchor mismatch')
+          s = s.replace(old, new, 1)
+
+          old = '''  const Vec3 cornerOrigin = focus - forward * 9.0f - right * (width * 0.5f) + up * (height * 0.5f);
+'''
+          new = '''  const float originDistance = rayOriginDistance(bounds, forward);
+  const Vec3 cornerOrigin =
+    focus - forward * originDistance - right * (width * 0.5f) + up * (height * 0.5f);
+'''
+          if s.count(old) != 1:
+              raise SystemExit('Renderer.cpp render origin anchor mismatch')
+          p.write_text(s.replace(old, new, 1))
+
+          # Extend destination feedback regression to prove both lower-preview
+          # runtime Characters and lower-level markers composite through upper view.
+          p = Path('scripts/destination-feedback-smoke.cpp')
+          s = p.read_text()
+          old = '''  std::cout << "Character destination acknowledgement footprint smoke test passed.\\n";
+  return 0;
+}
+'''
+          new = '''  // Lower preview runtime entities remain dynamic without rendering a second
+  // complete level. From the upper level, choose a ray that misses upper and
+  // middle geometry before reaching an exposed point on the lower west room.
+  isoweb::demo::DemoWorld previewWorld;
+  CharacterSystem previewCharacters(previewWorld);
+  require(previewWorld.levelUp(), "could not switch preview regression to upper level");
+
+  std::unique_ptr<Character> lowerOwned(new Character());
+  Character* lowerCharacter = lowerOwned.get();
+  lowerCharacter->id = "lower-preview-runner";
+  lowerCharacter->location = {"demo", "default", "lower", {-12.0f, 0.0f, 0.0f}};
+  lowerCharacter->hitBox.minimum = {-0.38f, -0.16f, 0.0f};
+  lowerCharacter->hitBox.maximum = {0.38f, 0.16f, 1.65f};
+  lowerCharacter->forward = {0.0f, 1.0f, 0.0f};
+  lowerCharacter->moving = true;
+  lowerCharacter->movement.hasDestination = true;
+  lowerCharacter->movement.destination = lowerCharacter->location;
+  lowerCharacter->movement.destination.position = {-12.0f, -2.0f, 0.0f};
+  lowerCharacter->movement.destinationForward = {0.0f, -1.0f, 0.0f};
+  lowerCharacter->movement.feedbackElapsedSeconds = 0.08f;
+  previewWorld.entities().add(std::move(lowerOwned));
+
+  previewCharacters.selection().style.tint = {0.92f, 0.18f, 0.86f};
+  previewCharacters.selection().style.strength = 0.72f;
+
+  const Vec3 previewForward = normalisedHorizontal({1.0f, 1.0f, 0.0f});
+  const Vec3 previewDirection = {previewForward.x * 0.81649658f, previewForward.y * 0.81649658f, -0.57735027f};
+  auto previewSample = [&](const Vec3& activeViewPoint) {
+    const Ray ray{activeViewPoint - previewDirection * 24.0f, previewDirection};
+    float environmentDistance = 0.0f;
+    SamplePair pair;
+    pair.environment = previewWorld.sampleEnvironment(ray, 0.5f, environmentDistance);
+    pair.runtime = previewWorld.compositeRuntime(ray, pair.environment, environmentDistance);
+    return pair;
+  };
+
+  previewWorld.prepareRenderFrame(previewDirection);
+
+  // Lower floor is displayed 2.8 units beneath upper in this demo. Sample the
+  // Character body above that floor at a screen ray known to be exposed.
+  const SamplePair lowerBody = previewSample({-12.0f, 0.0f, -2.0f});
+  require(
+    colourDistance(lowerBody.environment, lowerBody.runtime) > 0.03f,
+    "Character on second lower preview level was not visible from upper"
+  );
+
+  const SamplePair lowerDestinationFeedback = previewSample({-12.0f, -2.0f, -2.8f});
+  require(
+    colourDistance(lowerDestinationFeedback.environment, lowerDestinationFeedback.runtime) > 0.02f,
+    "destination feedback on second lower preview level was not visible from upper"
+  );
+
+  std::cout << "Character destination acknowledgement and lower-preview runtime smoke test passed.\\n";
+  return 0;
+}
+'''
+          if s.count(old) != 1:
+              raise SystemExit('destination feedback test anchor mismatch')
+          p.write_text(s.replace(old, new, 1))
+          PY
+
+      - name: Commit fixes
+        run: |
+          rm .github/workflows/apply-lower-preview-runtime-fixes.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Render lower preview Characters and fix expanded-view clipping"
+          git push
