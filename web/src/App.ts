@@ -46,7 +46,14 @@ export class App {
     const animate = (now: number): void => {
       const deltaSeconds = Math.min(0.10, Math.max(0, (now - previousTime) / 1000));
       previousTime = now;
-      if (this.module._isoweb_needs_tick()) this.module._isoweb_tick(deltaSeconds);
+      if (this.module._isoweb_needs_tick()) {
+        this.module._isoweb_tick(deltaSeconds);
+      } else if (this.module._isoweb_preview_needs_refinement()) {
+        // One small tile per idle animation frame. Camera input renders its
+        // coarse fallback immediately; refinement waits several frames after
+        // the last camera change, so panning never blocks on preview loading.
+        this.module._isoweb_refine_preview(1);
+      }
       requestAnimationFrame(animate);
     };
     requestAnimationFrame(animate);

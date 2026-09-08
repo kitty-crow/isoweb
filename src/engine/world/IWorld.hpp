@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <vector>
 
@@ -39,6 +40,7 @@ public:
   // ray-tracing, shadow queries, or other active-level-quality work.
   virtual bool supportsLowDetailLowerPreview() const { return false; }
   virtual float lowerPreviewResolutionScale() const { return 0.25f; }
+  virtual std::uint64_t lowDetailPreviewRevision() const { return 0; }
   virtual bool sampleLowDetailLowerPreview(const Ray&, Vec3&) const { return false; }
 
   virtual Vec3 sampleEnvironment(

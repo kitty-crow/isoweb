@@ -56,6 +56,12 @@ void DemoApplication::render() {
   redraw();
 }
 
+bool DemoApplication::refinePreview(std::size_t maxTiles) {
+  if (!renderer_.refinePreview(maxTiles)) return false;
+  redraw(false);
+  return true;
+}
+
 void DemoApplication::tick(float deltaSeconds) {
   const float clampedDeltaSeconds = std::max(0.0f, std::min(0.10f, deltaSeconds));
   characters_.tick(clampedDeltaSeconds, camera_);

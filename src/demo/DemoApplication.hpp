@@ -21,6 +21,8 @@ public:
   DemoApplication();
 
   void render();
+  bool refinePreview(std::size_t maxTiles);
+  bool previewNeedsRefinement() const { return renderer_.previewNeedsRefinement(); }
   void tick(float deltaSeconds);
   bool needsTick() const { return obstacles_.enabled() || characters_.needsTick(); }
   void resize(int width, int height);
@@ -44,6 +46,10 @@ public:
   std::size_t defaultLevelIndex() const { return world_.defaultLevelIndex(); }
   std::size_t staticCacheBuildCount() const { return renderer_.staticCacheBuildCount(); }
   std::size_t staticCacheShiftCount() const { return renderer_.staticCacheShiftCount(); }
+  std::size_t previewCoarseSampleCount() const { return renderer_.previewCoarseSampleCount(); }
+  std::size_t previewRefinedSampleCount() const { return renderer_.previewRefinedSampleCount(); }
+  std::size_t previewDemandedTexelCount() const { return renderer_.previewDemandedTexelCount(); }
+  std::size_t previewPotentialTexelCount() const { return renderer_.previewPotentialTexelCount(); }
 
   void setObstaclesEnabled(bool enabled);
   bool obstaclesEnabled() const { return obstacles_.enabled(); }
