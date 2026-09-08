@@ -183,6 +183,11 @@ extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_character_is_moving(const char* id) {
   return character && character->moving ? 1 : 0;
 }
 
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_character_is_crouching(const char* id) {
+  const auto* character = application().character(text(id));
+  return character && character->crouching ? 1 : 0;
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_hurt_character(const char* id) {
   const bool hurt = application().hurtCharacter(text(id));
   if (hurt) application().render();
@@ -274,6 +279,14 @@ extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_set_character_speed(const char* id, f
   auto* character = application().character(text(id));
   if (!character) return 0;
   character->movementSpeedMultiplier = multiplier;
+  return 1;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_set_character_crouched_height(const char* id, float height) {
+  auto* character = application().character(text(id));
+  if (!character) return 0;
+  character->crouchedHeight = std::max(0.0f, height);
+  if (!character->canCrouch()) character->crouching = false;
   return 1;
 }
 

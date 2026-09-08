@@ -23,6 +23,46 @@ Vec3 horizontalDirection(const Vec3& from, const Vec3& to, const Vec3& fallback)
   return delta * (1.0f / std::sqrt(magnitudeSquared));
 }
 
+bool resolveCharacterPosition(
+  World& world,
+  const Character& character,
+  const Vec3& desired,
+  float referenceZ,
+  const CharacterEngineDefaults& defaults,
+  Vec3& resolved,
+  bool& crouching
+) {
+  const auto tryPosture = [&](bool useCrouch) {
+    Character probe = character;
+    probe.crouching = useCrouch;
+    probe.location.position = desired;
+    if (!world.resolveWalkablePosition(
+      probe,
+      character.location.levelId,
+      desired,
+      referenceZ,
+      defaults.maxStepHeight,
+      defaults.maxDropHeight,
+      resolved,
+      &character
+    )) {
+      return false;
+    }
+    crouching = useCrouch;
+    return true;
+  };
+
+  if (tryPosture(false)) return true;
+  return character.canCrouch() && tryPosture(true);
+}
+
+bool standingFits(World& world, const Character& character) {
+  if (!character.crouching) return true;
+  Character standing = character;
+  standing.crouching = false;
+  return !world.collidesWith(standing, &character);
+}
+
 bool recoverySegmentClear(
   World& world,
   Character& character,
@@ -33,14 +73,9 @@ bool recoverySegmentClear(
   const Vec3 start = character.location.position;
   const float distance = horizontalDistance(start, destination);
   if (distance <= 1e-6f) {
-    return world.resolveWalkablePosition(
-      character,
-      character.location.levelId,
-      destination,
-      start.z,
-      defaults.maxStepHeight,
-      defaults.maxDropHeight,
-      resolvedEnd
+    bool crouching = false;
+    return resolveCharacterPosition(
+      world, character, destination, start.z, defaults, resolvedEnd, crouching
     );
   }
 
@@ -52,14 +87,9 @@ bool recoverySegmentClear(
     Vec3 requested = start * (1.0f - t) + destination * t;
     requested.z = current.z;
     Vec3 supported;
-    if (!world.resolveWalkablePosition(
-      character,
-      character.location.levelId,
-      requested,
-      current.z,
-      defaults.maxStepHeight,
-      defaults.maxDropHeight,
-      supported
+    bool crouching = false;
+    if (!resolveCharacterPosition(
+      world, character, requested, current.z, defaults, supported, crouching
     )) {
       return false;
     }
@@ -108,7 +138,7 @@ Object renderProxy(const Character& character, const Vec3& position, const std::
   proxy.location.levelId = levelId;
   proxy.location.position = position;
   proxy.forward = character.forward;
-  proxy.hitBox = character.hitBox;
+  proxy.hitBox = character.effectiveHitBox();
   proxy.solid = character.solid;
   return proxy;
 }
@@ -367,6 +397,7 @@ std::size_t CharacterSystem::commandSelected(const EntityLocation& requestedDest
 void CharacterSystem::stop(Character& character) {
   character.movement.clear();
   character.moving = false;
+  if (character.crouching && standingFits(world_, character)) character.crouching = false;
 }
 
 float CharacterSystem::effectiveSpeed(const Character& character) const {
@@ -390,6 +421,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
 
   if (!character.movement.hasDestination) {
     character.moving = false;
+    if (character.crouching && standingFits(world_, character)) character.crouching = false;
     return;
   }
 
@@ -420,6 +452,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
     if (reachedDestination(character)) {
       character.location = character.movement.destination;
       refreshLiminalMembership(world_, character, liminalTolerance);
+      if (character.crouching && standingFits(world_, character)) character.crouching = false;
       character.movement.clear();
       character.moving = false;
       return;
@@ -459,15 +492,17 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
     const float distance = horizontalDistance(character.location.position, target);
     if (distance <= defaults_.arrivalEpsilon) {
       Vec3 supported;
-      if (world_.resolveWalkablePosition(
+      bool resolvedCrouching = false;
+      if (resolveCharacterPosition(
+        world_,
         character,
-        character.location.levelId,
         target,
         character.location.position.z,
-        defaults_.maxStepHeight,
-        defaults_.maxDropHeight,
-        supported
+        defaults_,
+        supported,
+        resolvedCrouching
       )) {
+        character.crouching = resolvedCrouching;
         character.location.position = supported;
         refreshLiminalMembership(world_, character, liminalTolerance);
         ++character.movement.nextWaypoint;
@@ -485,14 +520,15 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
     proposed.z = previous.z;
 
     Vec3 supported;
-    if (!world_.resolveWalkablePosition(
+    bool resolvedCrouching = false;
+    if (!resolveCharacterPosition(
+      world_,
       character,
-      character.location.levelId,
       proposed,
       previous.z,
-      defaults_.maxStepHeight,
-      defaults_.maxDropHeight,
-      supported
+      defaults_,
+      supported,
+      resolvedCrouching
     )) {
       character.location.position = previous;
       refreshLiminalMembership(world_, character, liminalTolerance);
@@ -500,6 +536,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
       return;
     }
 
+    character.crouching = resolvedCrouching;
     character.location.position = supported;
     refreshLiminalMembership(world_, character, liminalTolerance);
     remaining -= step;
@@ -512,6 +549,7 @@ void CharacterSystem::advance(Character& character, float deltaSeconds) {
     if (reachedDestination(character)) {
       character.location = character.movement.destination;
       refreshLiminalMembership(world_, character, liminalTolerance);
+      if (character.crouching && standingFits(world_, character)) character.crouching = false;
       character.movement.clear();
       character.moving = false;
       return;

@@ -560,13 +560,15 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
     }
 
     entry.proxy = renderProxy(*character, renderPosition, levelId);
+    entry.proxy.hitBox = character->effectiveHitBox();
     entry.selected = characterSystem_ && characterSystem_->isSelected(character->id);
 
     if (character->hasArtwork() && runtimeSpritePlaneValid_) {
       bool implicitMirror = false;
       const SpriteAnimation* animation = character->currentSpriteAnimation(&implicitMirror);
       if (animation && animation->assigned() && spriteAtlases_.contains(animation->resource)) {
-        const Vec3 hitSize = character->hitBox.size();
+        const HitBox renderHitBox = character->effectiveHitBox();
+        const Vec3 hitSize = renderHitBox.size();
         const float defaultWidth = std::max(std::fabs(hitSize.x), std::fabs(hitSize.y));
         const float defaultHeight = std::fabs(hitSize.z);
         const float width = animation->worldWidth > 0.0f
@@ -575,7 +577,7 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
         const float height = animation->worldHeight > 0.0f
           ? animation->worldHeight
           : std::max(0.05f, defaultHeight);
-        const float bottom = renderPosition.z + character->hitBox.minimum.z;
+        const float bottom = renderPosition.z + renderHitBox.minimum.z;
 
         entry.artworkReady = true;
         entry.animation = animation;
@@ -935,14 +937,32 @@ bool World::collidesWith(const Object& candidate, const Object* ignored) const {
   const IWorldLevel& targetLevel = levelFor(targetLevelId);
   const std::vector<Object>& staticObjects = targetLevel.objects();
 
+  // The authored hitBox stays stable while posture can supply a smaller
+  // collision shape. Avoid copying ordinary objects on this hot path.
+  const HitBox candidateCollision = candidate.collisionHitBox();
+  const bool candidateAdjusted =
+    candidateCollision.minimum.x != candidate.hitBox.minimum.x ||
+    candidateCollision.minimum.y != candidate.hitBox.minimum.y ||
+    candidateCollision.minimum.z != candidate.hitBox.minimum.z ||
+    candidateCollision.maximum.x != candidate.hitBox.maximum.x ||
+    candidateCollision.maximum.y != candidate.hitBox.maximum.y ||
+    candidateCollision.maximum.z != candidate.hitBox.maximum.z;
+  Object candidateProxy;
+  const Object* collisionCandidate = &candidate;
+  if (candidateAdjusted) {
+    candidateProxy = candidate;
+    candidateProxy.hitBox = candidateCollision;
+    collisionCandidate = &candidateProxy;
+  }
+
   for (std::size_t index = 0; index < staticObjects.size(); ++index) {
     const Object& object = staticObjects[index];
     const bool enabled = collisionPolicy_
       ? collisionPolicy_->shouldCollide(object, candidate)
       : object.collisionEnabledWith(candidate);
-    if (enabled && targetLevel.overlapsStatic(index, candidate)) return true;
+    if (enabled && targetLevel.overlapsStatic(index, *collisionCandidate)) return true;
   }
-  if (targetLevel.overlapsAdditionalStatic(candidate)) return true;
+  if (targetLevel.overlapsAdditionalStatic(*collisionCandidate)) return true;
 
   for (const Object* object : entities_.all()) {
     if (!object || object == ignored || object == &candidate) continue;
@@ -951,7 +971,22 @@ bool World::collidesWith(const Object& candidate, const Object* ignored) const {
       : object->collisionEnabledWith(candidate);
     if (!enabled) continue;
 
+    const HitBox objectCollision = object->collisionHitBox();
+    const bool objectAdjusted =
+      objectCollision.minimum.x != object->hitBox.minimum.x ||
+      objectCollision.minimum.y != object->hitBox.minimum.y ||
+      objectCollision.minimum.z != object->hitBox.minimum.z ||
+      objectCollision.maximum.x != object->hitBox.maximum.x ||
+      objectCollision.maximum.y != object->hitBox.maximum.y ||
+      objectCollision.maximum.z != object->hitBox.maximum.z;
+    Object effectiveObjectProxy;
     const Object* overlapObject = object;
+    if (objectAdjusted) {
+      effectiveObjectProxy = *object;
+      effectiveObjectProxy.hitBox = objectCollision;
+      overlapObject = &effectiveObjectProxy;
+    }
+
     Object mappedProxy;
     if (
       !candidate.location.liminalObjectId.empty() &&
@@ -960,12 +995,12 @@ bool World::collidesWith(const Object& candidate, const Object* ignored) const {
     ) {
       Vec3 mappedPosition;
       if (mapLiminalPosition(object->location, targetLevelId, mappedPosition)) {
-        mappedProxy = renderProxy(*object, mappedPosition, targetLevelId);
+        mappedProxy = renderProxy(*overlapObject, mappedPosition, targetLevelId);
         overlapObject = &mappedProxy;
       }
     }
 
-    if (candidate.overlaps(*overlapObject)) return true;
+    if (collisionCandidate->overlaps(*overlapObject)) return true;
   }
   return false;
 }
@@ -1026,22 +1061,25 @@ bool World::resolveWalkablePosition(
   float referenceZ,
   float maxStepUp,
   float maxDrop,
-  Vec3& resolved
+  Vec3& resolved,
+  const Object* ignored
 ) const {
   if (!containsPosition(levelId, requested)) return false;
 
   SceneSurfaceHit support;
   if (!walkableSurfaceAt(levelId, requested.x, requested.y, support)) return false;
 
-  const float originZ = support.point.z - object.hitBox.minimum.z;
+  const HitBox collisionHitBox = object.collisionHitBox();
+  const float originZ = support.point.z - collisionHitBox.minimum.z;
   const float deltaZ = originZ - referenceZ;
   if (deltaZ > maxStepUp + 1e-4f || deltaZ < -maxDrop - 1e-4f) return false;
 
   Object probe = object;
+  probe.hitBox = collisionHitBox;
   probe.location.levelId = levelId;
   probe.location.position = {requested.x, requested.y, originZ};
   probe.location.liminalObjectId = liminalObjectAt(levelId, probe.location.position);
-  if (collidesWith(probe, &object)) return false;
+  if (collidesWith(probe, ignored ? ignored : &object)) return false;
 
   resolved = probe.location.position;
   return true;

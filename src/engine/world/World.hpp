@@ -175,7 +175,8 @@ public:
     float referenceZ,
     float maxStepUp,
     float maxDrop,
-    Vec3& resolved
+    Vec3& resolved,
+    const Object* ignored = nullptr
   ) const;
 
   // Liminal objects are the single authoritative connectors between levels

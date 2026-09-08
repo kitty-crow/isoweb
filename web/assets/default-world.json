@@ -25,6 +25,7 @@
       "npc": false,
       "controllable": true,
       "movementSpeedMultiplier": 1.0,
+      "crouchedHeight": 1.05,
       "collisionTags": ["character"]
     }
   ]

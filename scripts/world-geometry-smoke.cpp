@@ -41,6 +41,10 @@ int main() {
   if (!upperRooms->connected("centre", "south") || !upperRooms->connected("south", "far-south")) return 24;
   if (world.lowerLevelPreviewDepth() != 2) return 25;
   if (world.residentLevelCount() != 2 || !world.isLevelResident("lower") || !world.isLevelResident("middle")) return 26;
+  const float nominalCharacterHeight = 1.65f;
+  const float storeyHeight = world.levelViewOrigin("middle").z - world.levelViewOrigin("lower").z;
+  if (storeyHeight + 0.001f < nominalCharacterHeight * 1.25f) return 36;
+  if (lowerRooms->rooms.front().wallHeight <= nominalCharacterHeight) return 37;
 
   // The west arm of the lower cross is not covered by the middle Z. A visible
   // ray there must hit the real lower room at its stacked height and pick a
@@ -48,7 +52,7 @@ int main() {
   const Ray exposedLowerRay{{-8.80f, 0.0f, 8.0f}, {0.0f, 0.0f, -1.0f}};
   SceneSurfaceHit exposedLower;
   if (!world.traceEnvironment(exposedLowerRay, exposedLower)) return 27;
-  if (exposedLower.kind != SceneSurfaceKind::Ground || !near(exposedLower.point.z, -1.40f)) return 28;
+  if (exposedLower.kind != SceneSurfaceKind::Ground || !near(exposedLower.point.z, -storeyHeight)) return 28;
   EntityLocation exposedDestination;
   if (!world.pickWalkableDestination(exposedLowerRay, exposedDestination)) return 29;
   if (exposedDestination.levelId != "lower") return 30;

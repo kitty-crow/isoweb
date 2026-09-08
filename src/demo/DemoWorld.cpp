@@ -29,13 +29,18 @@ constexpr float EPSILON = 0.0015f;
 constexpr float FAR_DISTANCE = 1000.0f;
 constexpr float GROUND_LIMIT = 4.40f;
 constexpr float ROOM_SIZE = GROUND_LIMIT * 2.0f;
-constexpr float ROOM_WALL_HEIGHT = 1.10f;
+// Demo-only authoring scale. The engine itself has no fixed storey height:
+// levels have arbitrary view origins and every Room owns its own wall height.
+constexpr float DEMO_CHARACTER_HEIGHT = 1.65f;
+constexpr float DEMO_MIN_STOREY_RATIO = 1.25f;
+constexpr float DEMO_STOREY_HEIGHT = DEMO_CHARACTER_HEIGHT * DEMO_MIN_STOREY_RATIO;
+constexpr float ROOM_WALL_HEIGHT = 1.80f;
 constexpr float ROOM_WALL_THICKNESS = 0.12f;
 constexpr float ROOM_OPENING_WIDTH = 1.45f;
 const Vec3 BASE_FOCUS(0.0f, 0.15f, 0.55f);
 
-constexpr int STAIR_STEP_COUNT = 7;
-constexpr float STAIR_RISE = 1.40f;
+constexpr int STAIR_STEP_COUNT = 10;
+constexpr float STAIR_RISE = DEMO_STOREY_HEIGHT;
 constexpr float STAIR_WIDTH = 0.78f;
 constexpr float STAIR_LOW_Y = -3.30f;
 constexpr float STAIR_HIGH_Y = -1.20f;
@@ -1503,8 +1508,8 @@ DemoWorld::DemoWorld()
   setLevelId(1, "middle");
   setLevelId(2, "upper");
   setLevelViewOrigin("lower", {0.0f, 0.0f, 0.0f});
-  setLevelViewOrigin("middle", {0.0f, 0.0f, STAIR_RISE});
-  setLevelViewOrigin("upper", {0.0f, 0.0f, STAIR_RISE * 2.0f});
+  setLevelViewOrigin("middle", {0.0f, 0.0f, DEMO_STOREY_HEIGHT});
+  setLevelViewOrigin("upper", {0.0f, 0.0f, DEMO_STOREY_HEIGHT * 2.0f});
   setLowerLevelPreviewDepth(2);
   setNavigationLinks({
     navigationLink(LOWER_MIDDLE_STAIR),
