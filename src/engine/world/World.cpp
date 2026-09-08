@@ -444,9 +444,12 @@ bool World::characterVisibleOnActiveLevel(const Character& character) const {
 }
 
 bool World::renderPositionFor(const Character& character, Vec3& position) const {
-  // Preserve the existing liminal projection when a Character occupies a
-  // connector touching the active level.
-  if (mapLiminalPosition(character.location, activeLevelId(), position)) return true;
+  // Liminal Characters are only visible through connector endpoint mapping.
+  // Do not reinterpret a Character on an unrelated connector as an ordinary
+  // lower-level preview entity merely because its simulation level is resident.
+  if (!character.location.liminalObjectId.empty()) {
+    return mapLiminalPosition(character.location, activeLevelId(), position);
+  }
 
   // Ordinary Characters on resident lower preview levels are translated into
   // the same active-view coordinate stack as static preview geometry. Levels
