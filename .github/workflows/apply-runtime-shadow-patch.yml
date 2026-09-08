@@ -1,0 +1,29 @@
+name: Apply runtime shadow patch
+
+on:
+  push:
+    branches:
+      - fix/runtime-shadows-and-binning
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: contains(github.event.head_commit.message, 'Apply staged runtime shadow patch')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply patch
+        run: git apply --check runtime-shadow-acceleration.patch && git apply runtime-shadow-acceleration.patch
+      - name: Remove staging files
+        run: git rm runtime-shadow-acceleration.patch .github/workflows/apply-runtime-shadow-patch.yml
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Cast runtime shadows and bin dynamic render work"
+          git push origin HEAD:${GITHUB_REF_NAME}
