@@ -17,7 +17,9 @@ jobs:
         with:
           ref: perf/progressive-preview-tiles
       - name: Apply patch
-        run: python3 scripts/apply-progressive-preview.py
+        run: |
+          python3 scripts/apply-progressive-preview.py
+          git restore .github/workflows/pages.yml
       - name: Commit staged renderer
         run: |
           git config user.name github-actions[bot]
