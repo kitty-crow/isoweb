@@ -398,11 +398,22 @@ void Renderer::render() {
       (static_cast<float>(y) + 0.25f) * inverseFrameHeight,
       (static_cast<float>(y) + 0.75f) * inverseFrameHeight
     };
+    const int previewY = previewHeight_ > 0
+      ? std::min(previewHeight_ - 1, y * previewHeight_ / frameHeight_)
+      : 0;
     std::uint8_t* frameRow = reinterpret_cast<std::uint8_t*>(
       &dsr::image_accessPixel(frame_, 0, y)
     );
 
     for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
+      const PreviewSample* previewForPixel = nullptr;
+      if (previewWidth_ > 0 && previewHeight_ > 0) {
+        const int previewX = std::min(previewWidth_ - 1, x * previewWidth_ / frameWidth_);
+        previewForPixel = &previewSamples_[
+          static_cast<std::size_t>(previewY) * previewWidth_ + previewX
+        ];
+      }
+
       Vec3 colour;
       for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
         const Ray ray{pixelOrigin + sampleOffsets[sampleIndex], forward};
@@ -431,14 +442,10 @@ void Renderer::render() {
 
         if (
           environmentDistance >= NO_HIT_DISTANCE &&
-          previewWidth_ > 0 && previewHeight_ > 0
+          previewForPixel &&
+          previewForPixel->found
         ) {
-          const int previewX = std::min(previewWidth_ - 1, x * previewWidth_ / frameWidth_);
-          const int previewY = std::min(previewHeight_ - 1, y * previewHeight_ / frameHeight_);
-          const PreviewSample& preview = previewSamples_[
-            static_cast<std::size_t>(previewY) * previewWidth_ + previewX
-          ];
-          if (preview.found) environmentColour = preview.colour;
+          environmentColour = previewForPixel->colour;
         }
 
         colour = colour + world_.compositeRuntime(
