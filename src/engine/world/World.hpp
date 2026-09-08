@@ -66,6 +66,10 @@ public:
     return traceEnvironment(ray, hit) && hit.distance < maximumDistance;
   }
 
+  // Static presentation may depend on camera orientation (for example,
+  // cutaway walls). This is render state only and must not mutate collision.
+  virtual void prepareRenderFrame(const Vec3&) const {}
+
   virtual bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const = 0;
   virtual const std::vector<Object>& objects() const = 0;
   virtual const RoomLayout* roomLayout() const { return nullptr; }

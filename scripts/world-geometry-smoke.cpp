@@ -13,7 +13,9 @@ using isoweb::engine::CameraConfig;
 using isoweb::engine::Character;
 using isoweb::engine::CharacterSystem;
 using isoweb::engine::EntityLocation;
+using isoweb::engine::Object;
 using isoweb::engine::Ray;
+using isoweb::engine::Vec3;
 using isoweb::engine::SceneSurfaceHit;
 using isoweb::engine::SceneSurfaceKind;
 
@@ -45,6 +47,42 @@ int main() {
   const float storeyHeight = world.levelViewOrigin("middle").z - world.levelViewOrigin("lower").z;
   if (storeyHeight + 0.001f < nominalCharacterHeight * 1.25f) return 36;
   if (lowerRooms->rooms.front().wallHeight <= nominalCharacterHeight) return 37;
+
+  const auto rayThrough = [](const Vec3& point, const Vec3& direction) {
+    return Ray{point - direction * 6.0f, direction};
+  };
+  const Vec3 defaultView = isoweb::engine::normalise({1.0f, 1.0f, -1.0f});
+  world.prepareRenderFrame(defaultView);
+
+  // Default camera is south-west of the map. The centre room's west wall is
+  // therefore view-facing: its broad upper centre must be cut away so the real
+  // floor behind it wins the ray, while the low sill and end posts remain.
+  SceneSurfaceHit cutawayCentre;
+  if (!world.traceEnvironment(rayThrough({-4.40f, 0.0f, 1.05f}, defaultView), cutawayCentre)) return 38;
+  if (cutawayCentre.kind != SceneSurfaceKind::Ground || !near(cutawayCentre.point.z, 0.0f)) return 39;
+
+  SceneSurfaceHit cutawaySill;
+  if (!world.traceEnvironment(rayThrough({-4.40f, 0.0f, 0.20f}, defaultView), cutawaySill)) return 40;
+  if (cutawaySill.kind != SceneSurfaceKind::Object) return 41;
+
+  SceneSurfaceHit cutawayEnd;
+  if (!world.traceEnvironment(rayThrough({-4.40f, -4.15f, 1.05f}, defaultView), cutawayEnd)) return 42;
+  if (cutawayEnd.kind != SceneSurfaceKind::Object) return 43;
+
+  Object wallProbe;
+  wallProbe.location.levelId = "middle";
+  wallProbe.location.position = {-4.35f, 0.0f, 0.0f};
+  wallProbe.hitBox.minimum = {-0.18f, -0.18f, 0.0f};
+  wallProbe.hitBox.maximum = {0.18f, 0.18f, 1.65f};
+  if (!world.collidesWith(wallProbe)) return 44;
+
+  // Rotating 180 degrees moves the cutaway to the opposite camera-facing wall.
+  const Vec3 oppositeView = isoweb::engine::normalise({-1.0f, -1.0f, -1.0f});
+  world.prepareRenderFrame(oppositeView);
+  SceneSurfaceHit rotatedCutaway;
+  if (!world.traceEnvironment(rayThrough({4.40f, 0.0f, 1.05f}, oppositeView), rotatedCutaway)) return 45;
+  if (rotatedCutaway.kind != SceneSurfaceKind::Ground || !near(rotatedCutaway.point.z, 0.0f)) return 46;
+  world.prepareRenderFrame(defaultView);
 
   // The west arm of the lower cross is not covered by the middle Z. A visible
   // ray there must hit the real lower room at its stacked height and pick a

@@ -37,6 +37,11 @@ constexpr float DEMO_STOREY_HEIGHT = DEMO_CHARACTER_HEIGHT * DEMO_MIN_STOREY_RAT
 constexpr float ROOM_WALL_HEIGHT = 1.80f;
 constexpr float ROOM_WALL_THICKNESS = 0.12f;
 constexpr float ROOM_OPENING_WIDTH = 1.45f;
+// Sims-style presentation cutaway: camera-facing walls keep a low sill and
+// short full-height end caps instead of disappearing entirely.
+constexpr float ROOM_CUTAWAY_HEIGHT = 0.34f;
+constexpr float ROOM_CUTAWAY_END_CAP_WIDTH = 0.42f;
+constexpr float ROOM_CUTAWAY_FACING_THRESHOLD = 0.15f;
 const Vec3 BASE_FOCUS(0.0f, 0.15f, 0.55f);
 
 constexpr int STAIR_STEP_COUNT = 10;
@@ -116,6 +121,9 @@ struct RoomWallBox {
   Vec3 centre;
   Vec3 halfExtent;
   Vec3 colour;
+  // One wall plane may belong to two adjacent Rooms. Preserve every authored
+  // outward side so a shared wall can be cut when either side faces camera.
+  unsigned int outwardSides = 0;
 };
 
 struct LevelDefinition {
@@ -268,6 +276,20 @@ RoomConnection roomConnection(
   connection.b.width = ROOM_OPENING_WIDTH;
   connection.openPassage = true;
   return connection;
+}
+
+unsigned int roomSideBit(RoomSide side) {
+  return 1u << static_cast<unsigned int>(side);
+}
+
+Vec3 roomSideNormal(RoomSide side) {
+  switch (side) {
+    case RoomSide::North: return {0.0f, 1.0f, 0.0f};
+    case RoomSide::South: return {0.0f, -1.0f, 0.0f};
+    case RoomSide::East: return {1.0f, 0.0f, 0.0f};
+    case RoomSide::West: return {-1.0f, 0.0f, 0.0f};
+  }
+  return {0.0f, 0.0f, 0.0f};
 }
 
 RoomLayout lowerRoomLayout() {
@@ -685,7 +707,13 @@ public:
   }
 
   bool rayOccluded(const Ray& ray, float maximumDistance) const override {
+    // Lighting and physical occlusion keep the authored full wall. The camera
+    // cutaway is a presentation aid, not a hole in the world.
     return maximumDistance > EPSILON && traceAny(ray, EPSILON, maximumDistance);
+  }
+
+  void prepareRenderFrame(const Vec3& viewDirection) const override {
+    renderViewDirection_ = viewDirection;
   }
 
   bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const override {
@@ -828,6 +856,7 @@ private:
 
           RoomWallBox wall;
           wall.colour = definition_.floorDark * 0.68f;
+          wall.outwardSides = roomSideBit(side);
           const float centreAlong = (minimum + maximum) * 0.5f;
           const float halfAlong = (maximum - minimum) * 0.5f;
           const float z = room.floorZ + room.wallHeight * 0.5f;
@@ -856,6 +885,35 @@ private:
         emit(cursor, halfSpan);
       }
     }
+
+    // Adjacent Rooms author the same shared wall from opposite sides. Merge
+    // coincident boxes so one full-height duplicate cannot visually cover the
+    // cutaway generated for its camera-facing twin. Collision also gets less
+    // duplicate work as a side effect.
+    std::vector<RoomWallBox> merged;
+    merged.reserve(roomWalls_.size());
+    for (const RoomWallBox& wall : roomWalls_) {
+      RoomWallBox* existing = nullptr;
+      for (RoomWallBox& candidate : merged) {
+        const bool same =
+          std::fabs(candidate.centre.x - wall.centre.x) <= EPSILON &&
+          std::fabs(candidate.centre.y - wall.centre.y) <= EPSILON &&
+          std::fabs(candidate.centre.z - wall.centre.z) <= EPSILON &&
+          std::fabs(candidate.halfExtent.x - wall.halfExtent.x) <= EPSILON &&
+          std::fabs(candidate.halfExtent.y - wall.halfExtent.y) <= EPSILON &&
+          std::fabs(candidate.halfExtent.z - wall.halfExtent.z) <= EPSILON;
+        if (same) {
+          existing = &candidate;
+          break;
+        }
+      }
+      if (existing) {
+        existing->outwardSides |= wall.outwardSides;
+      } else {
+        merged.push_back(wall);
+      }
+    }
+    roomWalls_ = std::move(merged);
   }
 
   void buildCollisionObjects() {
@@ -1284,6 +1342,84 @@ private:
     return true;
   }
 
+  bool roomWallFacesViewer(const RoomWallBox& wall) const {
+    Vec3 toCamera{-renderViewDirection_.x, -renderViewDirection_.y, 0.0f};
+    const float horizontalLengthSquared =
+      toCamera.x * toCamera.x + toCamera.y * toCamera.y;
+    if (horizontalLengthSquared <= 1e-10f) return false;
+    toCamera = toCamera / std::sqrt(horizontalLengthSquared);
+
+    const RoomSide sides[4] = {
+      RoomSide::North, RoomSide::South, RoomSide::East, RoomSide::West
+    };
+    for (RoomSide side : sides) {
+      if ((wall.outwardSides & roomSideBit(side)) == 0) continue;
+      if (engine::dot(roomSideNormal(side), toCamera) > ROOM_CUTAWAY_FACING_THRESHOLD) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool intersectRoomWallVisual(
+    const Ray& ray,
+    const RoomWallBox& wall,
+    float minimum,
+    float maximum,
+    Hit& hit
+  ) const {
+    if (!roomWallFacesViewer(wall)) {
+      return intersectAxisAlignedBox(ray, wall.centre, wall.halfExtent, minimum, maximum, hit);
+    }
+
+    bool found = false;
+    float closest = maximum;
+    const auto testBox = [&](const Vec3& centre, const Vec3& halfExtent) {
+      Hit candidate;
+      if (!intersectAxisAlignedBox(ray, centre, halfExtent, minimum, closest, candidate)) return;
+      found = true;
+      closest = candidate.t;
+      hit = candidate;
+    };
+
+    const float fullHeight = wall.halfExtent.z * 2.0f;
+    const float floorZ = wall.centre.z - wall.halfExtent.z;
+    const float sillHeight = std::min(fullHeight, ROOM_CUTAWAY_HEIGHT);
+    if (sillHeight > 0.01f) {
+      Vec3 sillCentre = wall.centre;
+      Vec3 sillHalf = wall.halfExtent;
+      sillCentre.z = floorZ + sillHeight * 0.5f;
+      sillHalf.z = sillHeight * 0.5f;
+      testBox(sillCentre, sillHalf);
+    }
+
+    // Keep narrow full-height ends so the wall remains visually legible as a
+    // wall rather than vanishing. The central/top region becomes the notch.
+    const bool horizontal = wall.halfExtent.x >= wall.halfExtent.y;
+    const float halfSpan = horizontal ? wall.halfExtent.x : wall.halfExtent.y;
+    const float capWidth = std::max(
+      0.0f,
+      std::min(ROOM_CUTAWAY_END_CAP_WIDTH, halfSpan - 0.18f)
+    );
+    if (capWidth > 0.02f) {
+      const float capHalf = capWidth * 0.5f;
+      const float offset = halfSpan - capHalf;
+      for (float sign : {-1.0f, 1.0f}) {
+        Vec3 capCentre = wall.centre;
+        Vec3 capHalfExtent = wall.halfExtent;
+        if (horizontal) {
+          capCentre.x += sign * offset;
+          capHalfExtent.x = capHalf;
+        } else {
+          capCentre.y += sign * offset;
+          capHalfExtent.y = capHalf;
+        }
+        testBox(capCentre, capHalfExtent);
+      }
+    }
+    return found;
+  }
+
   bool intersectStaircase(
     const Ray& ray,
     std::size_t staircaseIndex,
@@ -1370,7 +1506,7 @@ private:
 
     for (const RoomWallBox& wall : roomWalls_) {
       Hit hit;
-      if (intersectAxisAlignedBox(ray, wall.centre, wall.halfExtent, minimum, maximum, hit)) {
+      if (intersectRoomWallVisual(ray, wall, minimum, maximum, hit)) {
         hit.colour = wall.colour;
         hit.kind = SceneSurfaceKind::Object;
         hit.walkable = false;
@@ -1448,6 +1584,7 @@ private:
   std::vector<WorldObject> worldObjects_;
   std::vector<RoomWallBox> roomWalls_;
   std::vector<std::array<StairStep, STAIR_STEP_COUNT>> stairSteps_;
+  mutable Vec3 renderViewDirection_ = {0.57735027f, 0.57735027f, -0.57735027f};
 };
 
 LevelDefinition lowerLevel() {

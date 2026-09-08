@@ -462,6 +462,12 @@ bool World::renderPositionFor(const Character& character, Vec3& position) const 
 }
 
 void World::prepareRenderFrame(const Vec3& viewDirection) const {
+  // Resident level presentation receives the same camera direction used by
+  // the renderer before either static sampling or runtime compositing begins.
+  for (const auto& level : levels_) {
+    if (level && level->isResident()) level->prepareRenderFrame(viewDirection);
+  }
+
   runtimeRenderEntries_.clear();
   destinationFeedbackMarkers_.clear();
   runtimeSpritePlaneValid_ = false;
