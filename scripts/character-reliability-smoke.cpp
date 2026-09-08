@@ -109,6 +109,23 @@ Object blocker(const std::string& level, const Vec3& position, float halfX, floa
   return object;
 }
 
+Object ceiling(
+  const std::string& level,
+  const Vec3& position,
+  float halfX,
+  float halfY,
+  float bottomZ,
+  float topZ
+) {
+  Object object;
+  object.id = "static-ceiling";
+  object.location.levelId = level;
+  object.location.position = position;
+  object.hitBox.minimum = {-halfX, -halfY, bottomZ};
+  object.hitBox.maximum = {halfX, halfY, topZ};
+  return object;
+}
+
 NavigationLink connector(
   const std::string& id,
   const std::string& from,
@@ -267,6 +284,51 @@ int main() {
     require(runner->movement.pathBlocked, "blocked retry cleared the complaint flag without a route");
     require(runner->movement.failedPathAttempts > firstFailures, "blocked destination was not retried");
     require(std::fabs(runner->movement.destination.position.x - 2.0f) < 0.001f, "blocked retry changed the requested destination");
+  }
+
+  {
+    std::vector<std::vector<Object>> staticObjects(1);
+    // This strip spans beyond the navigable Y bounds, so crossing from left to
+    // right is possible only by fitting underneath it. Standing height is 1.2;
+    // crouched height 0.8 fits below the 1.0 ceiling.
+    staticObjects[0].push_back(ceiling("floor", {0.0f, 0.0f, 0.0f}, 0.45f, 6.50f, 1.0f, 1.35f));
+    std::unique_ptr<World> world = makeWorld({"floor"}, std::move(staticObjects));
+    CharacterSystem characters(*world);
+    Camera camera(CameraConfig(3.25f, 6.15f, 5.50f));
+    Character* runner = addCharacter(*world, "crouch-runner", "floor", {-2.0f, 0.0f, 0.0f});
+    runner->crouchedHeight = 0.80f;
+
+    EntityLocation destination = runner->location;
+    destination.position = {2.0f, 0.0f, 0.0f};
+    require(characters.command(*runner, destination), "low-clearance command was rejected");
+    require(!runner->movement.pathBlocked, "crouchable passage was treated as blocked");
+
+    bool sawCrouch = false;
+    bool stoodAfterCrouch = false;
+    for (int tick = 0; tick < 1200 && runner->movement.hasDestination; ++tick) {
+      characters.tick(0.05f, camera);
+      if (runner->crouching) sawCrouch = true;
+      if (sawCrouch && !runner->crouching) stoodAfterCrouch = true;
+    }
+    require(sawCrouch, "Character never crouched under low clearance");
+    require(stoodAfterCrouch, "Character did not stand after leaving low clearance");
+    require(!runner->crouching, "Character remained crouched in open space");
+    require(!runner->movement.hasDestination, "crouching Character did not reach destination");
+  }
+
+  {
+    std::vector<std::vector<Object>> staticObjects(1);
+    staticObjects[0].push_back(ceiling("floor", {0.0f, 0.0f, 0.0f}, 0.45f, 6.50f, 0.65f, 1.35f));
+    std::unique_ptr<World> world = makeWorld({"floor"}, std::move(staticObjects));
+    CharacterSystem characters(*world);
+    Character* runner = addCharacter(*world, "too-tall-runner", "floor", {-2.0f, 0.0f, 0.0f});
+    runner->crouchedHeight = 0.80f;
+
+    EntityLocation destination = runner->location;
+    destination.position = {2.0f, 0.0f, 0.0f};
+    require(characters.command(*runner, destination), "valid low-space destination command was rejected");
+    require(runner->movement.pathBlocked, "passage shorter than crouched height was considered navigable");
+    require(!runner->moving, "Character tried to enter clearance shorter than crouched height");
   }
 
   std::cout << "Character reliability regressions passed.\n";

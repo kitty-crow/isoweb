@@ -142,6 +142,32 @@ public:
   bool controllable = true;
   float movementSpeedMultiplier = 1.0f;
 
+  // Authored hitBox is always the standing shape. A positive crouchedHeight
+  // smaller than the standing height enables automatic low-clearance travel.
+  // Keeping this per Character avoids assuming every actor has the same body
+  // proportions or can crouch at all.
+  float crouchedHeight = 0.0f;
+  bool crouching = false;
+
+  float standingHeight() const {
+    return hitBox.maximum.z - hitBox.minimum.z;
+  }
+
+  bool canCrouch() const {
+    const float standing = standingHeight();
+    return crouchedHeight > 0.0f && crouchedHeight < standing;
+  }
+
+  HitBox effectiveHitBox() const {
+    HitBox result = hitBox;
+    if (crouching && canCrouch()) {
+      result.maximum.z = result.minimum.z + crouchedHeight;
+    }
+    return result;
+  }
+
+  HitBox collisionHitBox() const override { return effectiveHitBox(); }
+
   bool moving = false;
   std::string activeAction;
   CharacterSpriteSet sprites;

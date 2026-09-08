@@ -112,6 +112,10 @@ public:
   Vec3 forward = {0.0f, 1.0f, 0.0f};
   HitBox hitBox;
 
+  // Runtime posture/deformation may use a different collision shape while the
+  // authored hitBox remains the stable standing/base geometry.
+  virtual HitBox collisionHitBox() const { return hitBox; }
+
   // Surface textures are metadata today and are deliberately independent of
   // hit-box dimensions. Tile modes therefore keep a fixed world-space texel
   // density when an obstacle changes length instead of stretching one image

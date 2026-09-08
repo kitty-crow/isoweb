@@ -141,8 +141,8 @@ int main() {
   );
 
   // Lower preview runtime entities remain dynamic without rendering a second
-  // complete level. From the upper level, choose a ray that misses upper and
-  // middle geometry before reaching an exposed point on the lower west room.
+  // complete level. From the upper level, choose rays that miss upper and
+  // middle geometry before reaching exposed points on the lower west room.
   isoweb::demo::DemoWorld previewWorld;
   CharacterSystem previewCharacters(previewWorld);
   require(previewWorld.levelUp(), "could not switch preview regression to upper level");
@@ -157,7 +157,9 @@ int main() {
   lowerCharacter->moving = true;
   lowerCharacter->movement.hasDestination = true;
   lowerCharacter->movement.destination = lowerCharacter->location;
-  lowerCharacter->movement.destination.position = {-12.0f, -2.0f, 0.0f};
+  // Keep the floor-bound marker far enough inside the west room that the
+  // taller near cutaway wall does not legitimately occlude it from this ray.
+  lowerCharacter->movement.destination.position = {-11.0f, -2.0f, 0.0f};
   lowerCharacter->movement.destinationForward = {0.0f, -1.0f, 0.0f};
   lowerCharacter->movement.feedbackElapsedSeconds = 0.08f;
   previewWorld.entities().add(std::move(lowerOwned));
@@ -178,15 +180,17 @@ int main() {
 
   previewWorld.prepareRenderFrame(previewDirection);
 
-  // Lower floor is displayed 2.8 units beneath upper in this demo. Sample the
-  // Character body above that floor at a screen ray known to be exposed.
-  const SamplePair lowerBody = previewSample({-12.0f, 0.0f, -2.0f});
+  const float lowerPreviewZ = previewWorld.levelViewOrigin("lower").z -
+    previewWorld.levelViewOrigin("upper").z;
+  // Sample the Character body above the configured lower-floor offset at a
+  // screen ray known to be exposed.
+  const SamplePair lowerBody = previewSample({-12.0f, 0.0f, lowerPreviewZ + 0.80f});
   require(
     colourDistance(lowerBody.environment, lowerBody.runtime) > 0.03f,
     "Character on second lower preview level was not visible from upper"
   );
 
-  const SamplePair lowerDestinationFeedback = previewSample({-12.0f, -2.0f, -2.8f});
+  const SamplePair lowerDestinationFeedback = previewSample({-11.0f, -2.0f, lowerPreviewZ});
   require(
     colourDistance(lowerDestinationFeedback.environment, lowerDestinationFeedback.runtime) > 0.02f,
     "destination feedback on second lower preview level was not visible from upper"

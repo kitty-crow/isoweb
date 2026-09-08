@@ -85,18 +85,42 @@ Vec3 fromGrid(const GridPoint& point, float minX, float minY, float cell, float 
   return {minX + point.x * cell, minY + point.y * cell, z};
 }
 
-bool positionBlocked(
+bool resolveSupportedWithLimits(
   const World& world,
   const Character& character,
   const std::string& levelId,
-  const Vec3& position,
-  const Vec3& facing
+  const Vec3& desired,
+  float referenceZ,
+  const Vec3& facing,
+  float maxStepHeight,
+  float maxDropHeight,
+  Vec3& resolved,
+  bool* crouching = nullptr
 ) {
-  Character candidate = character;
-  candidate.location.levelId = levelId;
-  candidate.location.position = position;
-  candidate.forward = facing;
-  return world.collidesWith(candidate, &character);
+  const auto tryPosture = [&](bool useCrouch) {
+    Character probe = character;
+    probe.crouching = useCrouch;
+    probe.location.levelId = levelId;
+    probe.location.position = desired;
+    probe.forward = facing;
+    if (!world.resolveWalkablePosition(
+      probe,
+      levelId,
+      desired,
+      referenceZ,
+      maxStepHeight,
+      maxDropHeight,
+      resolved,
+      &character
+    )) {
+      return false;
+    }
+    if (crouching) *crouching = useCrouch;
+    return true;
+  };
+
+  if (tryPosture(false)) return true;
+  return character.canCrouch() && tryPosture(true);
 }
 
 bool resolveSupported(
@@ -109,18 +133,17 @@ bool resolveSupported(
   const CharacterEngineDefaults& defaults,
   Vec3& resolved
 ) {
-  if (!world.resolveWalkablePosition(
+  return resolveSupportedWithLimits(
+    world,
     character,
     levelId,
     desired,
     referenceZ,
+    facing,
     defaults.maxStepHeight,
     defaults.maxDropHeight,
     resolved
-  )) {
-    return false;
-  }
-  return !positionBlocked(world, character, levelId, resolved, facing);
+  );
 }
 
 bool segmentClear(
@@ -462,22 +485,19 @@ EntityLocation DestinationPolicy::resolve(
 
   const float unlimited = std::numeric_limits<float>::max() * 0.25f;
   Vec3 supported;
-  if (world.resolveWalkablePosition(
+  if (resolveSupportedWithLimits(
+    world,
     character,
     resolved.levelId,
     resolved.position,
     resolved.position.z,
+    character.forward,
     unlimited,
     unlimited,
     supported
   )) {
-    Character probe = character;
-    probe.location = resolved;
-    probe.location.position = supported;
-    if (!world.collidesWith(probe, &character)) {
-      resolved.position = supported;
-      return resolved;
-    }
+    resolved.position = supported;
+    return resolved;
   }
 
   const float step = std::max(0.08f, defaults.navigationCellSize);
@@ -488,25 +508,21 @@ EntityLocation DestinationPolicy::resolve(
       for (int y = -radius; y <= radius; ++y) {
         if (std::max(std::abs(x), std::abs(y)) != radius) continue;
         Vec3 candidatePoint = requested.position + Vec3(x * step, y * step, 0.0f);
-        if (!world.resolveWalkablePosition(
+        if (!resolveSupportedWithLimits(
+          world,
           character,
           resolved.levelId,
           candidatePoint,
           candidatePoint.z,
+          character.forward,
           unlimited,
           unlimited,
           supported
         )) {
           continue;
         }
-
-        Character probe = character;
-        probe.location = resolved;
-        probe.location.position = supported;
-        if (!world.collidesWith(probe, &character)) {
-          resolved.position = supported;
-          return resolved;
-        }
+        resolved.position = supported;
+        return resolved;
       }
     }
   }

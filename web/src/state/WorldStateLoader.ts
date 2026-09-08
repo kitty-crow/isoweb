@@ -38,6 +38,7 @@ type CharacterDefinition = {
   npc?: boolean;
   controllable?: boolean;
   movementSpeedMultiplier?: number;
+  crouchedHeight?: number;
   collisionTags?: string[];
   mustCollideWith?: string[];
   sprites?: {
@@ -158,6 +159,11 @@ export class WorldStateLoader {
       'isoweb_set_character_speed',
       ['string', 'number'],
       [character.id, character.movementSpeedMultiplier ?? 1]
+    );
+    this.callNumber(
+      'isoweb_set_character_crouched_height',
+      ['string', 'number'],
+      [character.id, character.crouchedHeight ?? 0]
     );
 
     this.callNumber(
