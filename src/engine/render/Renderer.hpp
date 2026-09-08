@@ -40,6 +40,11 @@ private:
     float environmentDistance = 0.0f;
   };
 
+  struct PreviewSample {
+    Vec3 colour;
+    bool found = false;
+  };
+
   struct StaticCacheKey {
     int width = 0;
     int height = 0;
@@ -76,6 +81,9 @@ private:
   std::vector<std::uint8_t> rgba_;
 
   std::vector<StaticSample> staticSamples_;
+  std::vector<PreviewSample> previewSamples_;
+  int previewWidth_ = 0;
+  int previewHeight_ = 0;
   std::vector<Vec3> panBackgroundRows_;
   StaticCacheKey staticCacheKey_;
   bool staticCacheValid_ = false;

@@ -317,6 +317,36 @@ void Renderer::render() {
 
   world_.prepareRenderFrame(forward);
 
+  // Decorative lower floors are rendered once per frame into a deliberately
+  // small buffer. This is one analytic sample per preview texel, no supersampling.
+  previewWidth_ = 0;
+  previewHeight_ = 0;
+  if (world_.supportsLowDetailLowerPreview()) {
+    const float previewScale = std::max(0.0625f, std::min(0.5f, world_.lowerPreviewResolutionScale()));
+    previewWidth_ = std::max(1, std::min(320, static_cast<int>(std::ceil(frameWidth_ * previewScale))));
+    previewHeight_ = std::max(1, std::min(180, static_cast<int>(std::ceil(frameHeight_ * previewScale))));
+    const std::size_t required = static_cast<std::size_t>(previewWidth_) * previewHeight_;
+    if (previewSamples_.size() != required) previewSamples_.resize(required);
+
+    const float previewStepX = width / static_cast<float>(previewWidth_);
+    const float previewStepY = height / static_cast<float>(previewHeight_);
+    const float previewOriginDistance = rayOriginDistance(bounds, forward);
+    const Vec3 previewCorner =
+      focus - forward * previewOriginDistance - right * (width * 0.5f) + up * (height * 0.5f);
+    const Vec3 previewRightStep = right * previewStepX;
+    const Vec3 previewDownStep = up * (-previewStepY);
+    Vec3 previewRow = previewCorner + previewRightStep * 0.5f + previewDownStep * 0.5f;
+    for (int py = 0; py < previewHeight_; ++py) {
+      Vec3 previewOrigin = previewRow;
+      for (int px = 0; px < previewWidth_; ++px) {
+        PreviewSample& sample = previewSamples_[static_cast<std::size_t>(py) * previewWidth_ + px];
+        sample.found = world_.sampleLowDetailLowerPreview({previewOrigin, forward}, sample.colour);
+        previewOrigin = previewOrigin + previewRightStep;
+      }
+      previewRow = previewRow + previewDownStep;
+    }
+  }
+
   const std::size_t pixelCount =
     static_cast<std::size_t>(frameWidth_) * static_cast<std::size_t>(frameHeight_);
   const bool useStaticCache =
@@ -368,16 +398,29 @@ void Renderer::render() {
       (static_cast<float>(y) + 0.25f) * inverseFrameHeight,
       (static_cast<float>(y) + 0.75f) * inverseFrameHeight
     };
+    const int previewY = previewHeight_ > 0
+      ? std::min(previewHeight_ - 1, y * previewHeight_ / frameHeight_)
+      : 0;
     std::uint8_t* frameRow = reinterpret_cast<std::uint8_t*>(
       &dsr::image_accessPixel(frame_, 0, y)
     );
 
     for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
+      const PreviewSample* previewForPixel = nullptr;
+      if (previewWidth_ > 0 && previewHeight_ > 0) {
+        const int previewX = std::min(previewWidth_ - 1, x * previewWidth_ / frameWidth_);
+        previewForPixel = &previewSamples_[
+          static_cast<std::size_t>(previewY) * previewWidth_ + previewX
+        ];
+      }
+
       Vec3 colour;
       for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
         const Ray ray{pixelOrigin + sampleOffsets[sampleIndex], forward};
         const float sampleBackgroundY = backgroundY[sampleIndex >> 1];
 
+        Vec3 environmentColour;
+        float environmentDistance = std::numeric_limits<float>::max();
         if (useStaticCache) {
           StaticSample& staticSample = staticSamples_[pixelIndex * 4 + sampleIndex];
           if (rebuildStaticCache || staticSample.environmentDistance < 0.0f) {
@@ -387,14 +430,29 @@ void Renderer::render() {
               staticSample.environmentDistance
             );
           }
-          colour = colour + world_.compositeRuntime(
-            ray,
-            staticSample.colour,
-            staticSample.environmentDistance
-          );
+          environmentColour = staticSample.colour;
+          environmentDistance = staticSample.environmentDistance;
         } else {
-          colour = colour + world_.sample(ray, sampleBackgroundY);
+          environmentColour = world_.sampleEnvironment(
+            ray,
+            sampleBackgroundY,
+            environmentDistance
+          );
         }
+
+        if (
+          environmentDistance >= NO_HIT_DISTANCE &&
+          previewForPixel &&
+          previewForPixel->found
+        ) {
+          environmentColour = previewForPixel->colour;
+        }
+
+        colour = colour + world_.compositeRuntime(
+          ray,
+          environmentColour,
+          environmentDistance
+        );
       }
       colour = colour * 0.25f;
 

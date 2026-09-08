@@ -25,8 +25,8 @@ int main() {
 
   isoweb::demo::DemoWorld world;
   if (world.liminalObjects().size() != 2) return 1;
-  if (world.residentLevelCount() != 2) return 26;
-  if (!world.isLevelResident("middle") || !world.isLevelResident("lower")) return 27;
+  if (world.residentLevelCount() != 1) return 26;
+  if (!world.isLevelResident("middle") || world.isLevelResident("lower")) return 27;
   if (world.isLevelResident("upper")) return 28;
 
   const LiminalObject& stairs = world.liminalObjects().front();
@@ -57,14 +57,14 @@ int main() {
   if (distance(renderPosition, expected) > 0.002f) return 9;
 
   // Looking at an unrelated level must not project this connector into it.
-  // The active level plus its configured lower previews remain render-resident.
+  // Only the active level keeps full render residency; lower previews are cheap.
   if (!world.levelUp()) return 10;
   if (world.renderPositionFor(character, renderPosition)) return 11;
-  if (world.residentLevelCount() != 3) return 29;
-  if (!world.isLevelResident("upper") || !world.isLevelResident("middle") || !world.isLevelResident("lower")) return 30;
+  if (world.residentLevelCount() != 1) return 29;
+  if (!world.isLevelResident("upper") || world.isLevelResident("middle") || world.isLevelResident("lower")) return 30;
   if (!world.levelDown()) return 12;
-  if (world.residentLevelCount() != 2) return 31;
-  if (!world.isLevelResident("middle") || !world.isLevelResident("lower") || world.isLevelResident("upper")) return 32;
+  if (world.residentLevelCount() != 1) return 31;
+  if (!world.isLevelResident("middle") || world.isLevelResident("lower") || world.isLevelResident("upper")) return 32;
 
   world.setLevelLight("middle", {-3.60f, -4.20f, 6.50f});
 
