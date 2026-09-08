@@ -299,7 +299,6 @@ void Renderer::render() {
   );
 
   world_.prepareRenderFrame(forward);
-  world_.prepareRuntimeAcceleration(forward);
 
   const std::size_t pixelCount =
     static_cast<std::size_t>(frameWidth_) * static_cast<std::size_t>(frameHeight_);
@@ -366,15 +365,13 @@ void Renderer::render() {
             staticSample.colour = world_.sampleEnvironment(
               ray,
               sampleBackgroundY,
-              staticSample.environmentDistance,
-              &staticSample.environmentHit
+              staticSample.environmentDistance
             );
           }
           colour = colour + world_.compositeRuntime(
             ray,
             staticSample.colour,
-            staticSample.environmentDistance,
-            &staticSample.environmentHit
+            staticSample.environmentDistance
           );
         } else {
           colour = colour + world_.sample(ray, sampleBackgroundY);
