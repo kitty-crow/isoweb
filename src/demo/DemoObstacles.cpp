@@ -15,12 +15,15 @@ using engine::EntityLocation;
 using engine::HitBox;
 using engine::Object;
 using engine::ObjectFace;
+using engine::SurfaceTextureMode;
 using engine::Vec3;
 
 constexpr const char* OBSTACLE_TAG = "demo-obstacle";
-constexpr const char* LEVEL_ID = "middle";
 constexpr const char* WORLD_ID = "demo";
 constexpr const char* TIMELINE_ID = "default";
+constexpr const char* BARRIER_LEVEL_ID = "middle";
+constexpr const char* GUILLOTINE_LEVEL_ID = "upper";
+constexpr const char* BLADES_LEVEL_ID = "lower";
 
 constexpr const char* BARRIER_LEFT_ID = "demo-obstacle-barrier-left";
 constexpr const char* BARRIER_RIGHT_ID = "demo-obstacle-barrier-right";
@@ -28,16 +31,21 @@ constexpr const char* GUILLOTINE_ID = "demo-obstacle-guillotine";
 constexpr const char* BLADE_A_ID = "demo-obstacle-blade-a";
 constexpr const char* BLADE_B_ID = "demo-obstacle-blade-b";
 
-// Both gates deliberately extend slightly beyond the 4.40 world-floor edge.
-// There is no path around either gate inside the playable level.
+// The full-width gates deliberately extend slightly beyond the 4.40 floor
+// edge. The barrier lives on the default middle level, the guillotine guards
+// the upper level, and the rotating pair guards the lower stair approach.
 constexpr float GATE_HALF_SPAN = 4.48f;
 const Vec3 BARRIER_BASE(0.0f, 1.90f, 0.0f);
-const Vec3 GUILLOTINE_BASE(0.0f, -1.38f, 0.0f);
-const Vec3 BLADES_BASE(3.10f, 0.35f, 0.0f);
+const Vec3 GUILLOTINE_BASE(0.0f, 2.15f, 0.0f);
+const Vec3 BLADES_BASE(2.15f, -3.82f, 0.0f);
 
-constexpr float BARRIER_GAP = 1.15f;
-constexpr float BARRIER_SWEEP = 2.65f;
-constexpr float BARRIER_SPEED = 0.85f;
+// The default Character moves at 1.45 world units/s. The opening is much
+// wider than a Character and its maximum lateral speed is only
+// BARRIER_SWEEP * BARRIER_SPEED = 0.516 units/s, so it is a moving target
+// rather than an impossible chase.
+constexpr float BARRIER_GAP = 2.35f;
+constexpr float BARRIER_SWEEP = 2.15f;
+constexpr float BARRIER_SPEED = 0.24f;
 constexpr float BARRIER_HALF_THICKNESS = 0.11f;
 constexpr float BARRIER_HEIGHT = 1.30f;
 
@@ -49,6 +57,7 @@ constexpr float GUILLOTINE_HALF_THICKNESS = 0.12f;
 constexpr float BLADE_ANGULAR_SPEED = 2.35f;
 constexpr float PI = 3.14159265358979323846f;
 constexpr float CONTACT_TOLERANCE = 0.028f;
+constexpr float OBSTACLE_TEXTURE_TILE_SIZE = 0.50f;
 
 HitBox box(const Vec3& minimum, const Vec3& maximum) {
   HitBox result;
@@ -57,11 +66,11 @@ HitBox box(const Vec3& minimum, const Vec3& maximum) {
   return result;
 }
 
-EntityLocation location(const Vec3& position) {
+EntityLocation location(const char* levelId, const Vec3& position) {
   EntityLocation result;
   result.worldId = WORLD_ID;
   result.timelineId = TIMELINE_ID;
-  result.levelId = LEVEL_ID;
+  result.levelId = levelId;
   result.position = position;
   return result;
 }
@@ -69,19 +78,22 @@ EntityLocation location(const Vec3& position) {
 Character& addPart(
   engine::World& world,
   const std::string& id,
+  const char* levelId,
   const Vec3& position,
   const Vec3& forward,
   const HitBox& hitBox
 ) {
   std::unique_ptr<Character> obstacle(new Character());
   obstacle->id = id;
-  obstacle->location = location(position);
+  obstacle->location = location(levelId, position);
   obstacle->forward = forward;
   obstacle->hitBox = hitBox;
   obstacle->solid = true;
   obstacle->npc = true;
   obstacle->controllable = false;
   obstacle->movementSpeedMultiplier = 0.0f;
+  obstacle->surfaceTextureMode = SurfaceTextureMode::TileLocal;
+  obstacle->textureWorldUnitsPerTile = OBSTACLE_TEXTURE_TILE_SIZE;
   obstacle->collisionTags.push_back(OBSTACLE_TAG);
   Object& stored = world.entities().add(std::move(obstacle));
   return static_cast<Character&>(stored);
@@ -147,6 +159,7 @@ void DemoObstacleSystem::spawn() {
   Character& barrierLeft = addPart(
     world_,
     BARRIER_LEFT_ID,
+    BARRIER_LEVEL_ID,
     BARRIER_BASE,
     {0.0f, 1.0f, 0.0f},
     box({-0.10f, -BARRIER_HALF_THICKNESS, 0.0f}, {0.10f, BARRIER_HALF_THICKNESS, BARRIER_HEIGHT})
@@ -154,10 +167,16 @@ void DemoObstacleSystem::spawn() {
   Character& barrierRight = addPart(
     world_,
     BARRIER_RIGHT_ID,
+    BARRIER_LEVEL_ID,
     BARRIER_BASE,
     {0.0f, 1.0f, 0.0f},
     box({-0.10f, -BARRIER_HALF_THICKNESS, 0.0f}, {0.10f, BARRIER_HALF_THICKNESS, BARRIER_HEIGHT})
   );
+  // The wall changes length as its opening moves. World-anchored tiling keeps
+  // future texture density fixed and prevents either wall segment from
+  // stretching or visibly swimming as its hit box is resized.
+  barrierLeft.surfaceTextureMode = SurfaceTextureMode::TileWorld;
+  barrierRight.surfaceTextureMode = SurfaceTextureMode::TileWorld;
   setBarrierOpening(barrierLeft, barrierRight, 0.0f);
   partIds_.push_back(BARRIER_LEFT_ID);
   partIds_.push_back(BARRIER_RIGHT_ID);
@@ -165,6 +184,7 @@ void DemoObstacleSystem::spawn() {
   addPart(
     world_,
     GUILLOTINE_ID,
+    GUILLOTINE_LEVEL_ID,
     GUILLOTINE_BASE + Vec3(0.0f, 0.0f, GUILLOTINE_UP_Z),
     {0.0f, 1.0f, 0.0f},
     box(
@@ -174,11 +194,10 @@ void DemoObstacleSystem::spawn() {
   );
   partIds_.push_back(GUILLOTINE_ID);
 
-  // The rotating pair sits in the clear right-hand approach between the two
-  // gates. Its sweep does not intersect the demo cube or sphere.
   addPart(
     world_,
     BLADE_A_ID,
+    BLADES_LEVEL_ID,
     BLADES_BASE,
     {0.0f, 1.0f, 0.0f},
     box({-0.11f, 0.16f, 0.08f}, {0.11f, 1.08f, 0.28f})
@@ -186,6 +205,7 @@ void DemoObstacleSystem::spawn() {
   addPart(
     world_,
     BLADE_B_ID,
+    BLADES_LEVEL_ID,
     BLADES_BASE,
     {0.0f, -1.0f, 0.0f},
     box({-0.11f, 0.16f, 0.08f}, {0.11f, 1.08f, 0.28f})
@@ -250,54 +270,54 @@ bool DemoObstacleSystem::touchesFace(
   if (!obstacle.location.sharesSpaceWith(other.location)) return false;
 
   const LocalBounds local = boundsInLocalSpace(obstacle, other);
-  const HitBox& box = obstacle.hitBox;
+  const HitBox& hitBox = obstacle.hitBox;
   const Vec3 centre = local.minimum + (local.maximum - local.minimum) * 0.5f;
-  const Vec3 obstacleCentre = box.centre();
+  const Vec3 obstacleCentre = hitBox.centre();
 
   const float overlapX = overlapAmount(
     local.minimum.x - tolerance,
     local.maximum.x + tolerance,
-    box.minimum.x,
-    box.maximum.x
+    hitBox.minimum.x,
+    hitBox.maximum.x
   );
   const float overlapY = overlapAmount(
     local.minimum.y - tolerance,
     local.maximum.y + tolerance,
-    box.minimum.y,
-    box.maximum.y
+    hitBox.minimum.y,
+    hitBox.maximum.y
   );
   const float overlapZ = overlapAmount(
     local.minimum.z - tolerance,
     local.maximum.z + tolerance,
-    box.minimum.z,
-    box.maximum.z
+    hitBox.minimum.z,
+    hitBox.maximum.z
   );
 
   switch (face) {
     case ObjectFace::Left:
       return centre.x <= obstacleCentre.x && overlapY > 0.0f && overlapZ > 0.0f &&
-        local.maximum.x >= box.minimum.x - tolerance &&
-        local.minimum.x <= box.minimum.x + tolerance;
+        local.maximum.x >= hitBox.minimum.x - tolerance &&
+        local.minimum.x <= hitBox.minimum.x + tolerance;
     case ObjectFace::Right:
       return centre.x >= obstacleCentre.x && overlapY > 0.0f && overlapZ > 0.0f &&
-        local.minimum.x <= box.maximum.x + tolerance &&
-        local.maximum.x >= box.maximum.x - tolerance;
+        local.minimum.x <= hitBox.maximum.x + tolerance &&
+        local.maximum.x >= hitBox.maximum.x - tolerance;
     case ObjectFace::Back:
       return centre.y <= obstacleCentre.y && overlapX > 0.0f && overlapZ > 0.0f &&
-        local.maximum.y >= box.minimum.y - tolerance &&
-        local.minimum.y <= box.minimum.y + tolerance;
+        local.maximum.y >= hitBox.minimum.y - tolerance &&
+        local.minimum.y <= hitBox.minimum.y + tolerance;
     case ObjectFace::Front:
       return centre.y >= obstacleCentre.y && overlapX > 0.0f && overlapZ > 0.0f &&
-        local.minimum.y <= box.maximum.y + tolerance &&
-        local.maximum.y >= box.maximum.y - tolerance;
+        local.minimum.y <= hitBox.maximum.y + tolerance &&
+        local.maximum.y >= hitBox.maximum.y - tolerance;
     case ObjectFace::Bottom:
       return centre.z <= obstacleCentre.z && overlapX > 0.0f && overlapY > 0.0f &&
-        local.maximum.z >= box.minimum.z - tolerance &&
-        local.minimum.z <= box.minimum.z + tolerance;
+        local.maximum.z >= hitBox.minimum.z - tolerance &&
+        local.minimum.z <= hitBox.minimum.z + tolerance;
     case ObjectFace::Top:
       return centre.z >= obstacleCentre.z && overlapX > 0.0f && overlapY > 0.0f &&
-        local.minimum.z <= box.maximum.z + tolerance &&
-        local.maximum.z >= box.maximum.z - tolerance;
+        local.minimum.z <= hitBox.maximum.z + tolerance &&
+        local.maximum.z >= hitBox.maximum.z - tolerance;
   }
   return false;
 }
