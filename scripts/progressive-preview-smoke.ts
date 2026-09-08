@@ -39,18 +39,33 @@ try {
     { timeout: 45_000 }
   );
 
-  const initial = await page.evaluate(() => {
+  // Keep the initial visibility checks and idle-gate checks in one JS turn so
+  // the app's requestAnimationFrame loop cannot consume background-refinement
+  // frames between assertions.
+  const initialAndIdle = await page.evaluate(() => {
     const module = (globalThis as any).Module;
     module._isoweb_level_up(); // middle -> upper, exposing both lower previews
-    return {
+    const initial = {
       potential: module._isoweb_preview_potential_texel_count(),
       demanded: module._isoweb_preview_demanded_texel_count(),
       coarse: module._isoweb_preview_coarse_sample_count(),
       refined: module._isoweb_preview_refined_sample_count(),
       needs: module._isoweb_preview_needs_refinement()
     };
+
+    const before = module._isoweb_preview_refined_sample_count();
+    const results: number[] = [];
+    for (let i = 0; i < 6; ++i) results.push(module._isoweb_refine_preview(1));
+    const afterGate = module._isoweb_preview_refined_sample_count();
+    const firstRefine = module._isoweb_refine_preview(1);
+    const afterRefine = module._isoweb_preview_refined_sample_count();
+    return {
+      initial,
+      idleGate: { before, results, afterGate, firstRefine, afterRefine }
+    };
   });
 
+  const { initial, idleGate } = initialAndIdle;
   if (!(initial.potential > 0)) throw new Error(`No lower-preview buffer on upper level: ${JSON.stringify(initial)}`);
   if (!(initial.demanded > 0 && initial.demanded < initial.potential)) {
     throw new Error(`Preview demand was not visibility-culled: ${JSON.stringify(initial)}`);
@@ -63,17 +78,7 @@ try {
   // The first calls are intentionally suppressed by the idle delay. This is
   // what prevents panning/zooming from turning newly exposed preview tiles into
   // a synchronous frame-time spike.
-  const idleGate = await page.evaluate(() => {
-    const module = (globalThis as any).Module;
-    const before = module._isoweb_preview_refined_sample_count();
-    const results: number[] = [];
-    for (let i = 0; i < 6; ++i) results.push(module._isoweb_refine_preview(1));
-    const afterGate = module._isoweb_preview_refined_sample_count();
-    const firstRefine = module._isoweb_refine_preview(1);
-    const afterRefine = module._isoweb_preview_refined_sample_count();
-    return { before, results, afterGate, firstRefine, afterRefine };
-  });
-  if (idleGate.results.some(value => value !== 0) || idleGate.afterGate !== idleGate.before) {
+  if (idleGate.results.some((value: number) => value !== 0) || idleGate.afterGate !== idleGate.before) {
     throw new Error(`Preview refined during the camera idle guard: ${JSON.stringify(idleGate)}`);
   }
   if (!(idleGate.firstRefine === 1 && idleGate.afterRefine > idleGate.afterGate)) {
