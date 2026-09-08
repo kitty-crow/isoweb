@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <limits>
 #include <utility>
@@ -17,6 +18,16 @@ namespace {
 float distanceSquared(const Vec3& a, const Vec3& b) {
   const Vec3 delta = a - b;
   return dot(delta, delta);
+}
+
+void hashPreviewValue(std::uint64_t& hash, std::uint64_t value) {
+  hash ^= value;
+  hash *= 1099511628211ULL;
+}
+
+void hashPreviewFloat(std::uint64_t& hash, float value) {
+  const long long quantised = static_cast<long long>(std::llround(value * 4096.0f));
+  hashPreviewValue(hash, static_cast<std::uint64_t>(quantised));
 }
 
 float pointSegmentDistanceSquared(const Vec3& point, const Vec3& a, const Vec3& b) {
@@ -183,6 +194,7 @@ bool World::setLevelId(std::size_t index, const std::string& id) {
   levelLookup_.erase(levelIds_[index]);
   levelIds_[index] = id;
   levelLookup_[id] = index;
+  ++lowDetailPreviewRevision_;
   runtimeRenderCachePrepared_ = false;
   return true;
 }
@@ -215,20 +227,26 @@ Vec3 World::levelOffsetInActiveView(std::size_t index) const {
 
 void World::setLowerLevelPreviewDepth(std::size_t depth) {
   const std::size_t maximum = levels_.empty() ? 0 : levels_.size() - 1;
-  lowerLevelPreviewDepth_ = std::min(depth, maximum);
+  const std::size_t nextDepth = std::min(depth, maximum);
+  if (nextDepth != lowerLevelPreviewDepth_) ++lowDetailPreviewRevision_;
+  lowerLevelPreviewDepth_ = nextDepth;
   updateLevelResidency();
   updateVisibleBounds();
   runtimeRenderCachePrepared_ = false;
 }
 
 void World::setLowerPreviewResolutionScale(float scale) {
-  lowerPreviewResolutionScale_ = std::max(0.0625f, std::min(0.5f, scale));
+  const float nextScale = std::max(0.0625f, std::min(0.5f, scale));
+  if (std::fabs(nextScale - lowerPreviewResolutionScale_) > 1e-6f) ++lowDetailPreviewRevision_;
+  lowerPreviewResolutionScale_ = nextScale;
 }
 
 bool World::setLevelViewOrigin(const std::string& levelId, const Vec3& origin) {
   const std::size_t index = levelIndex(levelId);
   if (index >= levelViewOrigins_.size()) return false;
+  const Vec3 previous = levelViewOrigins_[index];
   levelViewOrigins_[index] = origin;
+  if (distanceSquared(previous, origin) > 1e-12f) ++lowDetailPreviewRevision_;
   updateVisibleBounds();
   runtimeRenderCachePrepared_ = false;
   return true;
@@ -649,6 +667,38 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
     }
 
     runtimeRenderEntries_.push_back(std::move(entry));
+  }
+
+  // Track only data that can change the cheap lower-preview pixels. Moving
+  // Characters and flashing destinations deliberately advance this revision,
+  // keeping them on the immediate coarse path. When they stop changing, the
+  // progressive tile cache becomes stable and may refine asynchronously.
+  std::uint64_t previewSignature = 1469598103934665603ULL;
+  for (const LowDetailPreviewCharacter& preview : lowDetailPreviewCharacters_) {
+    hashPreviewValue(previewSignature, preview.levelIndex);
+    hashPreviewFloat(previewSignature, preview.position.x);
+    hashPreviewFloat(previewSignature, preview.position.y);
+    hashPreviewFloat(previewSignature, preview.position.z);
+    hashPreviewFloat(previewSignature, preview.forward.x);
+    hashPreviewFloat(previewSignature, preview.forward.y);
+    hashPreviewValue(previewSignature, preview.selected ? 1 : 0);
+  }
+  for (const LowDetailPreviewMarker& marker : lowDetailPreviewMarkers_) {
+    hashPreviewValue(previewSignature, marker.levelIndex);
+    hashPreviewFloat(previewSignature, marker.position.x);
+    hashPreviewFloat(previewSignature, marker.position.y);
+    hashPreviewFloat(previewSignature, marker.elapsedSeconds);
+  }
+  if (characterSystem_) {
+    const SelectionStyle style = characterSystem_->selectionStyle();
+    hashPreviewFloat(previewSignature, style.tint.x);
+    hashPreviewFloat(previewSignature, style.tint.y);
+    hashPreviewFloat(previewSignature, style.tint.z);
+    hashPreviewFloat(previewSignature, style.strength);
+  }
+  if (previewSignature != lowDetailPreviewSignature_) {
+    lowDetailPreviewSignature_ = previewSignature;
+    ++lowDetailPreviewRevision_;
   }
 
   runtimeSampleScratch_.clear();

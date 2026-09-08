@@ -94,6 +94,9 @@ jobs:
       - name: Smoke-test WASM browser boot
         run: bun run test:runtime
 
+      - name: Test progressive lower-preview loading
+        run: bun run test:progressive-preview
+
       - name: Exercise centre joysticks in Chromium
         run: bun run test:joystick-browser
 

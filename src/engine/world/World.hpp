@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <string>
@@ -97,6 +98,7 @@ public:
     return lowerLevelPreviewDepth_ > 0 && activeLevelIndex_ > 0;
   }
   float lowerPreviewResolutionScale() const override { return lowerPreviewResolutionScale_; }
+  std::uint64_t lowDetailPreviewRevision() const override { return lowDetailPreviewRevision_; }
   bool sampleLowDetailLowerPreview(const Ray& ray, Vec3& colour) const override;
 
   Vec3 sampleEnvironment(
@@ -378,6 +380,8 @@ private:
   mutable float runtimeSpriteInverseDenominator_ = 0.0f;
   mutable bool runtimeSpritePlaneValid_ = false;
   mutable bool runtimeRenderCachePrepared_ = false;
+  mutable std::uint64_t lowDetailPreviewRevision_ = 1;
+  mutable std::uint64_t lowDetailPreviewSignature_ = 0;
 };
 
 } // namespace engine

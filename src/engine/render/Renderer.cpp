@@ -15,6 +15,11 @@ constexpr float PAN_SHIFT_EPSILON = 0.025f;
 constexpr float NO_HIT_DISTANCE = 1.0e30f;
 constexpr float BASE_RAY_ORIGIN_DISTANCE = 9.0f;
 constexpr float RAY_ORIGIN_MARGIN = 4.0f;
+constexpr int PREVIEW_TILE_SIZE = 16;
+constexpr float COARSE_PREVIEW_SCALE = 0.125f;
+constexpr int MAX_COARSE_PREVIEW_WIDTH = 160;
+constexpr int MAX_COARSE_PREVIEW_HEIGHT = 90;
+constexpr unsigned int PREVIEW_IDLE_DELAY_FRAMES = 6;
 
 float rayOriginDistance(const WorldBounds& bounds, const Vec3& forward) {
   float distance = BASE_RAY_ORIGIN_DISTANCE;
@@ -84,6 +89,19 @@ bool Renderer::staticCacheMatchesExceptPan(const StaticCacheKey& key) const {
     staticCacheKey_.yawStep == key.yawStep &&
     staticCacheKey_.zoomPreset == key.zoomPreset &&
     std::fabs(staticCacheKey_.viewHeight - key.viewHeight) <= 1e-6f;
+}
+
+bool Renderer::previewCacheMatches(const PreviewCacheKey& key) const {
+  return previewCacheValid_ &&
+    previewCacheKey_.width == key.width &&
+    previewCacheKey_.height == key.height &&
+    previewCacheKey_.level == key.level &&
+    previewCacheKey_.yawStep == key.yawStep &&
+    previewCacheKey_.zoomPreset == key.zoomPreset &&
+    previewCacheKey_.panX == key.panX &&
+    previewCacheKey_.panY == key.panY &&
+    previewCacheKey_.viewHeight == key.viewHeight &&
+    previewCacheKey_.revision == key.revision;
 }
 
 bool Renderer::shiftStaticCacheForPan(
@@ -281,6 +299,83 @@ bool Renderer::worldPointToPixel(const Vec3& point, float& px, float& py) const 
   return px >= 0.0f && px <= frameWidth_ && py >= 0.0f && py <= frameHeight_;
 }
 
+bool Renderer::previewNeedsRefinement() const {
+  if (!previewCacheValid_ || previewWidth_ <= 0 || previewHeight_ <= 0) return false;
+  for (std::size_t tile = 0; tile < previewTileDemand_.size(); ++tile) {
+    if (!previewTileDemand_[tile]) continue;
+    const int tileX = static_cast<int>(tile % static_cast<std::size_t>(previewTilesX_));
+    const int tileY = static_cast<int>(tile / static_cast<std::size_t>(previewTilesX_));
+    const int x0 = tileX * PREVIEW_TILE_SIZE;
+    const int y0 = tileY * PREVIEW_TILE_SIZE;
+    const int x1 = std::min(previewWidth_, x0 + PREVIEW_TILE_SIZE);
+    const int y1 = std::min(previewHeight_, y0 + PREVIEW_TILE_SIZE);
+    for (int y = y0; y < y1; ++y) {
+      for (int x = x0; x < x1; ++x) {
+        const std::size_t index = static_cast<std::size_t>(y) * previewWidth_ + x;
+        if (previewDemand_[index] && !previewSamples_[index].valid) return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool Renderer::refinePreview(std::size_t maxTiles) {
+  if (!previewNeedsRefinement() || maxTiles == 0) return false;
+  if (previewIdleFrames_ > 0) {
+    --previewIdleFrames_;
+    return false;
+  }
+
+  const std::size_t tileCount = previewTileDemand_.size();
+  if (tileCount == 0) return false;
+  bool changed = false;
+  std::size_t refinedTiles = 0;
+  std::size_t inspected = 0;
+
+  while (refinedTiles < maxTiles && inspected < tileCount) {
+    const std::size_t tile = previewRefineCursor_ % tileCount;
+    previewRefineCursor_ = (previewRefineCursor_ + 1) % tileCount;
+    ++inspected;
+    if (!previewTileDemand_[tile]) continue;
+
+    const int tileX = static_cast<int>(tile % static_cast<std::size_t>(previewTilesX_));
+    const int tileY = static_cast<int>(tile / static_cast<std::size_t>(previewTilesX_));
+    const int x0 = tileX * PREVIEW_TILE_SIZE;
+    const int y0 = tileY * PREVIEW_TILE_SIZE;
+    const int x1 = std::min(previewWidth_, x0 + PREVIEW_TILE_SIZE);
+    const int y1 = std::min(previewHeight_, y0 + PREVIEW_TILE_SIZE);
+    bool tileChanged = false;
+
+    for (int y = y0; y < y1; ++y) {
+      Vec3 origin =
+        previewRayCorner_ +
+        previewRightStep_ * (static_cast<float>(x0) + 0.5f) +
+        previewDownStep_ * (static_cast<float>(y) + 0.5f);
+      for (int x = x0; x < x1; ++x) {
+        const std::size_t index = static_cast<std::size_t>(y) * previewWidth_ + x;
+        if (previewDemand_[index] && !previewSamples_[index].valid) {
+          PreviewSample& sample = previewSamples_[index];
+          sample.found = world_.sampleLowDetailLowerPreview(
+            {origin, previewForward_},
+            sample.colour
+          );
+          sample.valid = true;
+          ++previewRefinedSampleCount_;
+          tileChanged = true;
+        }
+        origin = origin + previewRightStep_;
+      }
+    }
+
+    if (tileChanged) {
+      changed = true;
+      ++refinedTiles;
+    }
+  }
+
+  return changed;
+}
+
 void Renderer::render() {
   ensureFrame();
 
@@ -317,34 +412,79 @@ void Renderer::render() {
 
   world_.prepareRenderFrame(forward);
 
-  // Decorative lower floors are rendered once per frame into a deliberately
-  // small buffer. This is one analytic sample per preview texel, no supersampling.
+  // Lower previews are progressive and demand-driven. The normal 0.25x cache
+  // is not synchronously rebuilt when camera state changes. Instead the frame
+  // records only texels that can actually contribute through active-level
+  // holes, displays a tiny immediate coarse fallback, and refines demanded
+  // 16x16 tiles later through refinePreview().
   previewWidth_ = 0;
   previewHeight_ = 0;
+  coarsePreviewWidth_ = 0;
+  coarsePreviewHeight_ = 0;
+  previewCoarseSampleCount_ = 0;
+  previewDemandedTexelCount_ = 0;
   if (world_.supportsLowDetailLowerPreview()) {
     const float previewScale = std::max(0.0625f, std::min(0.5f, world_.lowerPreviewResolutionScale()));
     previewWidth_ = std::max(1, std::min(320, static_cast<int>(std::ceil(frameWidth_ * previewScale))));
     previewHeight_ = std::max(1, std::min(180, static_cast<int>(std::ceil(frameHeight_ * previewScale))));
+    previewTilesX_ = (previewWidth_ + PREVIEW_TILE_SIZE - 1) / PREVIEW_TILE_SIZE;
+    previewTilesY_ = (previewHeight_ + PREVIEW_TILE_SIZE - 1) / PREVIEW_TILE_SIZE;
+
+    PreviewCacheKey nextPreviewKey;
+    nextPreviewKey.width = frameWidth_;
+    nextPreviewKey.height = frameHeight_;
+    nextPreviewKey.level = world_.activeLevelIndex();
+    nextPreviewKey.yawStep = camera_.yawStep();
+    nextPreviewKey.zoomPreset = camera_.zoomPreset();
+    nextPreviewKey.panX = camera_.panX();
+    nextPreviewKey.panY = camera_.panY();
+    nextPreviewKey.viewHeight = height;
+    nextPreviewKey.revision = world_.lowDetailPreviewRevision();
+
     const std::size_t required = static_cast<std::size_t>(previewWidth_) * previewHeight_;
-    if (previewSamples_.size() != required) previewSamples_.resize(required);
+    const std::size_t tileCount = static_cast<std::size_t>(previewTilesX_) * previewTilesY_;
+    if (!previewCacheMatches(nextPreviewKey) || previewSamples_.size() != required) {
+      previewSamples_.assign(required, PreviewSample());
+      previewDemand_.assign(required, 0);
+      previewTileDemand_.assign(tileCount, 0);
+      previewCacheKey_ = nextPreviewKey;
+      previewCacheValid_ = true;
+      previewRefineCursor_ = 0;
+      previewIdleFrames_ = PREVIEW_IDLE_DELAY_FRAMES;
+    } else {
+      std::fill(previewDemand_.begin(), previewDemand_.end(), 0);
+      std::fill(previewTileDemand_.begin(), previewTileDemand_.end(), 0);
+    }
 
     const float previewStepX = width / static_cast<float>(previewWidth_);
     const float previewStepY = height / static_cast<float>(previewHeight_);
     const float previewOriginDistance = rayOriginDistance(bounds, forward);
-    const Vec3 previewCorner =
+    previewRayCorner_ =
       focus - forward * previewOriginDistance - right * (width * 0.5f) + up * (height * 0.5f);
-    const Vec3 previewRightStep = right * previewStepX;
-    const Vec3 previewDownStep = up * (-previewStepY);
-    Vec3 previewRow = previewCorner + previewRightStep * 0.5f + previewDownStep * 0.5f;
-    for (int py = 0; py < previewHeight_; ++py) {
-      Vec3 previewOrigin = previewRow;
-      for (int px = 0; px < previewWidth_; ++px) {
-        PreviewSample& sample = previewSamples_[static_cast<std::size_t>(py) * previewWidth_ + px];
-        sample.found = world_.sampleLowDetailLowerPreview({previewOrigin, forward}, sample.colour);
-        previewOrigin = previewOrigin + previewRightStep;
-      }
-      previewRow = previewRow + previewDownStep;
-    }
+    previewRightStep_ = right * previewStepX;
+    previewDownStep_ = up * (-previewStepY);
+    previewForward_ = forward;
+
+    coarsePreviewWidth_ = std::max(
+      1,
+      std::min(MAX_COARSE_PREVIEW_WIDTH, static_cast<int>(std::ceil(frameWidth_ * COARSE_PREVIEW_SCALE)))
+    );
+    coarsePreviewHeight_ = std::max(
+      1,
+      std::min(MAX_COARSE_PREVIEW_HEIGHT, static_cast<int>(std::ceil(frameHeight_ * COARSE_PREVIEW_SCALE)))
+    );
+    coarsePreviewSamples_.assign(
+      static_cast<std::size_t>(coarsePreviewWidth_) * coarsePreviewHeight_,
+      PreviewSample()
+    );
+  } else {
+    previewTilesX_ = 0;
+    previewTilesY_ = 0;
+    previewCacheValid_ = false;
+    previewSamples_.clear();
+    previewDemand_.clear();
+    previewTileDemand_.clear();
+    coarsePreviewSamples_.clear();
   }
 
   const std::size_t pixelCount =
@@ -401,16 +541,31 @@ void Renderer::render() {
     const int previewY = previewHeight_ > 0
       ? std::min(previewHeight_ - 1, y * previewHeight_ / frameHeight_)
       : 0;
+    const int coarsePreviewY = coarsePreviewHeight_ > 0
+      ? std::min(coarsePreviewHeight_ - 1, y * coarsePreviewHeight_ / frameHeight_)
+      : 0;
     std::uint8_t* frameRow = reinterpret_cast<std::uint8_t*>(
       &dsr::image_accessPixel(frame_, 0, y)
     );
 
     for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
-      const PreviewSample* previewForPixel = nullptr;
+      PreviewSample* previewForPixel = nullptr;
+      std::size_t previewIndex = 0;
+      int previewX = 0;
       if (previewWidth_ > 0 && previewHeight_ > 0) {
-        const int previewX = std::min(previewWidth_ - 1, x * previewWidth_ / frameWidth_);
-        previewForPixel = &previewSamples_[
-          static_cast<std::size_t>(previewY) * previewWidth_ + previewX
+        previewX = std::min(previewWidth_ - 1, x * previewWidth_ / frameWidth_);
+        previewIndex = static_cast<std::size_t>(previewY) * previewWidth_ + previewX;
+        previewForPixel = &previewSamples_[previewIndex];
+      }
+
+      PreviewSample* coarseForPixel = nullptr;
+      if (coarsePreviewWidth_ > 0 && coarsePreviewHeight_ > 0) {
+        const int coarsePreviewX = std::min(
+          coarsePreviewWidth_ - 1,
+          x * coarsePreviewWidth_ / frameWidth_
+        );
+        coarseForPixel = &coarsePreviewSamples_[
+          static_cast<std::size_t>(coarsePreviewY) * coarsePreviewWidth_ + coarsePreviewX
         ];
       }
 
@@ -440,12 +595,43 @@ void Renderer::render() {
           );
         }
 
-        if (
-          environmentDistance >= NO_HIT_DISTANCE &&
-          previewForPixel &&
-          previewForPixel->found
-        ) {
-          environmentColour = previewForPixel->colour;
+        if (environmentDistance >= NO_HIT_DISTANCE && previewForPixel) {
+          const PreviewSample* displayPreview = previewForPixel->valid ? previewForPixel : nullptr;
+          if (!displayPreview && coarseForPixel) {
+            if (!coarseForPixel->valid) {
+              const int coarseIndex = static_cast<int>(coarseForPixel - coarsePreviewSamples_.data());
+              const int coarseX = coarseIndex % coarsePreviewWidth_;
+              const int coarseY = coarseIndex / coarsePreviewWidth_;
+              const float coarseStepX = width / static_cast<float>(coarsePreviewWidth_);
+              const float coarseStepY = height / static_cast<float>(coarsePreviewHeight_);
+              const Vec3 coarseOrigin =
+                focus - forward * originDistance - right * (width * 0.5f) + up * (height * 0.5f) +
+                right * (coarseStepX * (static_cast<float>(coarseX) + 0.5f)) +
+                up * (-coarseStepY * (static_cast<float>(coarseY) + 0.5f));
+              coarseForPixel->found = world_.sampleLowDetailLowerPreview(
+                {coarseOrigin, forward},
+                coarseForPixel->colour
+              );
+              coarseForPixel->valid = true;
+              ++previewCoarseSampleCount_;
+            }
+            displayPreview = coarseForPixel->found ? coarseForPixel : nullptr;
+          }
+
+          // Only genuinely exposed lower-preview texels enter the background
+          // refinement queue. Active-level coverage never gets preview work;
+          // sampleLowDetailLowerPreview itself stops at the first lower level,
+          // so deeper floors covered by a nearer preview level are never sampled.
+          if (displayPreview && displayPreview->found) {
+            environmentColour = displayPreview->colour;
+            if (!previewDemand_[previewIndex]) {
+              previewDemand_[previewIndex] = 1;
+              ++previewDemandedTexelCount_;
+            }
+            const std::size_t tileX = static_cast<std::size_t>(previewX / PREVIEW_TILE_SIZE);
+            const std::size_t tileY = static_cast<std::size_t>(previewY / PREVIEW_TILE_SIZE);
+            previewTileDemand_[tileY * static_cast<std::size_t>(previewTilesX_) + tileX] = 1;
+          }
         }
 
         colour = colour + world_.compositeRuntime(

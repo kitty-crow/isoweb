@@ -13,6 +13,8 @@ export interface IsowebModule {
   _isoweb_render(): void;
   _isoweb_tick(deltaSeconds: number): void;
   _isoweb_needs_tick(): number;
+  _isoweb_preview_needs_refinement(): number;
+  _isoweb_refine_preview(maxTiles: number): number;
   _isoweb_set_obstacles_enabled(enabled: number): void;
   _isoweb_obstacles_enabled(): number;
   _isoweb_resize(width: number, height: number): void;
@@ -34,6 +36,10 @@ export interface IsowebModule {
   _isoweb_active_level_index(): number;
   _isoweb_default_level_index(): number;
   _isoweb_static_cache_build_count(): number;
+  _isoweb_preview_coarse_sample_count(): number;
+  _isoweb_preview_refined_sample_count(): number;
+  _isoweb_preview_demanded_texel_count(): number;
+  _isoweb_preview_potential_texel_count(): number;
 
   _isoweb_pointer_tap(x: number, y: number, additive: number): number;
   _isoweb_pointer_double_tap(x: number, y: number): number;

@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -43,6 +44,15 @@ extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_tick(float deltaSeconds) {
 
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_needs_tick() {
   return application().needsTick() ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_preview_needs_refinement() {
+  return application().previewNeedsRefinement() ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_refine_preview(int maxTiles) {
+  const std::size_t budget = static_cast<std::size_t>(std::max(0, maxTiles));
+  return application().refinePreview(budget) ? 1 : 0;
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_set_obstacles_enabled(int enabled) {
@@ -127,6 +137,22 @@ extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_default_level_index() {
 
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_static_cache_build_count() {
   return static_cast<int>(application().staticCacheBuildCount());
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_preview_coarse_sample_count() {
+  return static_cast<int>(application().previewCoarseSampleCount());
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_preview_refined_sample_count() {
+  return static_cast<int>(application().previewRefinedSampleCount());
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_preview_demanded_texel_count() {
+  return static_cast<int>(application().previewDemandedTexelCount());
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_preview_potential_texel_count() {
+  return static_cast<int>(application().previewPotentialTexelCount());
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_pointer_tap(float x, float y, int additive) {
