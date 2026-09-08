@@ -1,0 +1,126 @@
+name: Apply view-facing wall cutaway
+
+on:
+  push:
+    branches: [fix/view-facing-wall-cutaway]
+    paths: [.github/workflows/apply-view-facing-wall-cutaway.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/view-facing-wall-cutaway
+      - name: Apply implementation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(f'{path}: expected {count} matches, got {actual}')
+              p.write_text(text.replace(old, new, count))
+
+          # Give levels the current camera direction before static environment sampling.
+          replace(
+              'src/engine/world/World.hpp',
+              '''  virtual bool rayOccluded(const Ray& ray, float maximumDistance) const {\n    SceneSurfaceHit hit;\n    return traceEnvironment(ray, hit) && hit.distance < maximumDistance;\n  }\n\n  virtual bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const = 0;''',
+              '''  virtual bool rayOccluded(const Ray& ray, float maximumDistance) const {\n    SceneSurfaceHit hit;\n    return traceEnvironment(ray, hit) && hit.distance < maximumDistance;\n  }\n\n  // Static presentation may depend on camera orientation (for example,\n  // cutaway walls). This is render state only and must not mutate collision.\n  virtual void prepareRenderFrame(const Vec3&) const {}\n\n  virtual bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const = 0;'''
+          )
+
+          replace(
+              'src/engine/world/World.cpp',
+              '''void World::prepareRenderFrame(const Vec3& viewDirection) const {\n  runtimeRenderEntries_.clear();''',
+              '''void World::prepareRenderFrame(const Vec3& viewDirection) const {\n  // Resident level presentation receives the same camera direction used by\n  // the renderer before either static sampling or runtime compositing begins.\n  for (const auto& level : levels_) {\n    if (level && level->isResident()) level->prepareRenderFrame(viewDirection);\n  }\n\n  runtimeRenderEntries_.clear();'''
+          )
+
+          # Demo wall presentation: broad low notch on view-facing walls, while
+          # preserving authored/collision geometry and far walls at full height.
+          replace(
+              'src/demo/DemoWorld.cpp',
+              '''constexpr float ROOM_WALL_THICKNESS = 0.12f;\nconstexpr float ROOM_OPENING_WIDTH = 1.45f;''',
+              '''constexpr float ROOM_WALL_THICKNESS = 0.12f;\nconstexpr float ROOM_OPENING_WIDTH = 1.45f;\n// Sims-style presentation cutaway: camera-facing walls keep a low sill and\n// short full-height end caps instead of disappearing entirely.\nconstexpr float ROOM_CUTAWAY_HEIGHT = 0.34f;\nconstexpr float ROOM_CUTAWAY_END_CAP_WIDTH = 0.42f;\nconstexpr float ROOM_CUTAWAY_FACING_THRESHOLD = 0.15f;'''
+          )
+
+          replace(
+              'src/demo/DemoWorld.cpp',
+              '''struct RoomWallBox {\n  Vec3 centre;\n  Vec3 halfExtent;\n  Vec3 colour;\n};''',
+              '''struct RoomWallBox {\n  Vec3 centre;\n  Vec3 halfExtent;\n  Vec3 colour;\n  // One wall plane may belong to two adjacent Rooms. Preserve every authored\n  // outward side so a shared wall can be cut when either side faces camera.\n  unsigned int outwardSides = 0;\n};'''
+          )
+
+          replace(
+              'src/demo/DemoWorld.cpp',
+              '''RoomLayout lowerRoomLayout() {''',
+              '''unsigned int roomSideBit(RoomSide side) {\n  return 1u << static_cast<unsigned int>(side);\n}\n\nVec3 roomSideNormal(RoomSide side) {\n  switch (side) {\n    case RoomSide::North: return {0.0f, 1.0f, 0.0f};\n    case RoomSide::South: return {0.0f, -1.0f, 0.0f};\n    case RoomSide::East: return {1.0f, 0.0f, 0.0f};\n    case RoomSide::West: return {-1.0f, 0.0f, 0.0f};\n  }\n  return {0.0f, 0.0f, 0.0f};\n}\n\nRoomLayout lowerRoomLayout() {'''
+          )
+
+          replace(
+              'src/demo/DemoWorld.cpp',
+              '''  bool rayOccluded(const Ray& ray, float maximumDistance) const override {\n    return maximumDistance > EPSILON && traceAny(ray, EPSILON, maximumDistance);\n  }\n\n  bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const override {''',
+              '''  bool rayOccluded(const Ray& ray, float maximumDistance) const override {\n    // Lighting and physical occlusion keep the authored full wall. The camera\n    // cutaway is a presentation aid, not a hole in the world.\n    return maximumDistance > EPSILON && traceAny(ray, EPSILON, maximumDistance);\n  }\n\n  void prepareRenderFrame(const Vec3& viewDirection) const override {\n    renderViewDirection_ = viewDirection;\n  }\n\n  bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const override {'''
+          )
+
+          replace(
+              'src/demo/DemoWorld.cpp',
+              '''          RoomWallBox wall;\n          wall.colour = definition_.floorDark * 0.68f;''',
+              '''          RoomWallBox wall;\n          wall.colour = definition_.floorDark * 0.68f;\n          wall.outwardSides = roomSideBit(side);'''
+          )
+
+          replace(
+              'src/demo/DemoWorld.cpp',
+              '''        emit(cursor, halfSpan);\n      }\n    }\n  }\n\n  void buildCollisionObjects() {''',
+              '''        emit(cursor, halfSpan);\n      }\n    }\n\n    // Adjacent Rooms author the same shared wall from opposite sides. Merge\n    // coincident boxes so one full-height duplicate cannot visually cover the\n    // cutaway generated for its camera-facing twin. Collision also gets less\n    // duplicate work as a side effect.\n    std::vector<RoomWallBox> merged;\n    merged.reserve(roomWalls_.size());\n    for (const RoomWallBox& wall : roomWalls_) {\n      RoomWallBox* existing = nullptr;\n      for (RoomWallBox& candidate : merged) {\n        const bool same =\n          std::fabs(candidate.centre.x - wall.centre.x) <= EPSILON &&\n          std::fabs(candidate.centre.y - wall.centre.y) <= EPSILON &&\n          std::fabs(candidate.centre.z - wall.centre.z) <= EPSILON &&\n          std::fabs(candidate.halfExtent.x - wall.halfExtent.x) <= EPSILON &&\n          std::fabs(candidate.halfExtent.y - wall.halfExtent.y) <= EPSILON &&\n          std::fabs(candidate.halfExtent.z - wall.halfExtent.z) <= EPSILON;\n        if (same) {\n          existing = &candidate;\n          break;\n        }\n      }\n      if (existing) {\n        existing->outwardSides |= wall.outwardSides;\n      } else {\n        merged.push_back(wall);\n      }\n    }\n    roomWalls_ = std::move(merged);\n  }\n\n  void buildCollisionObjects() {'''
+          )
+
+          marker = '''  bool intersectStaircase(\n    const Ray& ray,\n    std::size_t staircaseIndex,'''
+          insert = '''  bool roomWallFacesViewer(const RoomWallBox& wall) const {\n    Vec3 toCamera{-renderViewDirection_.x, -renderViewDirection_.y, 0.0f};\n    const float horizontalLengthSquared =\n      toCamera.x * toCamera.x + toCamera.y * toCamera.y;\n    if (horizontalLengthSquared <= 1e-10f) return false;\n    toCamera = toCamera / std::sqrt(horizontalLengthSquared);\n\n    const RoomSide sides[4] = {\n      RoomSide::North, RoomSide::South, RoomSide::East, RoomSide::West\n    };\n    for (RoomSide side : sides) {\n      if ((wall.outwardSides & roomSideBit(side)) == 0) continue;\n      if (engine::dot(roomSideNormal(side), toCamera) > ROOM_CUTAWAY_FACING_THRESHOLD) {\n        return true;\n      }\n    }\n    return false;\n  }\n\n  bool intersectRoomWallVisual(\n    const Ray& ray,\n    const RoomWallBox& wall,\n    float minimum,\n    float maximum,\n    Hit& hit\n  ) const {\n    if (!roomWallFacesViewer(wall)) {\n      return intersectAxisAlignedBox(ray, wall.centre, wall.halfExtent, minimum, maximum, hit);\n    }\n\n    bool found = false;\n    float closest = maximum;\n    const auto testBox = [&](const Vec3& centre, const Vec3& halfExtent) {\n      Hit candidate;\n      if (!intersectAxisAlignedBox(ray, centre, halfExtent, minimum, closest, candidate)) return;\n      found = true;\n      closest = candidate.t;\n      hit = candidate;\n    };\n\n    const float fullHeight = wall.halfExtent.z * 2.0f;\n    const float floorZ = wall.centre.z - wall.halfExtent.z;\n    const float sillHeight = std::min(fullHeight, ROOM_CUTAWAY_HEIGHT);\n    if (sillHeight > 0.01f) {\n      Vec3 sillCentre = wall.centre;\n      Vec3 sillHalf = wall.halfExtent;\n      sillCentre.z = floorZ + sillHeight * 0.5f;\n      sillHalf.z = sillHeight * 0.5f;\n      testBox(sillCentre, sillHalf);\n    }\n\n    // Keep narrow full-height ends so the wall remains visually legible as a\n    // wall rather than vanishing. The central/top region becomes the notch.\n    const bool horizontal = wall.halfExtent.x >= wall.halfExtent.y;\n    const float halfSpan = horizontal ? wall.halfExtent.x : wall.halfExtent.y;\n    const float capWidth = std::max(\n      0.0f,\n      std::min(ROOM_CUTAWAY_END_CAP_WIDTH, halfSpan - 0.18f)\n    );\n    if (capWidth > 0.02f) {\n      const float capHalf = capWidth * 0.5f;\n      const float offset = halfSpan - capHalf;\n      for (float sign : {-1.0f, 1.0f}) {\n        Vec3 capCentre = wall.centre;\n        Vec3 capHalfExtent = wall.halfExtent;\n        if (horizontal) {\n          capCentre.x += sign * offset;\n          capHalfExtent.x = capHalf;\n        } else {\n          capCentre.y += sign * offset;\n          capHalfExtent.y = capHalf;\n        }\n        testBox(capCentre, capHalfExtent);\n      }\n    }\n    return found;\n  }\n\n'''
+          p = Path('src/demo/DemoWorld.cpp')
+          text = p.read_text()
+          if text.count(marker) != 1:
+              raise SystemExit('DemoWorld.cpp: intersectStaircase marker mismatch')
+          p.write_text(text.replace(marker, insert + marker, 1))
+
+          replace(
+              'src/demo/DemoWorld.cpp',
+              '''    for (const RoomWallBox& wall : roomWalls_) {\n      Hit hit;\n      if (intersectAxisAlignedBox(ray, wall.centre, wall.halfExtent, minimum, maximum, hit)) {\n        hit.colour = wall.colour;\n        hit.kind = SceneSurfaceKind::Object;\n        hit.walkable = false;\n        result = hit;\n        maximum = hit.t;\n      }\n    }''',
+              '''    for (const RoomWallBox& wall : roomWalls_) {\n      Hit hit;\n      if (intersectRoomWallVisual(ray, wall, minimum, maximum, hit)) {\n        hit.colour = wall.colour;\n        hit.kind = SceneSurfaceKind::Object;\n        hit.walkable = false;\n        result = hit;\n        maximum = hit.t;\n      }\n    }''',
+              1
+          )
+
+          replace(
+              'src/demo/DemoWorld.cpp',
+              '''  std::vector<WorldObject> worldObjects_;\n  std::vector<RoomWallBox> roomWalls_;\n  std::vector<std::array<StairStep, STAIR_STEP_COUNT>> stairSteps_;''',
+              '''  std::vector<WorldObject> worldObjects_;\n  std::vector<RoomWallBox> roomWalls_;\n  std::vector<std::array<StairStep, STAIR_STEP_COUNT>> stairSteps_;\n  mutable Vec3 renderViewDirection_ = {0.57735027f, 0.57735027f, -0.57735027f};'''
+          )
+
+          # Regression: a camera-facing wall must expose its centre above the
+          # sill, retain low wall + full-height end caps, rotate with camera, and
+          # remain fully solid for collision.
+          replace(
+              'scripts/world-geometry-smoke.cpp',
+              '''using isoweb::engine::EntityLocation;\nusing isoweb::engine::Ray;''',
+              '''using isoweb::engine::EntityLocation;\nusing isoweb::engine::Object;\nusing isoweb::engine::Ray;\nusing isoweb::engine::Vec3;'''
+          )
+
+          replace(
+              'scripts/world-geometry-smoke.cpp',
+              '''  if (lowerRooms->rooms.front().wallHeight <= nominalCharacterHeight) return 37;\n\n  // The west arm of the lower cross is not covered by the middle Z.''',
+              '''  if (lowerRooms->rooms.front().wallHeight <= nominalCharacterHeight) return 37;\n\n  const auto rayThrough = [](const Vec3& point, const Vec3& direction) {\n    return Ray{point - direction * 6.0f, direction};\n  };\n  const Vec3 defaultView = isoweb::engine::normalise({1.0f, 1.0f, -1.0f});\n  world.prepareRenderFrame(defaultView);\n\n  // Default camera is south-west of the map. The centre room's west wall is\n  // therefore view-facing: its broad upper centre must be cut away so the real\n  // floor behind it wins the ray, while the low sill and end posts remain.\n  SceneSurfaceHit cutawayCentre;\n  if (!world.traceEnvironment(rayThrough({-4.40f, 0.0f, 1.05f}, defaultView), cutawayCentre)) return 38;\n  if (cutawayCentre.kind != SceneSurfaceKind::Ground || !near(cutawayCentre.point.z, 0.0f)) return 39;\n\n  SceneSurfaceHit cutawaySill;\n  if (!world.traceEnvironment(rayThrough({-4.40f, 0.0f, 0.20f}, defaultView), cutawaySill)) return 40;\n  if (cutawaySill.kind != SceneSurfaceKind::Object) return 41;\n\n  SceneSurfaceHit cutawayEnd;\n  if (!world.traceEnvironment(rayThrough({-4.40f, -4.15f, 1.05f}, defaultView), cutawayEnd)) return 42;\n  if (cutawayEnd.kind != SceneSurfaceKind::Object) return 43;\n\n  Object wallProbe;\n  wallProbe.location.levelId = "middle";\n  wallProbe.location.position = {-4.35f, 0.0f, 0.0f};\n  wallProbe.hitBox.minimum = {-0.18f, -0.18f, 0.0f};\n  wallProbe.hitBox.maximum = {0.18f, 0.18f, 1.65f};\n  if (!world.collidesWith(wallProbe)) return 44;\n\n  // Rotating 180 degrees moves the cutaway to the opposite camera-facing wall.\n  const Vec3 oppositeView = isoweb::engine::normalise({-1.0f, -1.0f, -1.0f});\n  world.prepareRenderFrame(oppositeView);\n  SceneSurfaceHit rotatedCutaway;\n  if (!world.traceEnvironment(rayThrough({4.40f, 0.0f, 1.05f}, oppositeView), rotatedCutaway)) return 45;\n  if (rotatedCutaway.kind != SceneSurfaceKind::Ground || !near(rotatedCutaway.point.z, 0.0f)) return 46;\n  world.prepareRenderFrame(defaultView);\n\n  // The west arm of the lower cross is not covered by the middle Z.'''
+          )
+          PY
+      - name: Commit implementation
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src scripts
+          git commit -m 'Restore view-facing wall cutaways'
+          git push origin HEAD:fix/view-facing-wall-cutaway
