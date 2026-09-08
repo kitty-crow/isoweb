@@ -38,7 +38,6 @@ private:
   struct StaticSample {
     Vec3 colour;
     float environmentDistance = 0.0f;
-    SceneSurfaceHit environmentHit;
   };
 
   struct StaticCacheKey {

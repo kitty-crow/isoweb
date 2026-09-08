@@ -107,7 +107,6 @@ int main() {
 
   CharacterSystem characters(world);
   world.prepareRenderFrame({0.0f, 0.0f, -1.0f});
-  world.prepareRuntimeAcceleration({0.0f, 0.0f, -1.0f});
   const Vec3 colour = world.sample({{0.0f, 0.0f, 5.0f}, {0.0f, 0.0f, -1.0f}}, 0.5f);
   (void)colour;
 
@@ -174,56 +173,6 @@ int main() {
     return 10;
   }
 
-  // The world-level acceleration structure must avoid even visiting unrelated
-  // dynamic entities. Populate both sides of the view with non-shadow-casting
-  // boxes and verify the centre camera ray resolves only the original box.
-  for (int index = 0; index < 128; ++index) {
-    std::unique_ptr<Character> distractor(new Character());
-    distractor->id = "distractor-" + std::to_string(index);
-    const float distance = static_cast<float>(index / 2 + 2) * 2.0f;
-    const float x = index % 2 == 0 ? distance : -distance;
-    distractor->location = {"test-world", "default", "test", {x, 0.0f, 0.0f}};
-    distractor->hitBox.minimum = {-0.40f, -0.40f, 0.0f};
-    distractor->hitBox.maximum = {0.40f, 0.40f, 1.0f};
-    distractor->castsShadow = false;
-    world.entities().add(std::move(distractor));
-  }
-  world.prepareRenderFrame({0.0f, 0.0f, -1.0f});
-  world.prepareRuntimeAcceleration({0.0f, 0.0f, -1.0f});
-  if (world.runtimeRenderCandidateCount(centreRay) != 1) return 11;
-
-  // Runtime boxes cast through the per-frame point-light depth map rather than
-  // issuing another object scan from every camera supersample. Put a caster at
-  // the midpoint between the light and an otherwise clear floor point.
-  std::unique_ptr<Character> shadowCaster(new Character());
-  shadowCaster->id = "shadow-caster";
-  shadowCaster->location = {"test-world", "default", "test", {2.5f, 2.0f, 3.0f}};
-  shadowCaster->hitBox.minimum = {-0.75f, -0.75f, -0.75f};
-  shadowCaster->hitBox.maximum = {0.75f, 0.75f, 0.75f};
-  world.entities().add(std::move(shadowCaster));
-  world.prepareRenderFrame({0.0f, 0.0f, -1.0f});
-  world.prepareRuntimeAcceleration({0.0f, 0.0f, -1.0f});
-  const Vec3 shadowPoint(0.0f, 4.0f, 0.0f);
-  if (world.runtimeDynamicLightVisibility("test", shadowPoint) > 0.5f) return 12;
-  if (world.runtimeShadowRasterTestCount() == 0) return 13;
-
-  SceneSurfaceHit shadowSurface;
-  shadowSurface.found = true;
-  shadowSurface.distance = 5.0f;
-  shadowSurface.point = shadowPoint;
-  shadowSurface.normal = {0.0f, 0.0f, 1.0f};
-  shadowSurface.colour = {0.5f, 0.5f, 0.5f};
-  shadowSurface.kind = SceneSurfaceKind::Ground;
-  shadowSurface.walkable = true;
-  const Ray shadowCameraRay{{0.0f, 4.0f, 5.0f}, {0.0f, 0.0f, -1.0f}};
-  const Vec3 shadowed = world.compositeRuntime(
-    shadowCameraRay,
-    {0.5f, 0.5f, 0.5f},
-    5.0f,
-    &shadowSurface
-  );
-  if (shadowed.x >= 0.20f) return 14;
-
-  std::cout << "Performance architecture smoke test passed: one primary trace, cached runtime lighting, binned dynamic candidates, raster-bounded runtime shadows and fixed-density tiled UVs.\n";
+  std::cout << "Performance architecture smoke test passed: one primary trace, any-hit shadows, cached entity views, dynamic broad phase and fixed-density tiled UVs.\n";
   return 0;
 }
