@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -79,6 +80,17 @@ enum class ObjectFace {
   Top
 };
 
+enum class SurfaceTextureMode {
+  Stretch,
+  TileLocal,
+  TileWorld
+};
+
+struct SurfaceUV {
+  float u = 0.0f;
+  float v = 0.0f;
+};
+
 struct ObjectRayHit {
   float distance = 0.0f;
   Vec3 worldPoint;
@@ -99,6 +111,13 @@ public:
   EntityLocation location;
   Vec3 forward = {0.0f, 1.0f, 0.0f};
   HitBox hitBox;
+
+  // Surface textures are metadata today and are deliberately independent of
+  // hit-box dimensions. Tile modes therefore keep a fixed world-space texel
+  // density when an obstacle changes length instead of stretching one image
+  // across the resized face.
+  SurfaceTextureMode surfaceTextureMode = SurfaceTextureMode::Stretch;
+  float textureWorldUnitsPerTile = 1.0f;
 
   bool solid = true;
   std::vector<std::string> collisionTags;
@@ -167,6 +186,7 @@ public:
       cachedForwardY_ = forward.y;
       basisCacheValid_ = true;
       rayDirectionCacheValid_ = false;
+      rayProjectionCacheValid_ = false;
     }
     facing = cachedFacing_;
     right = cachedRight_;
@@ -201,7 +221,169 @@ public:
     return {dot2(delta, right), dot2(delta, facing), delta.z};
   }
 
+  SurfaceUV surfaceTextureUV(const ObjectRayHit& hit) const {
+    auto normalisedAxis = [](float value, float minimum, float maximum) {
+      const float range = maximum - minimum;
+      return range > 1e-7f ? (value - minimum) / range : 0.5f;
+    };
+
+    float u = 0.5f;
+    float v = 0.5f;
+    if (surfaceTextureMode == SurfaceTextureMode::Stretch) {
+      switch (hit.face) {
+        case ObjectFace::Front:
+        case ObjectFace::Back:
+          u = normalisedAxis(hit.localPoint.x, hitBox.minimum.x, hitBox.maximum.x);
+          v = 1.0f - normalisedAxis(hit.localPoint.z, hitBox.minimum.z, hitBox.maximum.z);
+          break;
+        case ObjectFace::Left:
+        case ObjectFace::Right:
+          u = normalisedAxis(hit.localPoint.y, hitBox.minimum.y, hitBox.maximum.y);
+          v = 1.0f - normalisedAxis(hit.localPoint.z, hitBox.minimum.z, hitBox.maximum.z);
+          break;
+        case ObjectFace::Top:
+        case ObjectFace::Bottom:
+          u = normalisedAxis(hit.localPoint.x, hitBox.minimum.x, hitBox.maximum.x);
+          v = 1.0f - normalisedAxis(hit.localPoint.y, hitBox.minimum.y, hitBox.maximum.y);
+          break;
+      }
+      return {u, v};
+    }
+
+    const float tileSize = std::max(0.001f, textureWorldUnitsPerTile);
+    if (surfaceTextureMode == SurfaceTextureMode::TileWorld) {
+      Vec3 facing;
+      Vec3 right;
+      horizontalBasis(facing, right);
+      switch (hit.face) {
+        case ObjectFace::Front:
+        case ObjectFace::Back:
+          u = dot2(hit.worldPoint, right) / tileSize;
+          v = -hit.worldPoint.z / tileSize;
+          break;
+        case ObjectFace::Left:
+        case ObjectFace::Right:
+          u = dot2(hit.worldPoint, facing) / tileSize;
+          v = -hit.worldPoint.z / tileSize;
+          break;
+        case ObjectFace::Top:
+        case ObjectFace::Bottom:
+          u = dot2(hit.worldPoint, right) / tileSize;
+          v = -dot2(hit.worldPoint, facing) / tileSize;
+          break;
+      }
+    } else {
+      switch (hit.face) {
+        case ObjectFace::Front:
+        case ObjectFace::Back:
+          u = hit.localPoint.x / tileSize;
+          v = -hit.localPoint.z / tileSize;
+          break;
+        case ObjectFace::Left:
+        case ObjectFace::Right:
+          u = hit.localPoint.y / tileSize;
+          v = -hit.localPoint.z / tileSize;
+          break;
+        case ObjectFace::Top:
+        case ObjectFace::Bottom:
+          u = hit.localPoint.x / tileSize;
+          v = -hit.localPoint.y / tileSize;
+          break;
+      }
+    }
+
+    u -= std::floor(u);
+    v -= std::floor(v);
+    return {u, v};
+  }
+
+  // Cheap conservative screen-space reject for parallel camera rays. The
+  // projection is cached per object/direction and is rebuilt only when that
+  // object actually moves, rotates or resizes. A scene with many dynamic
+  // objects can therefore reject almost all per-pixel object tests with four
+  // comparisons instead of running the full three-axis slab intersection.
+  bool rayMayHit(const Ray& ray) const {
+    Vec3 facing;
+    Vec3 right;
+    horizontalBasis(facing, right);
+
+    const bool geometryChanged =
+      !rayProjectionCacheValid_ ||
+      cachedProjectionPosition_.x != location.position.x ||
+      cachedProjectionPosition_.y != location.position.y ||
+      cachedProjectionPosition_.z != location.position.z ||
+      cachedProjectionMinimum_.x != hitBox.minimum.x ||
+      cachedProjectionMinimum_.y != hitBox.minimum.y ||
+      cachedProjectionMinimum_.z != hitBox.minimum.z ||
+      cachedProjectionMaximum_.x != hitBox.maximum.x ||
+      cachedProjectionMaximum_.y != hitBox.maximum.y ||
+      cachedProjectionMaximum_.z != hitBox.maximum.z ||
+      cachedProjectionRayDirection_.x != ray.direction.x ||
+      cachedProjectionRayDirection_.y != ray.direction.y ||
+      cachedProjectionRayDirection_.z != ray.direction.z;
+
+    if (geometryChanged) {
+      Vec3 projectedRight = cross({0.0f, 0.0f, 1.0f}, ray.direction);
+      const float projectedRightLengthSquared = dot(projectedRight, projectedRight);
+      if (projectedRightLengthSquared <= 1e-12f) {
+        projectedRight = {1.0f, 0.0f, 0.0f};
+      } else {
+        projectedRight = projectedRight / std::sqrt(projectedRightLengthSquared);
+      }
+      Vec3 projectedUp = cross(projectedRight, ray.direction);
+      const float projectedUpLengthSquared = dot(projectedUp, projectedUp);
+      if (projectedUpLengthSquared <= 1e-12f) return true;
+      projectedUp = projectedUp / std::sqrt(projectedUpLengthSquared);
+
+      float minimumX = std::numeric_limits<float>::max();
+      float minimumY = std::numeric_limits<float>::max();
+      float maximumX = -std::numeric_limits<float>::max();
+      float maximumY = -std::numeric_limits<float>::max();
+      for (int x = 0; x < 2; ++x) {
+        for (int y = 0; y < 2; ++y) {
+          for (int z = 0; z < 2; ++z) {
+            const Vec3 local(
+              x ? hitBox.maximum.x : hitBox.minimum.x,
+              y ? hitBox.maximum.y : hitBox.minimum.y,
+              z ? hitBox.maximum.z : hitBox.minimum.z
+            );
+            const Vec3 point = location.position +
+              right * local.x + facing * local.y + Vec3(0.0f, 0.0f, local.z);
+            const float screenX = dot(point, projectedRight);
+            const float screenY = dot(point, projectedUp);
+            minimumX = std::min(minimumX, screenX);
+            minimumY = std::min(minimumY, screenY);
+            maximumX = std::max(maximumX, screenX);
+            maximumY = std::max(maximumY, screenY);
+          }
+        }
+      }
+
+      cachedProjectionPosition_ = location.position;
+      cachedProjectionMinimum_ = hitBox.minimum;
+      cachedProjectionMaximum_ = hitBox.maximum;
+      cachedProjectionRayDirection_ = ray.direction;
+      cachedProjectionRight_ = projectedRight;
+      cachedProjectionUp_ = projectedUp;
+      cachedProjectionMinX_ = minimumX;
+      cachedProjectionMinY_ = minimumY;
+      cachedProjectionMaxX_ = maximumX;
+      cachedProjectionMaxY_ = maximumY;
+      rayProjectionCacheValid_ = true;
+    }
+
+    const float screenX = dot(ray.origin, cachedProjectionRight_);
+    const float screenY = dot(ray.origin, cachedProjectionUp_);
+    constexpr float epsilon = 1e-5f;
+    return screenX >= cachedProjectionMinX_ - epsilon &&
+      screenX <= cachedProjectionMaxX_ + epsilon &&
+      screenY >= cachedProjectionMinY_ - epsilon &&
+      screenY <= cachedProjectionMaxY_ + epsilon;
+  }
+
   bool intersectRay(const Ray& ray, float minimum, float maximum, ObjectRayHit& hit) const {
+    if (!rayMayHit(ray)) return false;
+
     Vec3 facing;
     Vec3 right;
     horizontalBasis(facing, right);
@@ -350,6 +532,18 @@ private:
   mutable Vec3 cachedLocalRayDirection_;
   mutable float cachedRayInverse_[3] = {0.0f, 0.0f, 0.0f};
   mutable bool cachedRayParallel_[3] = {false, false, false};
+
+  mutable bool rayProjectionCacheValid_ = false;
+  mutable Vec3 cachedProjectionPosition_;
+  mutable Vec3 cachedProjectionMinimum_;
+  mutable Vec3 cachedProjectionMaximum_;
+  mutable Vec3 cachedProjectionRayDirection_;
+  mutable Vec3 cachedProjectionRight_;
+  mutable Vec3 cachedProjectionUp_;
+  mutable float cachedProjectionMinX_ = 0.0f;
+  mutable float cachedProjectionMinY_ = 0.0f;
+  mutable float cachedProjectionMaxX_ = 0.0f;
+  mutable float cachedProjectionMaxY_ = 0.0f;
 };
 
 } // namespace engine

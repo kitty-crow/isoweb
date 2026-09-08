@@ -16,13 +16,14 @@ bool contains(const std::vector<std::string>& values, const std::string& expecte
 
 isoweb::engine::Character& addPlayer(
   isoweb::engine::World& world,
+  const char* levelId,
   const isoweb::engine::Vec3& position
 ) {
   std::unique_ptr<isoweb::engine::Character> player(new isoweb::engine::Character());
   player->id = "obstacle-test-player";
   player->location.worldId = "demo";
   player->location.timelineId = "default";
-  player->location.levelId = "middle";
+  player->location.levelId = levelId;
   player->location.position = position;
   player->forward = {0.0f, 1.0f, 0.0f};
   player->hitBox.minimum = {-0.25f, -0.15f, 0.0f};
@@ -31,6 +32,24 @@ isoweb::engine::Character& addPlayer(
   player->controllable = true;
   player->collisionTags.push_back("character");
   return static_cast<isoweb::engine::Character&>(world.entities().add(std::move(player)));
+}
+
+float barrierOpeningCentre(
+  const isoweb::engine::Character& left,
+  const isoweb::engine::Character& right
+) {
+  const float leftInner = left.localToWorld({left.hitBox.maximum.x, 0.0f, 0.0f}).x;
+  const float rightInner = right.localToWorld({right.hitBox.minimum.x, 0.0f, 0.0f}).x;
+  return (leftInner + rightInner) * 0.5f;
+}
+
+float barrierOpeningWidth(
+  const isoweb::engine::Character& left,
+  const isoweb::engine::Character& right
+) {
+  const float leftInner = left.localToWorld({left.hitBox.maximum.x, 0.0f, 0.0f}).x;
+  const float rightInner = right.localToWorld({right.hitBox.minimum.x, 0.0f, 0.0f}).x;
+  return rightInner - leftInner;
 }
 
 } // namespace
@@ -44,7 +63,7 @@ int main() {
 
   if (obstacles.enabled() || obstacles.partCount() != 0) return 1;
 
-  engine::Character& player = addPlayer(world, {0.0f, 2.40f, 0.0f});
+  engine::Character& player = addPlayer(world, "middle", {0.0f, 2.40f, 0.0f});
   const std::size_t baselineEntityCount = world.entities().all().size();
 
   obstacles.setEnabled(true);
@@ -63,107 +82,134 @@ int main() {
   auto* bladeA = dynamic_cast<engine::Character*>(
     world.entities().find("demo-obstacle-blade-a")
   );
-  if (!barrierLeft || !barrierRight || !guillotine || !bladeA) return 4;
+  auto* bladeB = dynamic_cast<engine::Character*>(
+    world.entities().find("demo-obstacle-blade-b")
+  );
+  if (!barrierLeft || !barrierRight || !guillotine || !bladeA || !bladeB) return 4;
 
-  // There are no invisible conservative blockers anymore. The planner sees
-  // the actual moving obstacle geometry.
-  if (world.entities().find("demo-obstacle-nav-barrier")) return 5;
-  if (world.entities().find("demo-obstacle-nav-guillotine")) return 6;
-  if (world.entities().find("demo-obstacle-nav-blades")) return 7;
+  // Three obstacle types belong to three different levels. Only the two wall
+  // segments share a level because together they are one moving-opening gate.
+  if (barrierLeft->location.levelId != "middle" || barrierRight->location.levelId != "middle") return 5;
+  if (guillotine->location.levelId != "upper") return 6;
+  if (bladeA->location.levelId != "lower" || bladeB->location.levelId != "lower") return 7;
 
-  // The sliding wall spans beyond both playable X edges, leaving exactly one
-  // moving opening. It must not intersect the existing demo scenery.
+  // There are no invisible conservative navigation blockers.
+  if (world.entities().find("demo-obstacle-nav-barrier")) return 8;
+  if (world.entities().find("demo-obstacle-nav-guillotine")) return 9;
+  if (world.entities().find("demo-obstacle-nav-blades")) return 10;
+
+  // The middle-level wall still seals both outside edges, but its opening is
+  // now several Character widths wide.
   const float leftOuter = barrierLeft->localToWorld({barrierLeft->hitBox.minimum.x, 0.0f, 0.0f}).x;
   const float rightOuter = barrierRight->localToWorld({barrierRight->hitBox.maximum.x, 0.0f, 0.0f}).x;
-  if (leftOuter > -4.40f || rightOuter < 4.40f) return 8;
-  if (world.collidesWith(*barrierLeft, barrierLeft)) return 9;
-  if (world.collidesWith(*barrierRight, barrierRight)) return 10;
-  if (world.collidesWith(*guillotine, guillotine)) return 11;
+  if (leftOuter > -4.40f || rightOuter < 4.40f) return 11;
+  if (barrierOpeningWidth(*barrierLeft, *barrierRight) < 2.20f) return 12;
+  if (world.collidesWith(*barrierLeft, barrierLeft)) return 13;
+  if (world.collidesWith(*barrierRight, barrierRight)) return 14;
 
-  const engine::Vec3 barrierBefore = barrierLeft->location.position;
+  // Future wall textures must tile at fixed world density. Changing the wall's
+  // length/opening cannot change the UV at a fixed world point.
+  if (
+    barrierLeft->surfaceTextureMode != engine::SurfaceTextureMode::TileWorld ||
+    barrierRight->surfaceTextureMode != engine::SurfaceTextureMode::TileWorld
+  ) {
+    return 15;
+  }
+  engine::ObjectRayHit textureHit;
+  textureHit.face = engine::ObjectFace::Front;
+  textureHit.worldPoint = {-4.0f, 1.90f, 0.50f};
+  const engine::SurfaceUV uvBefore = barrierLeft->surfaceTextureUV(textureHit);
+
+  // At phase zero sine has its maximum slope. This first step therefore tests
+  // the worst-case opening speed against the default Character speed.
+  const float openingBefore = barrierOpeningCentre(*barrierLeft, *barrierRight);
   const engine::Vec3 bladeForwardBefore = bladeA->forward;
-  obstacles.tick(0.10f);
-  if (std::fabs(barrierLeft->location.position.x - barrierBefore.x) < 1e-5f) return 12;
+  constexpr float movementSampleSeconds = 0.10f;
+  obstacles.tick(movementSampleSeconds);
+  barrierLeft = dynamic_cast<engine::Character*>(world.entities().find("demo-obstacle-barrier-left"));
+  barrierRight = dynamic_cast<engine::Character*>(world.entities().find("demo-obstacle-barrier-right"));
+  bladeA = dynamic_cast<engine::Character*>(world.entities().find("demo-obstacle-blade-a"));
+  if (!barrierLeft || !barrierRight || !bladeA) return 16;
+  const float openingAfter = barrierOpeningCentre(*barrierLeft, *barrierRight);
+  const float openingSpeed = std::fabs(openingAfter - openingBefore) / movementSampleSeconds;
+  if (openingSpeed >= characters.defaults().baseMovementSpeed * 0.50f) return 17;
   if (
     std::fabs(bladeA->forward.x - bladeForwardBefore.x) < 1e-5f &&
     std::fabs(bladeA->forward.y - bladeForwardBefore.y) < 1e-5f
-  ) return 13;
+  ) {
+    return 18;
+  }
+  const engine::SurfaceUV uvAfter = barrierLeft->surfaceTextureUV(textureHit);
+  if (std::fabs(uvAfter.u - uvBefore.u) > 1e-5f || std::fabs(uvAfter.v - uvBefore.v) > 1e-5f) return 19;
 
-  // A Character starting on the spawn side can plan through the wall's real
-  // opening. There is no route around either outside end of the wall.
+  // A normal Character can actually plan through the moving opening from the
+  // demo spawn side. This is the regression for the previously impossible gap.
   engine::EntityLocation destination = player.location;
   destination.position = {0.0f, 1.20f, 0.0f};
-  if (!characters.command(player, destination)) return 14;
-  if (player.movement.pathBlocked || player.movement.route.empty()) return 15;
+  if (!characters.command(player, destination)) return 20;
+  if (player.movement.pathBlocked || player.movement.route.empty()) return 21;
   characters.stop(player);
 
-  // The long front/back faces are solid but harmless.
-  barrierLeft = dynamic_cast<engine::Character*>(
-    world.entities().find("demo-obstacle-barrier-left")
-  );
-  if (!barrierLeft) return 16;
+  // Long front/back wall faces remain solid but harmless.
+  player.location.levelId = "middle";
   player.location.position = barrierLeft->location.position + engine::Vec3(0.0f, 0.25f, 0.0f);
   player.forward = {0.0f, 1.0f, 0.0f};
-  if (contains(obstacles.tick(0.0f), player.id)) return 17;
+  if (contains(obstacles.tick(0.0f), player.id)) return 22;
 
-  // The short inner face bordering the moving opening is lethal.
+  // The short inner face bordering the moving opening remains lethal.
   const engine::Vec3 innerFace = barrierLeft->localToWorld({
     barrierLeft->hitBox.maximum.x,
     0.0f,
     0.0f
   });
   player.location.position = innerFace + engine::Vec3(0.24f, 0.0f, 0.0f);
-  if (!contains(obstacles.tick(0.0f), player.id)) return 18;
+  if (!contains(obstacles.tick(0.0f), player.id)) return 23;
 
-  // Move the player between the two gates, then lower the guillotine. Its
-  // blade spans the complete level, so a destination on the far side must be
-  // retained as blocked intent rather than routed around an end.
-  player.location.position = {0.0f, -0.75f, 0.0f};
+  // On the upper level the lowered guillotine spans the complete width, so a
+  // route across its Y position is blocked instead of escaping around an end.
+  player.location.levelId = "upper";
+  player.location.position = {0.0f, 2.85f, 0.0f};
   player.forward = {0.0f, -1.0f, 0.0f};
-  obstacles.tick(1.40f);
-  guillotine = dynamic_cast<engine::Character*>(
-    world.entities().find("demo-obstacle-guillotine")
-  );
-  if (!guillotine || guillotine->location.position.z > 0.40f) return 19;
+  characters.stop(player);
+  obstacles.tick(1.20f);
+  guillotine = dynamic_cast<engine::Character*>(world.entities().find("demo-obstacle-guillotine"));
+  if (!guillotine || guillotine->location.position.z > 0.40f) return 24;
   const float guillotineLeft = guillotine->localToWorld({guillotine->hitBox.minimum.x, 0.0f, 0.0f}).x;
   const float guillotineRight = guillotine->localToWorld({guillotine->hitBox.maximum.x, 0.0f, 0.0f}).x;
-  if (guillotineLeft > -4.40f || guillotineRight < 4.40f) return 20;
-  if (world.collidesWith(*guillotine, guillotine)) return 21;
+  if (guillotineLeft > -4.40f || guillotineRight < 4.40f) return 25;
+  if (world.collidesWith(*guillotine, guillotine)) return 26;
 
   destination = player.location;
-  destination.position = {0.0f, -2.00f, 0.0f};
-  if (!characters.command(player, destination)) return 22;
-  if (!player.movement.pathBlocked) return 23;
+  destination.position = {0.0f, 1.45f, 0.0f};
+  if (!characters.command(player, destination)) return 27;
+  if (!player.movement.pathBlocked) return 28;
   characters.stop(player);
 
-  // Once the guillotine rises, exactly the same cross-level request becomes
-  // physically routable. Blocked-intent retry in the live engine uses this
-  // same geometry and will recover automatically.
-  player.location.position = {0.0f, -0.75f, 0.0f};
-  obstacles.tick(1.35f);
-  guillotine = dynamic_cast<engine::Character*>(
-    world.entities().find("demo-obstacle-guillotine")
-  );
-  if (!guillotine || guillotine->location.position.z < 2.0f) return 24;
-  destination = player.location;
-  destination.position = {0.0f, -2.00f, 0.0f};
-  if (!characters.command(player, destination)) return 25;
-  if (player.movement.pathBlocked || player.movement.route.empty()) return 26;
-  characters.stop(player);
-
-  // Test the deadly face as a real impact: start beneath the raised blade and
-  // let it descend. Teleporting into an already-lowered blade would not tell us
-  // which face made contact.
-  player.location.position = {0.0f, -1.38f, 0.0f};
+  // Reset the cycle and let the blade genuinely fall onto a Character. Only
+  // that lower face is the deadly guillotine surface.
+  obstacles.setEnabled(false);
+  obstacles.setEnabled(true);
+  guillotine = dynamic_cast<engine::Character*>(world.entities().find("demo-obstacle-guillotine"));
+  if (!guillotine) return 29;
+  player.location.levelId = "upper";
+  player.location.position = {0.0f, 2.15f, 0.0f};
   bool guillotineHit = false;
   for (int step = 0; step < 80 && !guillotineHit; ++step) {
     guillotineHit = contains(obstacles.tick(0.05f), player.id);
   }
-  if (!guillotineHit) return 27;
+  if (!guillotineHit) return 30;
+
+  // The rotating pair belongs to the lower stair approach and still rotates
+  // independently of which level is currently rendered.
+  bladeA = dynamic_cast<engine::Character*>(world.entities().find("demo-obstacle-blade-a"));
+  bladeB = dynamic_cast<engine::Character*>(world.entities().find("demo-obstacle-blade-b"));
+  if (!bladeA || !bladeB) return 31;
+  if (bladeA->location.levelId != "lower" || bladeB->location.levelId != "lower") return 32;
+  if (world.collidesWith(*bladeA, bladeA) || world.collidesWith(*bladeB, bladeB)) return 33;
 
   obstacles.setEnabled(false);
-  if (obstacles.enabled() || obstacles.partCount() != 0) return 28;
-  if (world.entities().all().size() != baselineEntityCount) return 29;
+  if (obstacles.enabled() || obstacles.partCount() != 0) return 34;
+  if (world.entities().all().size() != baselineEntityCount) return 35;
 
   return 0;
 }

@@ -1,3 +1,4 @@
+#include <cmath>
 #include <iostream>
 #include <memory>
 #include <vector>
@@ -119,6 +120,59 @@ int main() {
   // than performing another fully-described closest-hit scene traversal.
   if (level->occlusionCalls != 1) return 6;
 
-  std::cout << "Performance architecture smoke test passed: one primary trace, any-hit shadows, cached entity views.\n";
+  // Dynamic boxes now maintain a cached orthographic screen-space broad phase.
+  // A ray through the centre of 257 widely-spaced moving objects should only
+  // consider the one object whose projected bounds cover that ray.
+  const Ray centreRay{{0.0f, 0.0f, 5.0f}, {0.0f, 0.0f, -1.0f}};
+  std::vector<Object> probes(257);
+  int possibleHits = 0;
+  for (int index = 0; index < static_cast<int>(probes.size()); ++index) {
+    Object& probe = probes[static_cast<std::size_t>(index)];
+    probe.location.position = {
+      static_cast<float>(index - 128) * 2.0f,
+      0.0f,
+      0.0f
+    };
+    probe.hitBox.minimum = {-0.40f, -0.40f, 0.0f};
+    probe.hitBox.maximum = {0.40f, 0.40f, 1.0f};
+    if (probe.rayMayHit(centreRay)) ++possibleHits;
+  }
+  if (possibleHits != 1) return 7;
+
+  // Moving an object invalidates its cached projection immediately. This is
+  // essential for moving hazards: broad-phase speed cannot come from stale
+  // bounds or missed collisions.
+  Object movingProbe;
+  movingProbe.hitBox.minimum = {-0.40f, -0.40f, 0.0f};
+  movingProbe.hitBox.maximum = {0.40f, 0.40f, 1.0f};
+  movingProbe.location.position = {0.0f, 0.0f, 0.0f};
+  if (!movingProbe.rayMayHit(centreRay)) return 8;
+  movingProbe.location.position = {50.0f, 0.0f, 0.0f};
+  if (movingProbe.rayMayHit(centreRay)) return 9;
+
+  // Tiled surface coordinates are based on a fixed world-unit tile size, not
+  // the current dimensions of the hit box. Resizing a moving wall therefore
+  // cannot stretch a future texture.
+  Object tiled;
+  tiled.surfaceTextureMode = SurfaceTextureMode::TileLocal;
+  tiled.textureWorldUnitsPerTile = 0.50f;
+  tiled.hitBox.minimum = {-1.0f, -0.10f, 0.0f};
+  tiled.hitBox.maximum = {1.0f, 0.10f, 1.0f};
+  ObjectRayHit tiledHit;
+  tiledHit.face = ObjectFace::Front;
+  tiledHit.localPoint = {0.125f, 0.10f, 0.375f};
+  tiledHit.worldPoint = tiled.localToWorld(tiledHit.localPoint);
+  const SurfaceUV beforeResize = tiled.surfaceTextureUV(tiledHit);
+  tiled.hitBox.minimum.x = -8.0f;
+  tiled.hitBox.maximum.x = 8.0f;
+  const SurfaceUV afterResize = tiled.surfaceTextureUV(tiledHit);
+  if (
+    std::fabs(beforeResize.u - afterResize.u) > 1e-6f ||
+    std::fabs(beforeResize.v - afterResize.v) > 1e-6f
+  ) {
+    return 10;
+  }
+
+  std::cout << "Performance architecture smoke test passed: one primary trace, any-hit shadows, cached entity views, dynamic broad phase and fixed-density tiled UVs.\n";
   return 0;
 }
