@@ -41,27 +41,6 @@ Character* addCharacter(isoweb::demo::DemoWorld& world, const char* label, const
   return character;
 }
 
-void printMovementState(const Character& character) {
-  std::cerr << "  location=" << character.location.levelId
-            << " (" << character.location.position.x
-            << ", " << character.location.position.y
-            << ", " << character.location.position.z << ")\n"
-            << "  moving=" << character.moving
-            << " hasDestination=" << character.movement.hasDestination
-            << " pathBlocked=" << character.movement.pathBlocked
-            << " failedPathAttempts=" << character.movement.failedPathAttempts
-            << " nextWaypoint=" << character.movement.nextWaypoint
-            << " routeSize=" << character.movement.route.size() << '\n';
-  for (std::size_t index = 0; index < character.movement.route.size(); ++index) {
-    const auto& waypoint = character.movement.route[index];
-    std::cerr << "  waypoint[" << index << "]=" << waypoint.location.levelId
-              << " (" << waypoint.location.position.x
-              << ", " << waypoint.location.position.y
-              << ", " << waypoint.location.position.z << ")"
-              << (waypoint.levelTransition ? " transition" : "") << '\n';
-  }
-}
-
 void verifyRoute(
   const char* label,
   const char* fromLevel,
@@ -86,7 +65,6 @@ void verifyRoute(
     std::cerr << "[multilevel-route] " << fromLevel << " -> " << toLevel
               << " expected " << expectedTransitions << " transition(s), got "
               << transitionCount(*character) << '\n';
-    printMovementState(*character);
     std::exit(1);
   }
 
@@ -94,13 +72,11 @@ void verifyRoute(
   if (character->moving) {
     std::cerr << "[multilevel-route] " << fromLevel << " -> " << toLevel
               << " never settled\n";
-    printMovementState(*character);
     std::exit(1);
   }
   if (character->location.levelId != toLevel) {
     std::cerr << "[multilevel-route] " << fromLevel << " -> " << toLevel
               << " stopped on " << character->location.levelId << '\n';
-    printMovementState(*character);
     std::exit(1);
   }
 }
