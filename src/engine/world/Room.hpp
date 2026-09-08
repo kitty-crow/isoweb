@@ -51,6 +51,8 @@ struct RoomConnection {
   bool openPassage = true;
 };
 
+// Generic topology only: named demo shapes such as cross, Z, or T remain
+// configuration data rather than engine-level room types.
 struct RoomLayout {
   std::vector<Room> rooms;
   std::vector<RoomConnection> connections;
