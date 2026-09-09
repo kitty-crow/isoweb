@@ -16,9 +16,9 @@ constexpr float NO_HIT_DISTANCE = 1.0e30f;
 constexpr float BASE_RAY_ORIGIN_DISTANCE = 9.0f;
 constexpr float RAY_ORIGIN_MARGIN = 4.0f;
 constexpr int PREVIEW_TILE_SIZE = 16;
-constexpr float COARSE_PREVIEW_SCALE = 0.125f;
-constexpr int MAX_COARSE_PREVIEW_WIDTH = 160;
-constexpr int MAX_COARSE_PREVIEW_HEIGHT = 90;
+constexpr float COARSE_PREVIEW_SCALE = 0.25f;
+constexpr std::size_t MAX_PREVIEW_PIXELS = 360000;
+constexpr std::size_t MAX_COARSE_PREVIEW_PIXELS = 90000;
 constexpr unsigned int PREVIEW_IDLE_DELAY_FRAMES = 6;
 
 float rayOriginDistance(const WorldBounds& bounds, const Vec3& forward) {
@@ -412,7 +412,7 @@ void Renderer::render() {
 
   world_.prepareRenderFrame(forward);
 
-  // Lower previews are progressive and demand-driven. The normal 0.25x cache
+  // Lower previews are progressive and demand-driven. The normal high-detail cache
   // is not synchronously rebuilt when camera state changes. Instead the frame
   // records only texels that can actually contribute through active-level
   // holes, displays a tiny immediate coarse fallback, and refines demanded
@@ -424,9 +424,17 @@ void Renderer::render() {
   previewCoarseSampleCount_ = 0;
   previewDemandedTexelCount_ = 0;
   if (world_.supportsLowDetailLowerPreview()) {
-    const float previewScale = std::max(0.0625f, std::min(0.5f, world_.lowerPreviewResolutionScale()));
-    previewWidth_ = std::max(1, std::min(320, static_cast<int>(std::ceil(frameWidth_ * previewScale))));
-    previewHeight_ = std::max(1, std::min(180, static_cast<int>(std::ceil(frameHeight_ * previewScale))));
+    float previewScale = std::max(0.0625f, std::min(0.5f, world_.lowerPreviewResolutionScale()));
+    const double requestedPreviewPixels =
+      static_cast<double>(frameWidth_) * static_cast<double>(frameHeight_) *
+      static_cast<double>(previewScale) * static_cast<double>(previewScale);
+    if (requestedPreviewPixels > static_cast<double>(MAX_PREVIEW_PIXELS)) {
+      previewScale *= static_cast<float>(std::sqrt(
+        static_cast<double>(MAX_PREVIEW_PIXELS) / requestedPreviewPixels
+      ));
+    }
+    previewWidth_ = std::max(1, static_cast<int>(std::ceil(frameWidth_ * previewScale)));
+    previewHeight_ = std::max(1, static_cast<int>(std::ceil(frameHeight_ * previewScale)));
     previewTilesX_ = (previewWidth_ + PREVIEW_TILE_SIZE - 1) / PREVIEW_TILE_SIZE;
     previewTilesY_ = (previewHeight_ + PREVIEW_TILE_SIZE - 1) / PREVIEW_TILE_SIZE;
 
@@ -465,13 +473,22 @@ void Renderer::render() {
     previewDownStep_ = up * (-previewStepY);
     previewForward_ = forward;
 
+    float coarsePreviewScale = COARSE_PREVIEW_SCALE;
+    const double requestedCoarsePixels =
+      static_cast<double>(frameWidth_) * static_cast<double>(frameHeight_) *
+      static_cast<double>(coarsePreviewScale) * static_cast<double>(coarsePreviewScale);
+    if (requestedCoarsePixels > static_cast<double>(MAX_COARSE_PREVIEW_PIXELS)) {
+      coarsePreviewScale *= static_cast<float>(std::sqrt(
+        static_cast<double>(MAX_COARSE_PREVIEW_PIXELS) / requestedCoarsePixels
+      ));
+    }
     coarsePreviewWidth_ = std::max(
       1,
-      std::min(MAX_COARSE_PREVIEW_WIDTH, static_cast<int>(std::ceil(frameWidth_ * COARSE_PREVIEW_SCALE)))
+      static_cast<int>(std::ceil(frameWidth_ * coarsePreviewScale))
     );
     coarsePreviewHeight_ = std::max(
       1,
-      std::min(MAX_COARSE_PREVIEW_HEIGHT, static_cast<int>(std::ceil(frameHeight_ * COARSE_PREVIEW_SCALE)))
+      static_cast<int>(std::ceil(frameHeight_ * coarsePreviewScale))
     );
     coarsePreviewSamples_.assign(
       static_cast<std::size_t>(coarsePreviewWidth_) * coarsePreviewHeight_,
