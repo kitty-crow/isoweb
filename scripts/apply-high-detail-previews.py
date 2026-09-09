@@ -75,7 +75,7 @@ world.write_text(text)
 
 smoke = Path('scripts/progressive-preview-smoke.ts')
 text = smoke.read_text()
-old = '''    return {
+old = '''    const initial = {
       potential: module._isoweb_preview_potential_texel_count(),
       demanded: module._isoweb_preview_demanded_texel_count(),
       coarse: module._isoweb_preview_coarse_sample_count(),
@@ -84,7 +84,7 @@ old = '''    return {
     };
 '''
 new = '''    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
-    return {
+    const initial = {
       potential: module._isoweb_preview_potential_texel_count(),
       demanded: module._isoweb_preview_demanded_texel_count(),
       coarse: module._isoweb_preview_coarse_sample_count(),
