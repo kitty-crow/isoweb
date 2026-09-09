@@ -1657,7 +1657,7 @@ DemoWorld::DemoWorld()
   setLevelViewOrigin("middle", {0.0f, 0.0f, DEMO_STOREY_HEIGHT});
   setLevelViewOrigin("upper", {0.0f, 0.0f, DEMO_STOREY_HEIGHT * 2.0f});
   setLowerLevelPreviewDepth(2);
-  setLowerPreviewResolutionScale(0.25f);
+  setLowerPreviewResolutionScale(0.50f);
   setNavigationLinks({
     navigationLink(LOWER_MIDDLE_STAIR),
     navigationLink(MIDDLE_UPPER_STAIR)

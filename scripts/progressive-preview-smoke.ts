@@ -45,12 +45,14 @@ try {
   const initialAndIdle = await page.evaluate(() => {
     const module = (globalThis as any).Module;
     module._isoweb_level_up(); // middle -> upper, exposing both lower previews
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
     const initial = {
       potential: module._isoweb_preview_potential_texel_count(),
       demanded: module._isoweb_preview_demanded_texel_count(),
       coarse: module._isoweb_preview_coarse_sample_count(),
       refined: module._isoweb_preview_refined_sample_count(),
-      needs: module._isoweb_preview_needs_refinement()
+      needs: module._isoweb_preview_needs_refinement(),
+      framePixels: canvas ? canvas.width * canvas.height : 0
     };
 
     const before = module._isoweb_preview_refined_sample_count();
@@ -67,6 +69,9 @@ try {
 
   const { initial, idleGate } = initialAndIdle;
   if (!(initial.potential > 0)) throw new Error(`No lower-preview buffer on upper level: ${JSON.stringify(initial)}`);
+  if (!(initial.framePixels > 0 && initial.potential >= initial.framePixels * 0.20)) {
+    throw new Error(`Settled preview target is still too heavily downsampled: ${JSON.stringify(initial)}`);
+  }
   if (!(initial.demanded > 0 && initial.demanded < initial.potential)) {
     throw new Error(`Preview demand was not visibility-culled: ${JSON.stringify(initial)}`);
   }
