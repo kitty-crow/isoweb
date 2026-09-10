@@ -1,0 +1,27 @@
+name: Stage camera pan bounds
+
+on:
+  push:
+    branches: [fix/full-detail-preview-character-overlay]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/full-detail-preview-character-overlay
+      - name: Apply camera pan patch
+        run: python3 scripts/apply-camera-pan-bounds-fix.py
+      - name: Commit camera changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/engine/camera/Camera.cpp src/engine/render/Renderer.cpp src/engine/world/IWorld.hpp src/engine/world/World.cpp src/engine/world/World.hpp src/demo/DemoApplication.cpp
+          git commit -m 'Derive camera panning from active level bounds'
+          git push
