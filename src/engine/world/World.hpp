@@ -92,6 +92,7 @@ public:
   World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defaultLevelIndex);
 
   const WorldBounds& bounds() const override;
+  const WorldBounds& cameraBounds() const override;
   Vec3 sample(const Ray& ray, float backgroundY) const override;
   bool supportsStaticSampleCache() const override { return true; }
   bool supportsLowDetailLowerPreview() const override {

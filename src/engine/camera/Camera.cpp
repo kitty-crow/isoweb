@@ -34,8 +34,64 @@ const CameraBasisTable& cameraBasisTable() {
   return table;
 }
 
-float clampPan(float value, float limit) {
-  return std::max(-limit, std::min(limit, value));
+float clampPan(float value, float minimum, float maximum) {
+  return std::max(minimum, std::min(maximum, value));
+}
+
+Vec3 clampPanToBounds(
+  const Vec3& candidate,
+  const Vec3& forward,
+  const Vec3& right,
+  const Vec3& down,
+  float viewHeight,
+  float aspect,
+  const WorldBounds& bounds,
+  float fallbackLimit
+) {
+  if (bounds.points.empty() || viewHeight <= 1e-7f || aspect <= 1e-7f) {
+    return {
+      clampPan(candidate.x, -fallbackLimit, fallbackLimit),
+      clampPan(candidate.y, -fallbackLimit, fallbackLimit),
+      0.0f
+    };
+  }
+
+  const Vec3 up = normalise(cross(right, forward));
+  const float verticalProjection = dot(down, up);
+  if (std::fabs(verticalProjection) <= 1e-7f) return candidate;
+
+  float minimumRight = 1e9f;
+  float maximumRight = -1e9f;
+  float minimumUp = 1e9f;
+  float maximumUp = -1e9f;
+  for (const Vec3& point : bounds.points) {
+    const Vec3 relative = point - bounds.focus;
+    const float projectedRight = dot(relative, right);
+    const float projectedUp = dot(relative, up);
+    minimumRight = std::min(minimumRight, projectedRight);
+    maximumRight = std::max(maximumRight, projectedRight);
+    minimumUp = std::min(minimumUp, projectedUp);
+    maximumUp = std::max(maximumUp, projectedUp);
+  }
+
+  const float halfWidth = viewHeight * aspect * 0.5f;
+  const float halfHeight = viewHeight * 0.5f;
+  const auto centreRange = [](float minimum, float maximum, float halfViewport) {
+    const float span = maximum - minimum;
+    if (span > halfViewport * 2.0f) {
+      return std::array<float, 2>{{minimum + halfViewport, maximum - halfViewport}};
+    }
+    return std::array<float, 2>{{maximum - halfViewport, minimum + halfViewport}};
+  };
+
+  const std::array<float, 2> rightRange = centreRange(minimumRight, maximumRight, halfWidth);
+  const std::array<float, 2> upRange = centreRange(minimumUp, maximumUp, halfHeight);
+  const float candidateRight = dot(candidate, right);
+  const float candidateUp = dot(candidate, up);
+  const float clampedRight = clampPan(candidateRight, rightRange[0], rightRange[1]);
+  const float clampedUp = clampPan(candidateUp, upRange[0], upRange[1]);
+
+  return right * clampedRight + down * (clampedUp / verticalProjection);
 }
 
 } // namespace
@@ -134,9 +190,9 @@ CameraControlState Camera::controlState(
 }
 
 CameraControlState Camera::controlState(
-  int,
-  int,
-  const WorldBounds&,
+  int frameWidth,
+  int frameHeight,
+  const WorldBounds& bounds,
   bool panEnabled,
   float wholeZoomScaleValue
 ) const {
@@ -151,12 +207,22 @@ CameraControlState Camera::controlState(
   if (panEnabled) {
     const Vec3 rightAxis = groundRight();
     const Vec3 downAxis = groundDown();
+    const float aspect = static_cast<float>(frameWidth) / frameHeight;
+    const float currentHeight = viewHeight(frameWidth, frameHeight, bounds);
     const auto wouldMove = [&](float right, float down) {
       const Vec3 delta = rightAxis * right + downAxis * down;
-      const float nextX = clampPan(panX_ + delta.x, config_.panLimit);
-      const float nextY = clampPan(panY_ + delta.y, config_.panLimit);
-      return std::fabs(nextX - panX_) > 0.0001f ||
-        std::fabs(nextY - panY_) > 0.0001f;
+      const Vec3 next = clampPanToBounds(
+        {panX_ + delta.x, panY_ + delta.y, 0.0f},
+        forward(),
+        rightAxis,
+        downAxis,
+        currentHeight,
+        aspect,
+        bounds,
+        config_.panLimit
+      );
+      return std::fabs(next.x - panX_) > 0.0001f ||
+        std::fabs(next.y - panY_) > 0.0001f;
     };
 
     state.canPanUp = wouldMove(0.0f, 1.0f);
@@ -283,14 +349,25 @@ void Camera::pan(float right, float down, int frameWidth, int frameHeight, const
   const float quantisedRight = pixelRight / pixelsPerWorld;
   const float quantisedDown = pixelVertical / (verticalProjection * pixelsPerWorld);
   const Vec3 delta = rightAxis * quantisedRight + downAxis * quantisedDown;
-  const float unclampedX = panX_ + delta.x;
-  const float unclampedY = panY_ + delta.y;
-  const float nextX = clampPan(unclampedX, config_.panLimit);
-  const float nextY = clampPan(unclampedY, config_.panLimit);
+  const Vec3 candidate{panX_ + delta.x, panY_ + delta.y, 0.0f};
+  const float aspect = static_cast<float>(frameWidth) / frameHeight;
+  const Vec3 clamped = clampPanToBounds(
+    candidate,
+    forward(),
+    rightAxis,
+    downAxis,
+    height,
+    aspect,
+    bounds,
+    config_.panLimit
+  );
 
-  if (nextX != unclampedX || nextY != unclampedY) resetPanPixelRemainder();
-  panX_ = nextX;
-  panY_ = nextY;
+  if (
+    std::fabs(clamped.x - candidate.x) > 1e-6f ||
+    std::fabs(clamped.y - candidate.y) > 1e-6f
+  ) resetPanPixelRemainder();
+  panX_ = clamped.x;
+  panY_ = clamped.y;
 }
 
 void Camera::resetPan() {

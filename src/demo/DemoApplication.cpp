@@ -99,12 +99,12 @@ void DemoApplication::setDetailedYawMode(bool enabled) {
 }
 
 void DemoApplication::zoomIn() {
-  camera_.stepZoom(1, renderer_.width(), renderer_.height(), world_.bounds());
+  camera_.stepZoom(1, renderer_.width(), renderer_.height(), world_.cameraBounds());
   redraw();
 }
 
 void DemoApplication::zoomOut() {
-  camera_.stepZoom(-1, renderer_.width(), renderer_.height(), world_.bounds());
+  camera_.stepZoom(-1, renderer_.width(), renderer_.height(), world_.cameraBounds());
   redraw();
 }
 
@@ -119,7 +119,7 @@ void DemoApplication::setDetailedMode(bool enabled) {
 }
 
 void DemoApplication::pan(float right, float down) {
-  camera_.pan(right, down, renderer_.width(), renderer_.height(), world_.bounds());
+  camera_.pan(right, down, renderer_.width(), renderer_.height(), world_.cameraBounds());
   redraw();
 }
 

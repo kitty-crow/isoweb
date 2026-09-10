@@ -23,6 +23,7 @@ public:
   virtual ~IWorld() = default;
 
   virtual const WorldBounds& bounds() const = 0;
+  virtual const WorldBounds& cameraBounds() const { return bounds(); }
   virtual Vec3 sample(const Ray& ray, float backgroundY) const = 0;
   virtual bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const = 0;
   virtual const std::vector<Object>& objects() const = 0;
