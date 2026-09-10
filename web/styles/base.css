@@ -4,6 +4,9 @@ body {
   min-width: 100%;
   min-height: 100%;
   margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
   background: #0f1720;
 }
 

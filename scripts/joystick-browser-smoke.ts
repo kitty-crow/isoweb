@@ -60,6 +60,47 @@ try {
     { timeout: 45_000 }
   );
 
+  console.log('[joystick-browser] browser zoom gestures stay trapped in the game viewport');
+  const gesturePolicy = await page.evaluate(() => {
+    const viewport = document.getElementById('viewport') as HTMLElement | null;
+    const resetCamera = document.getElementById('reset-camera') as HTMLButtonElement | null;
+    const meta = document.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '';
+    if (!viewport || !resetCamera) return null;
+
+    const doubleClick = new MouseEvent('dblclick', { bubbles: true, cancelable: true });
+    const doubleClickAllowed = viewport.dispatchEvent(doubleClick);
+    const sceneTouchEnd = new Event('touchend', { bubbles: true, cancelable: true });
+    const sceneTouchEndAllowed = viewport.dispatchEvent(sceneTouchEnd);
+    const controlTouchEnd = new Event('touchend', { bubbles: true, cancelable: true });
+    const controlTouchEndAllowed = resetCamera.dispatchEvent(controlTouchEnd);
+
+    return {
+      meta,
+      viewportTouchAction: getComputedStyle(viewport).touchAction,
+      bodyTouchAction: getComputedStyle(document.body).touchAction,
+      controlTouchAction: getComputedStyle(resetCamera).touchAction,
+      doubleClickAllowed,
+      sceneTouchEndAllowed,
+      controlTouchEndAllowed
+    };
+  });
+  if (!gesturePolicy) throw new Error('Gesture policy elements are missing.');
+  if (!gesturePolicy.meta.includes('maximum-scale=1') || !gesturePolicy.meta.includes('user-scalable=no')) {
+    throw new Error(`Viewport zoom lock regressed: ${gesturePolicy.meta}`);
+  }
+  if (
+    gesturePolicy.viewportTouchAction !== 'none' ||
+    gesturePolicy.bodyTouchAction !== 'none' ||
+    gesturePolicy.controlTouchAction !== 'none'
+  ) {
+    throw new Error(`Native touch-action escaped the game: ${JSON.stringify(gesturePolicy)}`);
+  }
+  if (gesturePolicy.doubleClickAllowed) throw new Error('Viewport dblclick default was not cancelled.');
+  if (gesturePolicy.sceneTouchEndAllowed) throw new Error('Scene touchend default was not cancelled.');
+  if (!gesturePolicy.controlTouchEndAllowed) {
+    throw new Error('Single control touchend was unnecessarily cancelled, risking lost button clicks.');
+  }
+
   const layout = await page.evaluate(() => {
     const ids = [
       'reset-level', 'level-up', 'level-down',

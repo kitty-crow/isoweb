@@ -32,7 +32,29 @@ export class PointerController {
     this.viewport.addEventListener('pointermove', event => this.onPointerMove(event));
     this.viewport.addEventListener('pointerup', event => this.endPointer(event, false));
     this.viewport.addEventListener('pointercancel', event => this.endPointer(event, true));
+
+    // Safari can still recognise browser-level gestures even with a locked
+    // viewport meta tag. The game owns every gesture in this viewport, so
+    // explicitly cancel native double-tap/gesture defaults as a second line
+    // of defence. Scene touchend has no browser click semantic to preserve.
+    this.viewport.addEventListener('dblclick', this.preventBrowserGesture);
+    this.viewport.addEventListener('touchend', this.preventSceneTouchEnd, { passive: false });
+    for (const name of ['gesturestart', 'gesturechange', 'gestureend']) {
+      this.viewport.addEventListener(name, this.preventBrowserGesture, { passive: false });
+    }
   }
+
+  private readonly preventBrowserGesture = (event: Event): void => {
+    event.preventDefault();
+  };
+
+  private readonly preventSceneTouchEnd = (event: TouchEvent): void => {
+    const target = event.target;
+    // Ordinary control buttons still use their click events. Their CSS
+    // touch-action is locked separately, so do not suppress a single tap here.
+    if (target instanceof Element && target.closest('button')) return;
+    event.preventDefault();
+  };
 
   private zoomStep(direction: number): void {
     if (direction > 0) this.module._isoweb_zoom_in();
@@ -90,6 +112,7 @@ export class PointerController {
     const target = event.target;
     if (target instanceof Element && target.closest('button')) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if (event.pointerType !== 'mouse') event.preventDefault();
 
     const point = { x: event.clientX, y: event.clientY };
     this.pointers.set(event.pointerId, point);
@@ -107,6 +130,7 @@ export class PointerController {
   private onPointerMove(event: PointerEvent): void {
     const previous = this.pointers.get(event.pointerId);
     if (!previous) return;
+    if (event.pointerType !== 'mouse') event.preventDefault();
 
     const next = { x: event.clientX, y: event.clientY };
     this.pointers.set(event.pointerId, next);
@@ -158,6 +182,7 @@ export class PointerController {
     const last = this.pointers.get(event.pointerId);
     const start = this.starts.get(event.pointerId);
     if (!last || !start) return;
+    if (event.pointerType !== 'mouse') event.preventDefault();
 
     const distance = Math.hypot(last.x - start.x, last.y - start.y);
     const wasMouse = event.pointerType === 'mouse';

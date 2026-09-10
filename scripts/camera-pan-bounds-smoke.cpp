@@ -4,9 +4,7 @@
 
 #include "engine/camera/Camera.hpp"
 
-using isoweb::engine::Camera;
-using isoweb::engine::CameraConfig;
-using isoweb::engine::WorldBounds;
+using namespace isoweb::engine;
 
 namespace {
 
@@ -17,44 +15,102 @@ void require(bool condition, const char* message) {
   }
 }
 
-WorldBounds makeBounds() {
-  WorldBounds bounds;
-  bounds.focus = {0.0f, 0.0f, 0.0f};
-  for (float x : {-13.2f, 13.2f}) {
-    for (float y : {-13.2f, 13.2f}) {
-      for (float z : {0.0f, 1.8f}) bounds.points.push_back({x, y, z});
+void addRoomBounds(WorldBounds& bounds, float centreX, float centreY) {
+  constexpr float halfRoom = 4.40f;
+  for (float x : {centreX - halfRoom, centreX + halfRoom}) {
+    for (float y : {centreY - halfRoom, centreY + halfRoom}) {
+      bounds.points.push_back({x, y, 0.0f});
+      bounds.points.push_back({x, y, 1.80f});
     }
   }
+}
+
+WorldBounds makeMiddleFloorBounds() {
+  constexpr float roomSize = 8.80f;
+  WorldBounds bounds;
+  bounds.focus = {0.0f, 0.15f, 0.55f};
+  addRoomBounds(bounds, 0.0f, 0.0f);
+  addRoomBounds(bounds, 0.0f, roomSize);
+  addRoomBounds(bounds, 0.0f, -roomSize);
+  addRoomBounds(bounds, -roomSize, roomSize);
+  addRoomBounds(bounds, roomSize, -roomSize);
   return bounds;
+}
+
+void planarUpExtents(
+  const WorldBounds& bounds,
+  const Vec3& up,
+  float& minimum,
+  float& maximum
+) {
+  minimum = 1e9f;
+  maximum = -1e9f;
+  for (const Vec3& point : bounds.points) {
+    const Vec3 relative(point.x - bounds.focus.x, point.y - bounds.focus.y, 0.0f);
+    const float projected = dot(relative, up);
+    minimum = std::min(minimum, projected);
+    maximum = std::max(maximum, projected);
+  }
 }
 
 } // namespace
 
 int main() {
   Camera camera(CameraConfig(3.25f, 6.15f, 5.50f));
-  const WorldBounds bounds = makeBounds();
-  const int width = 720;
-  const int height = 720;
+  const WorldBounds bounds = makeMiddleFloorBounds();
 
-  require(camera.canPan(width, height, bounds), "large level did not enable panning");
+  // Reproduce the phone shape where the previous half-viewport inset was most
+  // severe. At 1x it stopped around the centre room despite the Z-shaped floor.
+  const int width = 390;
+  const int height = 844;
+  require(camera.canPan(width, height, bounds), "middle floor did not enable phone panning");
 
-  for (int i = 0; i < 80; ++i) camera.pan(1.0f, 0.0f, width, height, bounds);
-  const float firstX = camera.panX();
-  const float firstY = camera.panY();
-  const float travelled = std::sqrt(firstX * firstX + firstY * firstY);
-  require(travelled > 6.0f, "pan still stopped near the legacy centre-room limit");
+  const Vec3 right = camera.groundRight();
+  const Vec3 up = normalise(cross(right, camera.forward()));
+  float minimumUp = 0.0f;
+  float maximumUp = 0.0f;
+  planarUpExtents(bounds, up, minimumUp, maximumUp);
 
-  for (int i = 0; i < 80; ++i) camera.pan(1.0f, 0.0f, width, height, bounds);
+  // Positive screen-down movement projects toward minimumUp for the default
+  // camera basis. The camera focus must be able to reach that real floor edge,
+  // rather than stopping half a viewport before it.
+  for (int i = 0; i < 240; ++i) camera.pan(0.0f, 1.0f, width, height, bounds);
+  const Vec3 downPan(camera.panX(), camera.panY(), 0.0f);
+  const float downProjected = dot(downPan, up);
   require(
-    std::fabs(camera.panX() - firstX) < 0.05f &&
-    std::fabs(camera.panY() - firstY) < 0.05f,
-    "camera did not clamp at the authored level boundary"
+    std::fabs(downProjected - minimumUp) < 0.05f,
+    "portrait joystick pan stopped before the real lower projected floor edge"
+  );
+  require(
+    std::sqrt(camera.panX() * camera.panX() + camera.panY() * camera.panY()) > 8.0f,
+    "portrait joystick pan still stops around the centre room"
+  );
+  auto state = camera.controlState(width, height, bounds);
+  require(!state.canPanDown, "pan-down stayed enabled after reaching the real floor edge");
+  require(state.canPanUp, "pan-up disabled before returning across the floor");
+
+  camera.resetPan();
+  for (int i = 0; i < 240; ++i) camera.pan(0.0f, -1.0f, width, height, bounds);
+  const Vec3 upPan(camera.panX(), camera.panY(), 0.0f);
+  const float upProjected = dot(upPan, up);
+  require(
+    std::fabs(upProjected - maximumUp) < 0.05f,
+    "portrait joystick pan stopped before the real upper projected floor edge"
   );
 
-  const auto state = camera.controlState(width, height, bounds);
-  require(!state.canPanRight, "pan-right control stayed enabled at the real level edge");
-  require(state.canPanLeft, "pan-left control disabled before returning across the level");
+  camera.resetPan();
+  for (int i = 0; i < 240; ++i) camera.pan(1.0f, 0.0f, width, height, bounds);
+  const Vec3 rightPan(camera.panX(), camera.panY(), 0.0f);
+  float maximumRight = -1e9f;
+  for (const Vec3& point : bounds.points) {
+    const Vec3 relative(point.x - bounds.focus.x, point.y - bounds.focus.y, 0.0f);
+    maximumRight = std::max(maximumRight, dot(relative, right));
+  }
+  require(
+    std::fabs(dot(rightPan, right) - maximumRight) < 0.05f,
+    "portrait joystick pan stopped before the real right floor edge"
+  );
 
-  std::cout << "Camera pan bounds track authored level geometry.\n";
+  std::cout << "Camera pan reaches the full active-floor footprint on a portrait viewport.\n";
   return 0;
 }
