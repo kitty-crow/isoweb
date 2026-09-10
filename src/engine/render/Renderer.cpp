@@ -21,13 +21,17 @@ constexpr std::size_t MAX_PREVIEW_PIXELS = 1600000;
 constexpr std::size_t MAX_COARSE_PREVIEW_PIXELS = 90000;
 constexpr unsigned int PREVIEW_IDLE_DELAY_FRAMES = 6;
 
-float rayOriginDistance(const WorldBounds& bounds, const Vec3& forward) {
+float rayOriginDistance(
+  const WorldBounds& bounds,
+  const Vec3& forward,
+  const Vec3& focus
+) {
   float distance = BASE_RAY_ORIGIN_DISTANCE;
   for (const Vec3& point : bounds.points) {
-    // A ray begins at focus - forward * distance. Ensure every visible-bound
-    // point is comfortably in front of that plane. The margin also covers
-    // normal Character height beyond a floor-only edge of the static bounds.
-    const float projection = dot(point - bounds.focus, forward);
+    // A ray begins at the current camera focus - forward * distance. Use the
+    // panned focus, not the authored bounds focus, so large valid pan offsets
+    // cannot move the ray origin plane through distant rooms.
+    const float projection = dot(point - focus, forward);
     distance = std::max(distance, -projection + RAY_ORIGIN_MARGIN);
   }
   return distance;
@@ -264,7 +268,7 @@ Ray Renderer::rayForPixel(float px, float py) const {
     : cameraBounds.focus;
 
   return {
-    focus - forward * rayOriginDistance(visibleBounds, forward) + right * screenX + up * screenY,
+    focus - forward * rayOriginDistance(visibleBounds, forward, focus) + right * screenX + up * screenY,
     forward
   };
 }
@@ -468,7 +472,7 @@ void Renderer::render() {
 
     const float previewStepX = width / static_cast<float>(previewWidth_);
     const float previewStepY = height / static_cast<float>(previewHeight_);
-    const float previewOriginDistance = rayOriginDistance(visibleBounds, forward);
+    const float previewOriginDistance = rayOriginDistance(visibleBounds, forward, focus);
     previewRayCorner_ =
       focus - forward * previewOriginDistance - right * (width * 0.5f) + up * (height * 0.5f);
     previewRightStep_ = right * previewStepX;
@@ -538,7 +542,7 @@ void Renderer::render() {
   const float inverseFrameHeight = 1.0f / static_cast<float>(frameHeight_);
   const Vec3 rightStep = right * (width * inverseFrameWidth);
   const Vec3 downStep = up * (-height * inverseFrameHeight);
-  const float originDistance = rayOriginDistance(visibleBounds, forward);
+  const float originDistance = rayOriginDistance(visibleBounds, forward, focus);
   const Vec3 cornerOrigin =
     focus - forward * originDistance - right * (width * 0.5f) + up * (height * 0.5f);
 
