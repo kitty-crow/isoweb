@@ -49,10 +49,11 @@ export class App {
       if (this.module._isoweb_needs_tick()) {
         this.module._isoweb_tick(deltaSeconds);
       } else if (this.module._isoweb_preview_needs_refinement()) {
-        // One small tile per idle animation frame. Camera input renders its
-        // coarse fallback immediately; refinement waits several frames after
-        // the last camera change, so panning never blocks on preview loading.
-        this.module._isoweb_refine_preview(1);
+        // Camera motion still gets the coarse fallback immediately and the idle
+        // guard prevents refinement from competing with panning. Once idle,
+        // refine a small batch in one pass so a full-resolution preview settles
+        // quickly without causing eight separate full-frame redraws.
+        this.module._isoweb_refine_preview(8);
       }
       requestAnimationFrame(animate);
     };
