@@ -1,0 +1,27 @@
+name: Stage pan and mobile gesture fix
+
+on:
+  push:
+    branches: [fix/pan-extents-mobile-doubletap]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/pan-extents-mobile-doubletap
+      - name: Apply pan and gesture patch
+        run: python3 scripts/apply-pan-mobile-gesture-fix.py
+      - name: Commit implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/engine/camera/Camera.cpp scripts/camera-pan-bounds-smoke.cpp web/src/input/PointerController.ts web/styles/base.css web/styles/controls.css scripts/joystick-browser-smoke.ts
+          git commit -m 'Reach full floor pan extents and suppress page zoom gestures'
+          git push
