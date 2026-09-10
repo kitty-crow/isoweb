@@ -71,31 +71,31 @@ int main() {
   float maximumUp = 0.0f;
   planarUpExtents(bounds, up, minimumUp, maximumUp);
 
-  // Positive screen-down movement projects toward minimumUp for the default
-  // camera basis. The camera focus must be able to reach that real floor edge,
-  // rather than stopping half a viewport before it.
+  // For the default camera basis, positive Camera::pan down has a positive
+  // projection onto renderer-up. Drive it until it reaches the true planar
+  // edge instead of stopping half a viewport before it.
   for (int i = 0; i < 240; ++i) camera.pan(0.0f, 1.0f, width, height, bounds);
-  const Vec3 downPan(camera.panX(), camera.panY(), 0.0f);
-  const float downProjected = dot(downPan, up);
+  const Vec3 positivePan(camera.panX(), camera.panY(), 0.0f);
+  const float positiveProjected = dot(positivePan, up);
   require(
-    std::fabs(downProjected - minimumUp) < 0.05f,
-    "portrait joystick pan stopped before the real lower projected floor edge"
+    std::fabs(positiveProjected - maximumUp) < 0.05f,
+    "portrait joystick pan stopped before the positive projected floor edge"
   );
   require(
     std::sqrt(camera.panX() * camera.panX() + camera.panY() * camera.panY()) > 8.0f,
     "portrait joystick pan still stops around the centre room"
   );
   auto state = camera.controlState(width, height, bounds);
-  require(!state.canPanDown, "pan-down stayed enabled after reaching the real floor edge");
-  require(state.canPanUp, "pan-up disabled before returning across the floor");
+  require(!state.canPanUp, "positive pan control stayed enabled after reaching the real floor edge");
+  require(state.canPanDown, "opposite pan control disabled before returning across the floor");
 
   camera.resetPan();
   for (int i = 0; i < 240; ++i) camera.pan(0.0f, -1.0f, width, height, bounds);
-  const Vec3 upPan(camera.panX(), camera.panY(), 0.0f);
-  const float upProjected = dot(upPan, up);
+  const Vec3 negativePan(camera.panX(), camera.panY(), 0.0f);
+  const float negativeProjected = dot(negativePan, up);
   require(
-    std::fabs(upProjected - maximumUp) < 0.05f,
-    "portrait joystick pan stopped before the real upper projected floor edge"
+    std::fabs(negativeProjected - minimumUp) < 0.05f,
+    "portrait joystick pan stopped before the negative projected floor edge"
   );
 
   camera.resetPan();
