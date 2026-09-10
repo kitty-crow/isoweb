@@ -257,13 +257,14 @@ Ray Renderer::rayForPixel(float px, float py) const {
   const float screenX = (px / frameWidth_ - 0.5f) * width;
   const float screenY = (0.5f - py / frameHeight_) * height;
 
-  const WorldBounds& bounds = world_.bounds();
+  const WorldBounds& cameraBounds = world_.cameraBounds();
+  const WorldBounds& visibleBounds = world_.bounds();
   const Vec3 focus = frameCanPan_
-    ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
-    : bounds.focus;
+    ? cameraBounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
+    : cameraBounds.focus;
 
   return {
-    focus - forward * rayOriginDistance(bounds, forward) + right * screenX + up * screenY,
+    focus - forward * rayOriginDistance(visibleBounds, forward) + right * screenX + up * screenY,
     forward
   };
 }
@@ -286,7 +287,7 @@ bool Renderer::worldPointToPixel(const Vec3& point, float& px, float& py) const 
   const float width = height * aspect;
   if (width <= 0.0f || height <= 0.0f) return false;
 
-  const WorldBounds& bounds = world_.bounds();
+  const WorldBounds& bounds = world_.cameraBounds();
   const Vec3 focus = frameCanPan_
     ? bounds.focus + Vec3(camera_.panX(), camera_.panY(), 0.0f)
     : bounds.focus;
@@ -379,7 +380,8 @@ bool Renderer::refinePreview(std::size_t maxTiles) {
 void Renderer::render() {
   ensureFrame();
 
-  const WorldBounds& bounds = world_.bounds();
+  const WorldBounds& visibleBounds = world_.bounds();
+  const WorldBounds& bounds = world_.cameraBounds();
   const Vec3 forward = camera_.forward();
   const Vec3 right = camera_.groundRight();
   const Vec3 up = normalise(cross(right, forward));
@@ -466,7 +468,7 @@ void Renderer::render() {
 
     const float previewStepX = width / static_cast<float>(previewWidth_);
     const float previewStepY = height / static_cast<float>(previewHeight_);
-    const float previewOriginDistance = rayOriginDistance(bounds, forward);
+    const float previewOriginDistance = rayOriginDistance(visibleBounds, forward);
     previewRayCorner_ =
       focus - forward * previewOriginDistance - right * (width * 0.5f) + up * (height * 0.5f);
     previewRightStep_ = right * previewStepX;
@@ -536,7 +538,7 @@ void Renderer::render() {
   const float inverseFrameHeight = 1.0f / static_cast<float>(frameHeight_);
   const Vec3 rightStep = right * (width * inverseFrameWidth);
   const Vec3 downStep = up * (-height * inverseFrameHeight);
-  const float originDistance = rayOriginDistance(bounds, forward);
+  const float originDistance = rayOriginDistance(visibleBounds, forward);
   const Vec3 cornerOrigin =
     focus - forward * originDistance - right * (width * 0.5f) + up * (height * 0.5f);
 

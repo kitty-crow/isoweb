@@ -208,6 +208,10 @@ const WorldBounds& World::bounds() const {
   return visibleBounds_;
 }
 
+const WorldBounds& World::cameraBounds() const {
+  return activeLevel().bounds();
+}
+
 const WorldBounds& World::bounds(const std::string& levelId) const {
   return levelFor(levelId).bounds();
 }
