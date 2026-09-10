@@ -236,7 +236,7 @@ void World::setLowerLevelPreviewDepth(std::size_t depth) {
 }
 
 void World::setLowerPreviewResolutionScale(float scale) {
-  const float nextScale = std::max(0.0625f, std::min(0.5f, scale));
+  const float nextScale = std::max(0.0625f, std::min(1.0f, scale));
   if (std::fabs(nextScale - lowerPreviewResolutionScale_) > 1e-6f) ++lowDetailPreviewRevision_;
   lowerPreviewResolutionScale_ = nextScale;
 }
@@ -584,32 +584,10 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
     if (!renderPositionFor(*character, renderPosition)) continue;
 
     const std::size_t characterLevelIndex = levelIndex(character->location.levelId);
-    if (
+    const bool previewOverlayCharacter =
       character->location.liminalObjectId.empty() &&
       characterLevelIndex < activeLevelIndex_ &&
-      activeLevelIndex_ - characterLevelIndex <= lowerLevelPreviewDepth_
-    ) {
-      LowDetailPreviewCharacter preview;
-      preview.levelIndex = characterLevelIndex;
-      preview.position = character->location.position;
-      Vec3 forward = character->forward;
-      const float magnitudeSquared = forward.x * forward.x + forward.y * forward.y;
-      if (magnitudeSquared > 1e-12f) {
-        const float inverseMagnitude = 1.0f / std::sqrt(magnitudeSquared);
-        forward = {forward.x * inverseMagnitude, forward.y * inverseMagnitude, 0.0f};
-      } else {
-        forward = {0.0f, 1.0f, 0.0f};
-      }
-      preview.forward = forward;
-      preview.right = {forward.y, -forward.x, 0.0f};
-      preview.minimumX = character->hitBox.minimum.x;
-      preview.maximumX = character->hitBox.maximum.x;
-      preview.minimumY = character->hitBox.minimum.y;
-      preview.maximumY = character->hitBox.maximum.y;
-      preview.selected = characterSystem_ && characterSystem_->isSelected(character->id);
-      lowDetailPreviewCharacters_.push_back(preview);
-      continue;
-    }
+      activeLevelIndex_ - characterLevelIndex <= lowerLevelPreviewDepth_;
 
     RuntimeRenderEntry entry;
     entry.character = character;
@@ -635,6 +613,7 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
     entry.proxy = renderProxy(*character, renderPosition, levelId);
     entry.proxy.hitBox = character->effectiveHitBox();
     entry.selected = characterSystem_ && characterSystem_->isSelected(character->id);
+    entry.previewOverlay = previewOverlayCharacter;
 
     if (character->hasArtwork() && runtimeSpritePlaneValid_) {
       bool implicitMirror = false;
@@ -669,38 +648,9 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
     runtimeRenderEntries_.push_back(std::move(entry));
   }
 
-  // Track only data that can change the cheap lower-preview pixels. Moving
-  // Characters and flashing destinations deliberately advance this revision,
-  // keeping them on the immediate coarse path. When they stop changing, the
-  // progressive tile cache becomes stable and may refine asynchronously.
-  std::uint64_t previewSignature = 1469598103934665603ULL;
-  for (const LowDetailPreviewCharacter& preview : lowDetailPreviewCharacters_) {
-    hashPreviewValue(previewSignature, preview.levelIndex);
-    hashPreviewFloat(previewSignature, preview.position.x);
-    hashPreviewFloat(previewSignature, preview.position.y);
-    hashPreviewFloat(previewSignature, preview.position.z);
-    hashPreviewFloat(previewSignature, preview.forward.x);
-    hashPreviewFloat(previewSignature, preview.forward.y);
-    hashPreviewValue(previewSignature, preview.selected ? 1 : 0);
-  }
-  for (const LowDetailPreviewMarker& marker : lowDetailPreviewMarkers_) {
-    hashPreviewValue(previewSignature, marker.levelIndex);
-    hashPreviewFloat(previewSignature, marker.position.x);
-    hashPreviewFloat(previewSignature, marker.position.y);
-    hashPreviewFloat(previewSignature, marker.elapsedSeconds);
-  }
-  if (characterSystem_) {
-    const SelectionStyle style = characterSystem_->selectionStyle();
-    hashPreviewFloat(previewSignature, style.tint.x);
-    hashPreviewFloat(previewSignature, style.tint.y);
-    hashPreviewFloat(previewSignature, style.tint.z);
-    hashPreviewFloat(previewSignature, style.strength);
-  }
-  if (previewSignature != lowDetailPreviewSignature_) {
-    lowDetailPreviewSignature_ = previewSignature;
-    ++lowDetailPreviewRevision_;
-  }
-
+  // Lower-preview geometry is static. Characters and destination feedback are
+  // composited separately at full screen resolution, so their motion does not
+  // invalidate or restart progressive floor refinement.
   runtimeSampleScratch_.clear();
   if (runtimeSampleScratch_.capacity() < runtimeRenderEntries_.size()) {
     runtimeSampleScratch_.reserve(runtimeRenderEntries_.size());
@@ -872,40 +822,6 @@ bool World::sampleLowDetailLowerPreview(const Ray& ray, Vec3& colour) const {
     break;
   }
 
-  const SelectionStyle style = characterSystem_
-    ? characterSystem_->selectionStyle()
-    : SelectionStyle();
-
-  for (const LowDetailPreviewMarker& previewMarker : lowDetailPreviewMarkers_) {
-    if (previewMarker.levelIndex != visibleLevelIndex) continue;
-    const Vec3 delta = visibleLocalPoint - previewMarker.position;
-    const float localX = dot(delta, previewMarker.right);
-    const float localY = dot(delta, previewMarker.forward);
-    if (
-      localX < previewMarker.minimumX || localX > previewMarker.maximumX ||
-      localY < previewMarker.minimumY || localY > previewMarker.maximumY
-    ) continue;
-    const float pulse = 0.5f + 0.5f * std::sin(
-      previewMarker.elapsedSeconds * 6.28318530717958647692f * 1.75f
-    );
-    const float alpha = std::max(0.15f, std::min(0.58f, 0.18f + 0.40f * pulse));
-    colour = style.tint * alpha + colour * (1.0f - alpha);
-  }
-
-  for (const LowDetailPreviewCharacter& previewCharacter : lowDetailPreviewCharacters_) {
-    if (previewCharacter.levelIndex != visibleLevelIndex) continue;
-    const Vec3 delta = visibleLocalPoint - previewCharacter.position;
-    const float localX = dot(delta, previewCharacter.right);
-    const float localY = dot(delta, previewCharacter.forward);
-    if (
-      localX < previewCharacter.minimumX || localX > previewCharacter.maximumX ||
-      localY < previewCharacter.minimumY || localY > previewCharacter.maximumY
-    ) continue;
-    Vec3 characterColour(0.82f, 0.84f, 0.88f);
-    if (previewCharacter.selected) characterColour = applyTint(characterColour, style);
-    colour = characterColour;
-  }
-
   return true;
 }
 
@@ -1000,12 +916,67 @@ Vec3 World::sampleRuntimeEntities(
   if (!runtimeRenderCachePrepared_) prepareRenderFrame(ray.direction);
 
   bool destinationFound = false;
-  const Vec3 compositedEnvironment = compositeDestinationFeedback(
+  Vec3 compositedEnvironment = compositeDestinationFeedback(
     ray,
     environmentColour,
     environmentHitDistance,
     destinationFound
   );
+
+  std::size_t visiblePreviewLevel = levels_.size();
+  Vec3 visiblePreviewLocalPoint;
+  bool visiblePreviewResolved = false;
+  if (
+    environmentHitDistance > 1.0e20f &&
+    (!lowDetailPreviewMarkers_.empty() || !runtimeRenderEntries_.empty())
+  ) {
+    for (
+      std::size_t depth = 1;
+      depth <= lowerLevelPreviewDepth_ && depth <= activeLevelIndex_;
+      ++depth
+    ) {
+      const std::size_t index = activeLevelIndex_ - depth;
+      const RoomLayout* layout = levels_[index]->roomLayout();
+      if (!layout || layout->rooms.empty()) continue;
+      const Vec3 offset = levelOffsetInActiveView(index);
+      for (const Room& room : layout->rooms) {
+        const float planeZ = room.floorZ + offset.z;
+        if (std::fabs(ray.direction.z) < 1e-7f) continue;
+        const float t = (planeZ - ray.origin.z) / ray.direction.z;
+        if (t <= 0.001f) continue;
+        const Vec3 localPoint = ray.origin + ray.direction * t - offset;
+        if (!room.containsXY(localPoint.x, localPoint.y, 0.0015f)) continue;
+        visiblePreviewLevel = index;
+        visiblePreviewLocalPoint = localPoint;
+        visiblePreviewResolved = true;
+        break;
+      }
+      if (visiblePreviewResolved) break;
+    }
+  }
+
+  bool previewDestinationFound = false;
+  if (visiblePreviewResolved && !lowDetailPreviewMarkers_.empty()) {
+    const SelectionStyle style = characterSystem_
+      ? characterSystem_->selectionStyle()
+      : SelectionStyle();
+    for (const LowDetailPreviewMarker& marker : lowDetailPreviewMarkers_) {
+      if (marker.levelIndex != visiblePreviewLevel) continue;
+      const Vec3 delta = visiblePreviewLocalPoint - marker.position;
+      const float localX = dot(delta, marker.right);
+      const float localY = dot(delta, marker.forward);
+      if (
+        localX < marker.minimumX || localX > marker.maximumX ||
+        localY < marker.minimumY || localY > marker.maximumY
+      ) continue;
+      const float pulse = 0.5f + 0.5f * std::sin(
+        marker.elapsedSeconds * 6.28318530717958647692f * 1.75f
+      );
+      const float alpha = std::max(0.15f, std::min(0.58f, 0.18f + 0.40f * pulse));
+      compositedEnvironment = style.tint * alpha + compositedEnvironment * (1.0f - alpha);
+      previewDestinationFound = true;
+    }
+  }
 
   std::vector<RuntimeSample>& samples = runtimeSampleScratch_;
   samples.clear();
@@ -1013,6 +984,7 @@ Vec3 World::sampleRuntimeEntities(
   for (const RuntimeRenderEntry& entry : runtimeRenderEntries_) {
     const Character* character = entry.character;
     if (!character) continue;
+    if (entry.previewOverlay && (!visiblePreviewResolved || entry.levelIndex != visiblePreviewLevel)) continue;
 
     RuntimeSample sample;
 
@@ -1041,10 +1013,12 @@ Vec3 World::sampleRuntimeEntities(
             if (entry.selected && characterSystem_) {
               sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
             }
-            sample.colour = sample.colour * runtimeSpriteLightFactor(
-              entry.levelIndex,
-              sample.point - entry.viewOffset
-            );
+            if (!entry.previewOverlay) {
+              sample.colour = sample.colour * runtimeSpriteLightFactor(
+                entry.levelIndex,
+                sample.point - entry.viewOffset
+              );
+            }
             samples.push_back(sample);
           }
         }
@@ -1065,18 +1039,20 @@ Vec3 World::sampleRuntimeEntities(
     if (entry.selected && characterSystem_) {
       sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
     }
-    sample.colour = shadeRuntimeSurface(
-      entry.levelIndex,
-      sample.point - entry.viewOffset,
-      hit.worldNormal,
-      sample.colour
-    );
+    if (!entry.previewOverlay) {
+      sample.colour = shadeRuntimeSurface(
+        entry.levelIndex,
+        sample.point - entry.viewOffset,
+        hit.worldNormal,
+        sample.colour
+      );
+    }
     samples.push_back(sample);
   }
 
   if (samples.empty()) {
-    found = destinationFound;
-    return destinationFound ? compositedEnvironment : Vec3();
+    found = destinationFound || previewDestinationFound;
+    return found ? compositedEnvironment : Vec3();
   }
 
   if (samples.size() > 1) {

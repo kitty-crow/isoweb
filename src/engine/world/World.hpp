@@ -118,7 +118,8 @@ public:
     if (
       runtimeRenderCachePrepared_ &&
       runtimeRenderEntries_.empty() &&
-      destinationFeedbackMarkers_.empty()
+      destinationFeedbackMarkers_.empty() &&
+      lowDetailPreviewMarkers_.empty()
     ) {
       return environmentColour;
     }
@@ -266,6 +267,7 @@ private:
     std::size_t levelIndex = 0;
     Object proxy;
     bool selected = false;
+    bool previewOverlay = false;
 
     // Sprite state and geometry are fixed for one render pass. Cache them once
     // so supersample rays only perform the plane intersection and texel lookup.

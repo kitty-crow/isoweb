@@ -178,28 +178,42 @@ int main() {
     return previewWorld.sampleLowDetailLowerPreview(ray, colour);
   };
 
-  Vec3 lowerBody;
+  const Vec3 lowerBodyPoint{-12.0f, 0.0f, lowerPreviewZ};
+  const Ray lowerBodyRay{lowerBodyPoint - previewDirection * 24.0f, previewDirection};
+  Vec3 lowerBodyFloor;
   require(
-    cheapPreview({-12.0f, 0.0f, lowerPreviewZ}, lowerBody),
+    cheapPreview(lowerBodyPoint, lowerBodyFloor),
     "second lower preview floor was not available to the cheap sampler"
   );
+  const Vec3 lowerBodyRuntime = previewWorld.compositeRuntime(
+    lowerBodyRay,
+    lowerBodyFloor,
+    std::numeric_limits<float>::max()
+  );
   require(
-    colourDistance(lowerBody, {0.82f, 0.84f, 0.88f}) < 0.05f,
-    "Character on second lower preview level was not visible in the cheap preview"
+    colourDistance(lowerBodyFloor, lowerBodyRuntime) > 0.03f,
+    "Character on second lower preview level was not visible in the full-resolution preview overlay"
   );
 
-  Vec3 withMarker;
-  require(
-    cheapPreview({-11.0f, -2.0f, lowerPreviewZ}, withMarker),
-    "lower destination preview floor was not available"
+  const Vec3 markerPoint{-11.0f, -2.0f, lowerPreviewZ};
+  const Ray markerRay{markerPoint - previewDirection * 24.0f, previewDirection};
+  Vec3 markerFloor;
+  require(cheapPreview(markerPoint, markerFloor), "lower destination preview floor was not available");
+  const Vec3 withMarker = previewWorld.compositeRuntime(
+    markerRay,
+    markerFloor,
+    std::numeric_limits<float>::max()
   );
   lowerCharacter->moving = false;
   previewWorld.prepareRenderFrame(previewDirection);
-  Vec3 withoutMarker;
-  require(cheapPreview({-11.0f, -2.0f, lowerPreviewZ}, withoutMarker), "marker baseline preview missing");
+  const Vec3 withoutMarker = previewWorld.compositeRuntime(
+    markerRay,
+    markerFloor,
+    std::numeric_limits<float>::max()
+  );
   require(
     colourDistance(withMarker, withoutMarker) > 0.02f,
-    "destination feedback on second lower preview level was not visible in the cheap preview"
+    "destination feedback on second lower preview level was not visible in the full-resolution preview overlay"
   );
 
   std::cout << "Character destination acknowledgement and lower-preview runtime smoke test passed.\n";
