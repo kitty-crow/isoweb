@@ -8,7 +8,7 @@ const mimeTypes: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
+  '.json': 'application/json',
   '.webp': 'image/webp',
   '.wasm': 'application/wasm'
 };
@@ -59,6 +59,47 @@ try {
     undefined,
     { timeout: 45_000 }
   );
+
+  console.log('[joystick-browser] browser zoom gestures stay trapped in the game viewport');
+  const gesturePolicy = await page.evaluate(() => {
+    const viewport = document.getElementById('viewport') as HTMLElement | null;
+    const resetCamera = document.getElementById('reset-camera') as HTMLButtonElement | null;
+    const meta = document.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '';
+    if (!viewport || !resetCamera) return null;
+
+    const doubleClick = new MouseEvent('dblclick', { bubbles: true, cancelable: true });
+    const doubleClickAllowed = viewport.dispatchEvent(doubleClick);
+    const sceneTouchEnd = new Event('touchend', { bubbles: true, cancelable: true });
+    const sceneTouchEndAllowed = viewport.dispatchEvent(sceneTouchEnd);
+    const controlTouchEnd = new Event('touchend', { bubbles: true, cancelable: true });
+    const controlTouchEndAllowed = resetCamera.dispatchEvent(controlTouchEnd);
+
+    return {
+      meta,
+      viewportTouchAction: getComputedStyle(viewport).touchAction,
+      bodyTouchAction: getComputedStyle(document.body).touchAction,
+      controlTouchAction: getComputedStyle(resetCamera).touchAction,
+      doubleClickAllowed,
+      sceneTouchEndAllowed,
+      controlTouchEndAllowed
+    };
+  });
+  if (!gesturePolicy) throw new Error('Gesture policy elements are missing.');
+  if (!gesturePolicy.meta.includes('maximum-scale=1') || !gesturePolicy.meta.includes('user-scalable=no')) {
+    throw new Error(`Viewport zoom lock regressed: ${gesturePolicy.meta}`);
+  }
+  if (
+    gesturePolicy.viewportTouchAction !== 'none' ||
+    gesturePolicy.bodyTouchAction !== 'none' ||
+    gesturePolicy.controlTouchAction !== 'none'
+  ) {
+    throw new Error(`Native touch-action escaped the game: ${JSON.stringify(gesturePolicy)}`);
+  }
+  if (gesturePolicy.doubleClickAllowed) throw new Error('Viewport dblclick default was not cancelled.');
+  if (gesturePolicy.sceneTouchEndAllowed) throw new Error('Scene touchend default was not cancelled.');
+  if (!gesturePolicy.controlTouchEndAllowed) {
+    throw new Error('Single control touchend was unnecessarily cancelled, risking lost button clicks.');
+  }
 
   const layout = await page.evaluate(() => {
     const ids = [
@@ -130,6 +171,18 @@ try {
   await page.locator('#reset-camera').click();
   await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('pan X 0.00; Y 0.00'));
 
+  console.log('[joystick-browser] portrait pan centre disc reaches beyond the centre room');
+  await drag('#reset-camera', 0, 56, 3200);
+  const farPanStatus = await status();
+  const farPanMatch = farPanStatus.match(/pan X (-?\d+(?:\.\d+)?); Y (-?\d+(?:\.\d+)?)/);
+  if (!farPanMatch) throw new Error(`Could not read far pan status: ${farPanStatus}`);
+  const farPanDistance = Math.hypot(Number(farPanMatch[1]), Number(farPanMatch[2]));
+  if (farPanDistance <= 8.0) {
+    throw new Error(`Centre pan joystick still stopped around the middle room: ${farPanStatus}`);
+  }
+  await page.locator('#reset-camera').click();
+  await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('pan X 0.00; Y 0.00'));
+
   console.log('[joystick-browser] yaw centre disc');
   await drag('#reset-yaw', 32, 0);
   if ((await status()).includes('Camera 0 degrees')) throw new Error('Yaw joystick did not rotate the camera.');
@@ -156,7 +209,7 @@ try {
   );
 
   if (errors.length) throw new Error(errors.join('\n\n'));
-  console.log('Centre joystick browser smoke passed: original top layout, tap resets, pan/yaw/zoom/Z drags, and pan cache reuse.');
+  console.log('Centre joystick browser smoke passed: page gestures locked, full portrait pan range, tap resets, pan/yaw/zoom/Z drags, and pan cache reuse.');
 } finally {
   await browser.close();
   server.stop(true);

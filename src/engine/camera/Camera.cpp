@@ -65,7 +65,13 @@ Vec3 clampPanToBounds(
   float minimumUp = 1e9f;
   float maximumUp = -1e9f;
   for (const Vec3& point : bounds.points) {
-    const Vec3 relative = point - bounds.focus;
+    // Panning is about traversing the floor plan. Height must not shorten or
+    // enlarge the legal XY camera range, so project the planar footprint only.
+    const Vec3 relative(
+      point.x - bounds.focus.x,
+      point.y - bounds.focus.y,
+      0.0f
+    );
     const float projectedRight = dot(relative, right);
     const float projectedUp = dot(relative, up);
     minimumRight = std::min(minimumRight, projectedRight);
@@ -74,22 +80,15 @@ Vec3 clampPanToBounds(
     maximumUp = std::max(maximumUp, projectedUp);
   }
 
-  const float halfWidth = viewHeight * aspect * 0.5f;
-  const float halfHeight = viewHeight * 0.5f;
-  const auto centreRange = [](float minimum, float maximum, float halfViewport) {
-    const float span = maximum - minimum;
-    if (span > halfViewport * 2.0f) {
-      return std::array<float, 2>{{minimum + halfViewport, maximum - halfViewport}};
-    }
-    return std::array<float, 2>{{maximum - halfViewport, minimum + halfViewport}};
-  };
-
-  const std::array<float, 2> rightRange = centreRange(minimumRight, maximumRight, halfWidth);
-  const std::array<float, 2> upRange = centreRange(minimumUp, maximumUp, halfHeight);
+  // The old bounds-aware clamp still inset these extrema by half a viewport.
+  // On a portrait phone that made a five-room level stop around the centre
+  // room. Let the camera focus itself reach the authored level edge instead.
+  // This keeps the whole active floor reachable at every aspect ratio while
+  // still preventing unbounded panning into empty space.
   const float candidateRight = dot(candidate, right);
   const float candidateUp = dot(candidate, up);
-  const float clampedRight = clampPan(candidateRight, rightRange[0], rightRange[1]);
-  const float clampedUp = clampPan(candidateUp, upRange[0], upRange[1]);
+  const float clampedRight = clampPan(candidateRight, minimumRight, maximumRight);
+  const float clampedUp = clampPan(candidateUp, minimumUp, maximumUp);
 
   return right * clampedRight + down * (clampedUp / verticalProjection);
 }
