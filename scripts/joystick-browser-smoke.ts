@@ -8,7 +8,7 @@ const mimeTypes: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
+  '.json': 'application/json',
   '.webp': 'image/webp',
   '.wasm': 'application/wasm'
 };
@@ -171,6 +171,18 @@ try {
   await page.locator('#reset-camera').click();
   await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('pan X 0.00; Y 0.00'));
 
+  console.log('[joystick-browser] portrait pan centre disc reaches beyond the centre room');
+  await drag('#reset-camera', 0, 56, 3200);
+  const farPanStatus = await status();
+  const farPanMatch = farPanStatus.match(/pan X (-?\d+(?:\.\d+)?); Y (-?\d+(?:\.\d+)?)/);
+  if (!farPanMatch) throw new Error(`Could not read far pan status: ${farPanStatus}`);
+  const farPanDistance = Math.hypot(Number(farPanMatch[1]), Number(farPanMatch[2]));
+  if (farPanDistance <= 8.0) {
+    throw new Error(`Centre pan joystick still stopped around the middle room: ${farPanStatus}`);
+  }
+  await page.locator('#reset-camera').click();
+  await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('pan X 0.00; Y 0.00'));
+
   console.log('[joystick-browser] yaw centre disc');
   await drag('#reset-yaw', 32, 0);
   if ((await status()).includes('Camera 0 degrees')) throw new Error('Yaw joystick did not rotate the camera.');
@@ -197,7 +209,7 @@ try {
   );
 
   if (errors.length) throw new Error(errors.join('\n\n'));
-  console.log('Centre joystick browser smoke passed: original top layout, tap resets, pan/yaw/zoom/Z drags, and pan cache reuse.');
+  console.log('Centre joystick browser smoke passed: page gestures locked, full portrait pan range, tap resets, pan/yaw/zoom/Z drags, and pan cache reuse.');
 } finally {
   await browser.close();
   server.stop(true);
