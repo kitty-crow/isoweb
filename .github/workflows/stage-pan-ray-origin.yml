@@ -1,0 +1,27 @@
+name: Stage pan ray origin
+
+on:
+  push:
+    branches: [fix/active-level-pan-bounds]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/active-level-pan-bounds
+      - name: Apply panned ray origin safety
+        run: python3 scripts/apply-pan-ray-origin-fix.py
+      - name: Commit renderer safety change
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/engine/render/Renderer.cpp
+          git commit -m 'Keep ray origins safe across large pans'
+          git push
