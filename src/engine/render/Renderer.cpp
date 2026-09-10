@@ -17,7 +17,7 @@ constexpr float BASE_RAY_ORIGIN_DISTANCE = 9.0f;
 constexpr float RAY_ORIGIN_MARGIN = 4.0f;
 constexpr int PREVIEW_TILE_SIZE = 16;
 constexpr float COARSE_PREVIEW_SCALE = 0.25f;
-constexpr std::size_t MAX_PREVIEW_PIXELS = 360000;
+constexpr std::size_t MAX_PREVIEW_PIXELS = 1600000;
 constexpr std::size_t MAX_COARSE_PREVIEW_PIXELS = 90000;
 constexpr unsigned int PREVIEW_IDLE_DELAY_FRAMES = 6;
 
@@ -424,7 +424,7 @@ void Renderer::render() {
   previewCoarseSampleCount_ = 0;
   previewDemandedTexelCount_ = 0;
   if (world_.supportsLowDetailLowerPreview()) {
-    float previewScale = std::max(0.0625f, std::min(0.5f, world_.lowerPreviewResolutionScale()));
+    float previewScale = std::max(0.0625f, std::min(1.0f, world_.lowerPreviewResolutionScale()));
     const double requestedPreviewPixels =
       static_cast<double>(frameWidth_) * static_cast<double>(frameHeight_) *
       static_cast<double>(previewScale) * static_cast<double>(previewScale);

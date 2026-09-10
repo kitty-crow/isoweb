@@ -69,7 +69,7 @@ try {
 
   const { initial, idleGate } = initialAndIdle;
   if (!(initial.potential > 0)) throw new Error(`No lower-preview buffer on upper level: ${JSON.stringify(initial)}`);
-  if (!(initial.framePixels > 0 && initial.potential >= initial.framePixels * 0.20)) {
+  if (!(initial.framePixels > 0 && initial.potential >= initial.framePixels * 0.95)) {
     throw new Error(`Settled preview target is still too heavily downsampled: ${JSON.stringify(initial)}`);
   }
   if (!(initial.demanded > 0 && initial.demanded < initial.potential)) {
