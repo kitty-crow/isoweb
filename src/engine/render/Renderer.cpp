@@ -6,6 +6,10 @@
 #include <cstring>
 #include <limits>
 
+#ifdef ISOWEB_ENABLE_RENDER_THREADS
+#include <thread>
+#endif
+
 namespace isoweb {
 namespace engine {
 namespace {
@@ -20,6 +24,9 @@ constexpr float COARSE_PREVIEW_SCALE = 0.25f;
 constexpr std::size_t MAX_PREVIEW_PIXELS = 1600000;
 constexpr std::size_t MAX_COARSE_PREVIEW_PIXELS = 90000;
 constexpr unsigned int PREVIEW_IDLE_DELAY_FRAMES = 6;
+#ifdef ISOWEB_ENABLE_RENDER_THREADS
+constexpr int MAX_RENDER_THREADS = 6;
+#endif
 
 float rayOriginDistance(
   const WorldBounds& bounds,
@@ -553,6 +560,74 @@ void Renderer::render() {
     rightStep * 0.75f + downStep * 0.75f
   };
 
+  // A full static-cache rebuild is the expensive part of the software renderer:
+  // every pixel traces four independent environment samples. Populate that
+  // read-only scene pass in parallel, then keep preview/runtime compositing on
+  // the calling thread where its demand counters and dynamic state remain
+  // deliberately serial and race-free.
+  lastRenderThreadCount_ = 1;
+  lastRenderHelperRows_ = 0;
+  if (rebuildStaticCache) {
+    const auto sampleStaticRows = [&](int yBegin, int yEnd) {
+      Vec3 staticRowOrigin = cornerOrigin + downStep * static_cast<float>(yBegin);
+      for (int y = yBegin; y < yEnd; ++y) {
+        Vec3 pixelOrigin = staticRowOrigin;
+        const float backgroundY[2] = {
+          (static_cast<float>(y) + 0.25f) * inverseFrameHeight,
+          (static_cast<float>(y) + 0.75f) * inverseFrameHeight
+        };
+        std::size_t pixelIndex =
+          static_cast<std::size_t>(y) * static_cast<std::size_t>(frameWidth_);
+
+        for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
+          for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+            StaticSample& sample = staticSamples_[pixelIndex * 4 + sampleIndex];
+            const Ray ray{pixelOrigin + sampleOffsets[sampleIndex], forward};
+            sample.colour = world_.sampleEnvironment(
+              ray,
+              backgroundY[sampleIndex >> 1],
+              sample.environmentDistance
+            );
+          }
+          pixelOrigin = pixelOrigin + rightStep;
+        }
+        staticRowOrigin = staticRowOrigin + downStep;
+      }
+    };
+
+#ifdef ISOWEB_ENABLE_RENDER_THREADS
+    unsigned int reportedThreads = std::thread::hardware_concurrency();
+    int renderThreads = static_cast<int>(reportedThreads == 0 ? 2 : reportedThreads);
+    renderThreads = std::max(2, std::min(MAX_RENDER_THREADS, renderThreads));
+    renderThreads = std::min(renderThreads, frameHeight_);
+    lastRenderThreadCount_ = renderThreads;
+
+    std::vector<int> completedRows(static_cast<std::size_t>(renderThreads), 0);
+    std::vector<std::thread> helpers;
+    helpers.reserve(static_cast<std::size_t>(renderThreads - 1));
+
+    for (int worker = 1; worker < renderThreads; ++worker) {
+      const int yBegin = frameHeight_ * worker / renderThreads;
+      const int yEnd = frameHeight_ * (worker + 1) / renderThreads;
+      helpers.emplace_back([&, worker, yBegin, yEnd]() {
+        sampleStaticRows(yBegin, yEnd);
+        completedRows[static_cast<std::size_t>(worker)] = yEnd - yBegin;
+      });
+    }
+
+    const int mainEnd = frameHeight_ / renderThreads;
+    sampleStaticRows(0, mainEnd);
+    completedRows[0] = mainEnd;
+
+    for (std::thread& helper : helpers) helper.join();
+    for (int worker = 1; worker < renderThreads; ++worker) {
+      lastRenderHelperRows_ += completedRows[static_cast<std::size_t>(worker)];
+    }
+#else
+    sampleStaticRows(0, frameHeight_);
+#endif
+  }
+
   Vec3 rowOrigin = cornerOrigin;
   std::size_t pixelIndex = 0;
   for (int y = 0; y < frameHeight_; ++y) {
@@ -601,7 +676,7 @@ void Renderer::render() {
         float environmentDistance = std::numeric_limits<float>::max();
         if (useStaticCache) {
           StaticSample& staticSample = staticSamples_[pixelIndex * 4 + sampleIndex];
-          if (rebuildStaticCache || staticSample.environmentDistance < 0.0f) {
+          if (staticSample.environmentDistance < 0.0f) {
             staticSample.colour = world_.sampleEnvironment(
               ray,
               sampleBackgroundY,
