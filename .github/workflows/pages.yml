@@ -112,6 +112,18 @@ jobs:
       - name: Prove pthread rendering in Chromium
         run: bun run test:pthreads
 
+      - name: Package threaded Pages test route
+        run: |
+          rm -rf site/threaded
+          mkdir -p site/threaded
+          cp -R site-threaded/. site/threaded/
+          cp web/threaded-index.html site/threaded/index.html
+          cp web/threaded-loader.js site/threaded/threaded-loader.js
+          cp web/coi-serviceworker.js site/threaded/coi-serviceworker.js
+
+      - name: Prove threaded Pages test route
+        run: bun run test:threaded-pages
+
       - name: Configure Pages
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
