@@ -117,9 +117,9 @@ jobs:
           rm -rf site/threaded
           mkdir -p site/threaded
           cp -R site-threaded/. site/threaded/
-          cp web/threaded-index.html site/threaded/index.html
-          cp web/threaded-loader.js site/threaded/threaded-loader.js
-          cp web/coi-serviceworker.js site/threaded/coi-serviceworker.js
+          cp scripts/threaded-pages/index.html site/threaded/index.html
+          cp scripts/threaded-pages/threaded-loader.js site/threaded/threaded-loader.js
+          cp scripts/threaded-pages/coi-serviceworker.js site/threaded/coi-serviceworker.js
 
       - name: Prove threaded Pages test route
         run: bun run test:threaded-pages
