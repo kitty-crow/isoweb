@@ -92,8 +92,14 @@ const single = await browser.newPage({ viewport: { width: 960, height: 720 } });
 const threaded = await browser.newPage({ viewport: { width: 960, height: 720 } });
 
 const errors: string[] = [];
+const threadedConsole: string[] = [];
+const threadedRequests: string[] = [];
 single.on('pageerror', (error: Error) => errors.push(`single: ${error.stack || error.message}`));
 threaded.on('pageerror', (error: Error) => errors.push(`threaded: ${error.stack || error.message}`));
+threaded.on('console', (message: any) => threadedConsole.push(`${message.type()}: ${message.text()}`));
+threaded.on('requestfailed', (request: any) => {
+  threadedRequests.push(`${request.url()}: ${request.failure()?.errorText ?? 'failed'}`);
+});
 
 try {
   console.log('[pthread-browser] booting single-thread reference');
@@ -106,11 +112,29 @@ try {
 
   console.log('[pthread-browser] booting cross-origin-isolated pthread build');
   await threaded.goto(`http://127.0.0.1:${threadedServer.port}/`, { waitUntil: 'domcontentloaded' });
-  await threaded.waitForFunction(
-    () => document.documentElement.classList.contains('wasm-ready'),
-    undefined,
-    { timeout: 45_000 }
-  );
+
+  const preReady = await threaded.evaluate(() => ({
+    isolated: crossOriginIsolated,
+    sharedArrayBuffer: typeof SharedArrayBuffer === 'function',
+    hardwareConcurrency: navigator.hardwareConcurrency,
+    moduleType: typeof (globalThis as any).Module,
+    ready: document.documentElement.classList.contains('wasm-ready')
+  }));
+  console.log(`[pthread-browser] pre-ready ${JSON.stringify(preReady)}`);
+
+  try {
+    await threaded.waitForFunction(
+      () => document.documentElement.classList.contains('wasm-ready'),
+      undefined,
+      { timeout: 60_000 }
+    );
+  } catch (error) {
+    throw new Error(
+      `Threaded WASM boot timed out. preReady=${JSON.stringify(preReady)} ` +
+      `errors=${JSON.stringify(errors)} requests=${JSON.stringify(threadedRequests)} ` +
+      `console=${JSON.stringify(threadedConsole.slice(-30))}\n${String(error)}`
+    );
+  }
 
   const isolation = await threaded.evaluate(() => ({
     isolated: crossOriginIsolated,
