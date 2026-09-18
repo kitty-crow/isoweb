@@ -84,7 +84,13 @@ try {
       settlePreview();
 
       const beforePanBuildCount = module._isoweb_static_cache_build_count();
-      module._isoweb_pan(96, 72);
+      // Camera::pan takes world units but commits them on the renderer pixel
+      // grid. Use ordinary joystick-sized deltas across several frames so the
+      // renderer exercises in-place static-cache shifting rather than hitting
+      // the pan clamp and deliberately falling back to a full rebuild.
+      for (let step = 0; step < 8; ++step) {
+        module._isoweb_pan(0.16, 0.10);
+      }
       settlePreview();
       const shiftedBuildCount = module._isoweb_static_cache_build_count();
       const shifted = new Uint8ClampedArray(
