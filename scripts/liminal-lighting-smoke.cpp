@@ -34,6 +34,21 @@ int main() {
   if (stairs.forwardTraversal.empty() || stairs.reverseTraversal.empty()) return 3;
   if (!stairs.hasViewOffset) return 4;
 
+  // Floor landings are ordinary level space, not the connector interior.
+  // A Character that finishes next to the stairs must not remain "between
+  // levels" merely because it is close to the authored connector endpoint.
+  if (!world.liminalObjectAt(stairs.fromLevelId, stairs.fromPosition).empty()) return 36;
+  if (!world.liminalObjectAt(stairs.toLevelId, stairs.toPosition).empty()) return 37;
+  const std::size_t interiorIndex = stairs.forwardTraversal.size() / 2;
+  if (
+    world.liminalObjectAt(
+      stairs.fromLevelId,
+      stairs.forwardTraversal[interiorIndex]
+    ) != stairs.id
+  ) {
+    return 38;
+  }
+
   const std::size_t sampleIndex = stairs.forwardTraversal.size() / 2;
   EntityLocation liminalLocation;
   liminalLocation.levelId = stairs.fromLevelId;
@@ -138,6 +153,25 @@ int main() {
   if (!runner->location.liminalObjectId.empty()) return 24;
   if (!world.renderPositionFor(*runner, renderPosition)) return 25;
   if (world.residentLevelCount() != 1 || !world.isLevelResident("lower")) return 35;
+
+  // Finishing exactly on the middle landing must settle as an ordinary middle
+  // level Character. Before this regression, proximity-based membership left
+  // it liminal and it remained visible from lower as though still on the stair.
+  EntityLocation landingDestination = runner->location;
+  landingDestination.levelId = stairs.toLevelId;
+  landingDestination.position = stairs.toPosition;
+  if (!characters.command(*runner, landingDestination)) return 39;
+  for (int tick = 0; tick < 1600 && characters.needsTick(); ++tick) {
+    characters.tick(0.05f, camera);
+  }
+  if (runner->moving || runner->movement.hasDestination) return 40;
+  if (runner->location.levelId != stairs.toLevelId) return 41;
+  if (!runner->location.liminalObjectId.empty()) return 42;
+  if (distance(runner->location.position, stairs.toPosition) > 0.002f) return 43;
+
+  // Keep lower active. A settled middle-level Character must no longer be
+  // projected back into the lower endpoint after leaving the connector.
+  if (world.renderPositionFor(*runner, renderPosition)) return 44;
 
   std::cout << "Liminal-space, preview residency, and runtime-lighting smoke test passed.\n";
   return 0;
