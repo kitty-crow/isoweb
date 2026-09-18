@@ -36,6 +36,8 @@ export interface IsowebModule {
   _isoweb_active_level_index(): number;
   _isoweb_default_level_index(): number;
   _isoweb_static_cache_build_count(): number;
+  _isoweb_last_render_thread_count(): number;
+  _isoweb_last_render_helper_rows(): number;
   _isoweb_preview_coarse_sample_count(): number;
   _isoweb_preview_refined_sample_count(): number;
   _isoweb_preview_demanded_texel_count(): number;
