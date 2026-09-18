@@ -23,6 +23,7 @@ export function installPresenter(): void {
   let framePointer = -1;
   let frameWidth = 0;
   let frameHeight = 0;
+  let frameUsesSharedMemory = false;
   let lastControlMask = -1;
   let lastActiveLevel = -1;
   let levelCount = -1;
@@ -58,20 +59,40 @@ export function installPresenter(): void {
     // memory. ImageData can reference that memory directly, eliminating a
     // width*height*4 JavaScript copy and allocation on every frame. Rebuild
     // only when resize/reallocation or ALLOW_MEMORY_GROWTH changes the buffer.
+    const byteLength = width * height * 4;
+    const usesSharedMemory =
+      typeof SharedArrayBuffer === 'function' &&
+      heap.buffer instanceof SharedArrayBuffer;
     if (
       !frameImage ||
       frameBuffer !== heap.buffer ||
       framePointer !== pointer ||
       frameWidth !== width ||
-      frameHeight !== height
+      frameHeight !== height ||
+      frameUsesSharedMemory !== usesSharedMemory
     ) {
-      const byteLength = width * height * 4;
-      const view = new Uint8ClampedArray(heap.buffer, heap.byteOffset + pointer, byteLength);
-      frameImage = new ImageData(view, width, height);
+      if (usesSharedMemory) {
+        // ImageData deliberately rejects SharedArrayBuffer-backed typed arrays.
+        // Keep one ordinary browser-owned ImageData and copy the completed
+        // shared WASM framebuffer into it after the render threads have joined.
+        frameImage = context.createImageData(width, height);
+      } else {
+        const view = new Uint8ClampedArray(heap.buffer, heap.byteOffset + pointer, byteLength);
+        frameImage = new ImageData(view, width, height);
+      }
       frameBuffer = heap.buffer;
       framePointer = pointer;
       frameWidth = width;
       frameHeight = height;
+      frameUsesSharedMemory = usesSharedMemory;
+    }
+    if (usesSharedMemory) {
+      const sharedView = new Uint8ClampedArray(
+        heap.buffer,
+        heap.byteOffset + pointer,
+        byteLength
+      );
+      frameImage.data.set(sharedView);
     }
     context.putImageData(frameImage, 0, 0);
 
