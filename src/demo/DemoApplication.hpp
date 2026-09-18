@@ -21,6 +21,7 @@ public:
   DemoApplication();
 
   void render();
+  void setRenderThreadLimit(int limit) { renderer_.setRenderThreadLimit(limit); }
   bool refinePreview(std::size_t maxTiles);
   bool previewNeedsRefinement() const { return renderer_.previewNeedsRefinement(); }
   void tick(float deltaSeconds);
