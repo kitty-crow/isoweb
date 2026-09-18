@@ -31,6 +31,8 @@ public:
   float wholeZoomScale() const { return frameWholeZoomScale_; }
   std::size_t staticCacheBuildCount() const { return staticCacheBuildCount_; }
   std::size_t staticCacheShiftCount() const { return staticCacheShiftCount_; }
+  int lastRenderThreadCount() const { return lastRenderThreadCount_; }
+  int lastRenderHelperRows() const { return lastRenderHelperRows_; }
   std::size_t previewCoarseSampleCount() const { return previewCoarseSampleCount_; }
   std::size_t previewRefinedSampleCount() const { return previewRefinedSampleCount_; }
   std::size_t previewDemandedTexelCount() const { return previewDemandedTexelCount_; }
@@ -130,6 +132,8 @@ private:
   bool staticCacheValid_ = false;
   std::size_t staticCacheBuildCount_ = 0;
   std::size_t staticCacheShiftCount_ = 0;
+  int lastRenderThreadCount_ = 1;
+  int lastRenderHelperRows_ = 0;
 
   CameraControlState frameCameraState_;
   bool frameCanPan_ = false;
