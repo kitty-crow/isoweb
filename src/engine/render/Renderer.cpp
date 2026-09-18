@@ -572,7 +572,15 @@ void Renderer::render() {
     lastRenderThreadCount_ = 1;
     lastRenderHelperRows_ = 0;
     const auto sampleStaticRows = [&](int yBegin, int yEnd) {
-      Vec3 staticRowOrigin = cornerOrigin + downStep * static_cast<float>(yBegin);
+      // Preserve the exact floating-point path of the original serial renderer.
+      // Multiplying downStep by yBegin is mathematically equivalent to repeated
+      // addition, but it rounds differently enough to flip rays lying exactly
+      // on geometry boundaries. Replaying the cheap row-origin additions keeps
+      // every worker bit-identical to the serial reference.
+      Vec3 staticRowOrigin = cornerOrigin;
+      for (int row = 0; row < yBegin; ++row) {
+        staticRowOrigin = staticRowOrigin + downStep;
+      }
       for (int y = yBegin; y < yEnd; ++y) {
         Vec3 pixelOrigin = staticRowOrigin;
         const float backgroundY[2] = {
