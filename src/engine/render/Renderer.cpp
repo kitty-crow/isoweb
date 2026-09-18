@@ -225,7 +225,25 @@ bool Renderer::shiftStaticCacheForPan(
     for (int x = destinationX1; x < frameWidth_; ++x) invalidatePixel(x, y);
   }
 
-  const float forwardShift = dot(panDelta, forward);
+  // The cached distance is measured from the ray origin plane, not from the
+  // camera focus. rayOriginDistance() deliberately moves that plane as the
+  // camera pans so it always remains safely outside the visible world. The
+  // original cache-shift path adjusted depth by focus motion alone, which
+  // leaves stale environment distances whenever the origin plane itself moves.
+  // Static colour still looks correct, but dynamic Characters can then win the
+  // depth test against a cube/sphere that is actually in front of them.
+  const Vec3 previousFocus =
+    bounds.focus + Vec3(staticCacheKey_.panX, staticCacheKey_.panY, 0.0f);
+  const Vec3 nextFocus =
+    bounds.focus + Vec3(key.panX, key.panY, 0.0f);
+  const WorldBounds& visibleBounds = world_.bounds();
+  const float previousOriginDistance =
+    rayOriginDistance(visibleBounds, forward, previousFocus);
+  const float nextOriginDistance =
+    rayOriginDistance(visibleBounds, forward, nextFocus);
+  const float rayOriginForwardShift =
+    dot(panDelta, forward) - (nextOriginDistance - previousOriginDistance);
+
   for (int y = destinationY0; y < destinationY1; ++y) {
     for (int x = destinationX0; x < destinationX1; ++x) {
       StaticSample* samples = staticSamples_.data() +
@@ -234,7 +252,10 @@ bool Renderer::shiftStaticCacheForPan(
         StaticSample& sample = samples[sampleIndex];
         if (sample.environmentDistance < 0.0f) continue;
         if (sample.environmentDistance < NO_HIT_DISTANCE) {
-          sample.environmentDistance = std::max(0.001f, sample.environmentDistance - forwardShift);
+          sample.environmentDistance = std::max(
+            0.001f,
+            sample.environmentDistance - rayOriginForwardShift
+          );
         } else if (sourceShiftY != 0) {
           sample.colour = panBackgroundRows_[
             static_cast<std::size_t>(y) * 2 + (sampleIndex >> 1)
