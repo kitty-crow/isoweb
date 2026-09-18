@@ -103,6 +103,15 @@ jobs:
       - name: Audit mobile responsiveness
         run: bun run audit:mobile
 
+      - name: Prepare threaded browser test site
+        run: cp -R site site-threaded
+
+      - name: Build pthread WebAssembly renderer
+        run: ISOWEB_PTHREADS=1 ISOWEB_OUTPUT_ROOT=site-threaded bun run build:wasm
+
+      - name: Prove pthread rendering in Chromium
+        run: bun run test:pthreads
+
       - name: Configure Pages
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
