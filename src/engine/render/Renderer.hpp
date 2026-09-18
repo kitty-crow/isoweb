@@ -18,6 +18,7 @@ public:
 
   void resize(int width, int height);
   void render();
+  void setRenderThreadLimit(int limit);
   bool refinePreview(std::size_t maxTiles);
   bool previewNeedsRefinement() const;
 
@@ -134,6 +135,7 @@ private:
   std::size_t staticCacheShiftCount_ = 0;
   int lastRenderThreadCount_ = 1;
   int lastRenderHelperRows_ = 0;
+  int renderThreadLimit_ = 6;
 
   CameraControlState frameCameraState_;
   bool frameCanPan_ = false;
