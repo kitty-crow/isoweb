@@ -24,6 +24,7 @@
     "test:progressive-preview": "bun scripts/progressive-preview-smoke.ts",
     "test:joystick-browser": "bun scripts/joystick-browser-smoke.ts",
     "audit:mobile": "bun vendor/pages/src/cli.ts audit-mobile site",
-    "test:pthreads": "bun scripts/pthread-browser-smoke.ts"
+    "test:pthreads": "bun scripts/pthread-browser-smoke.ts",
+    "test:threaded-pages": "bun scripts/threaded-pages-smoke.ts"
   }
 }
