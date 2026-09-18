@@ -38,6 +38,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_render() {
   application().render();
 }
 
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_set_render_thread_limit(int limit) {
+  application().setRenderThreadLimit(limit);
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_tick(float deltaSeconds) {
   application().tick(deltaSeconds);
 }
