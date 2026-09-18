@@ -54,6 +54,7 @@ async function deterministicFrame(page: any): Promise<FrameState> {
     const module = (globalThis as any).Module;
     module._isoweb_clear_entities();
     module._isoweb_reset_level();
+    while (module._isoweb_active_level_index() > 0) module._isoweb_level_down();
     module._isoweb_reset_yaw();
     module._isoweb_reset_zoom();
     module._isoweb_reset_camera();
