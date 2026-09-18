@@ -11,6 +11,7 @@ export interface IsowebModule {
   _free(pointer: number): void;
 
   _isoweb_render(): void;
+  _isoweb_set_render_thread_limit(limit: number): void;
   _isoweb_tick(deltaSeconds: number): void;
   _isoweb_needs_tick(): number;
   _isoweb_preview_needs_refinement(): number;
