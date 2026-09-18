@@ -48,6 +48,9 @@ jobs:
       - name: Test unified world geometry
         run: bun run test:geometry
 
+      - name: Test demo solid collision
+        run: bun run test:demo-solids
+
       - name: Test three-level Character routing
         run: bun run test:multilevel-routing
 
