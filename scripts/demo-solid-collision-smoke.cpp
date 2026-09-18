@@ -30,6 +30,68 @@ void require(bool condition, const char* message) {
   std::exit(1);
 }
 
+float dot2(const Vec3& a, const Vec3& b) {
+  return a.x * b.x + a.y * b.y;
+}
+
+void characterBasis(const Character& character, Vec3& forward, Vec3& right) {
+  const float magnitude = std::sqrt(
+    character.forward.x * character.forward.x +
+    character.forward.y * character.forward.y
+  );
+  forward = magnitude > 1e-6f
+    ? Vec3(character.forward.x / magnitude, character.forward.y / magnitude, 0.0f)
+    : Vec3(0.0f, 1.0f, 0.0f);
+  right = {forward.y, -forward.x, 0.0f};
+}
+
+bool independentlyOverlapsCube(const Character& character) {
+  const Vec3 cubeCentre(-1.05f, 0.65f, 0.0f);
+  const float cubeHalf = 0.80f;
+  const float charHalfX = 0.28f;
+  const float charHalfY = 0.20f;
+
+  Vec3 forward;
+  Vec3 right;
+  characterBasis(character, forward, right);
+  const Vec3 delta = character.location.position - cubeCentre;
+  const Vec3 axes[4] = {
+    {1.0f, 0.0f, 0.0f},
+    {0.0f, 1.0f, 0.0f},
+    right,
+    forward
+  };
+
+  for (const Vec3& axis : axes) {
+    const float centreDistance = std::fabs(dot2(delta, axis));
+    const float cubeRadius = cubeHalf * (std::fabs(axis.x) + std::fabs(axis.y));
+    const float characterRadius =
+      charHalfX * std::fabs(dot2(right, axis)) +
+      charHalfY * std::fabs(dot2(forward, axis));
+    if (centreDistance >= cubeRadius + characterRadius - 1e-4f) return false;
+  }
+  return true;
+}
+
+bool independentlyOverlapsSphere(const Character& character) {
+  const Vec3 sphereCentre(1.05f, -0.25f, 0.0f);
+  const float radius = 0.90f;
+  const float charHalfX = 0.28f;
+  const float charHalfY = 0.20f;
+
+  Vec3 forward;
+  Vec3 right;
+  characterBasis(character, forward, right);
+  const Vec3 delta = sphereCentre - character.location.position;
+  const float localX = dot2(delta, right);
+  const float localY = dot2(delta, forward);
+  const float closestX = std::max(-charHalfX, std::min(charHalfX, localX));
+  const float closestY = std::max(-charHalfY, std::min(charHalfY, localY));
+  const float dx = localX - closestX;
+  const float dy = localY - closestY;
+  return dx * dx + dy * dy < radius * radius - 1e-4f;
+}
+
 void runCubeCrossing() {
   isoweb::demo::DemoWorld world;
   CharacterSystem characters(world);
@@ -44,11 +106,7 @@ void runCubeCrossing() {
     characters.tick(0.05f, camera);
     require(!world.collidesWith(*runner, runner), "runtime character overlaps a solid while routing around cube");
 
-    const Vec3& p = runner->location.position;
-    const bool centreInsideCube =
-      p.x > -1.85f + 0.01f && p.x < -0.25f - 0.01f &&
-      p.y > -0.15f + 0.01f && p.y < 1.45f - 0.01f;
-    require(!centreInsideCube, "character centre entered blue cube footprint");
+    require(!independentlyOverlapsCube(*runner), "character footprint penetrated blue cube");
   }
 
   require(!runner->moving, "cube crossing never settled");
@@ -69,10 +127,7 @@ void runSphereCrossing() {
     characters.tick(0.05f, camera);
     require(!world.collidesWith(*runner, runner), "runtime character overlaps a solid while routing around sphere");
 
-    const float dx = runner->location.position.x - 1.05f;
-    const float dy = runner->location.position.y + 0.25f;
-    const float centreDistance = std::sqrt(dx * dx + dy * dy);
-    require(centreDistance >= 0.89f, "character centre entered orange sphere footprint");
+    require(!independentlyOverlapsSphere(*runner), "character footprint penetrated orange sphere");
   }
 
   require(!runner->moving, "sphere crossing never settled");
