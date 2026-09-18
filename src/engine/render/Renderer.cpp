@@ -565,9 +565,9 @@ void Renderer::render() {
   // read-only scene pass in parallel, then keep preview/runtime compositing on
   // the calling thread where its demand counters and dynamic state remain
   // deliberately serial and race-free.
-  lastRenderThreadCount_ = 1;
-  lastRenderHelperRows_ = 0;
   if (rebuildStaticCache) {
+    lastRenderThreadCount_ = 1;
+    lastRenderHelperRows_ = 0;
     const auto sampleStaticRows = [&](int yBegin, int yEnd) {
       Vec3 staticRowOrigin = cornerOrigin + downStep * static_cast<float>(yBegin);
       for (int y = yBegin; y < yEnd; ++y) {
