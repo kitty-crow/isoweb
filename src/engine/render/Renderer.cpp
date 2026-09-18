@@ -24,9 +24,7 @@ constexpr float COARSE_PREVIEW_SCALE = 0.25f;
 constexpr std::size_t MAX_PREVIEW_PIXELS = 1600000;
 constexpr std::size_t MAX_COARSE_PREVIEW_PIXELS = 90000;
 constexpr unsigned int PREVIEW_IDLE_DELAY_FRAMES = 6;
-#ifdef ISOWEB_ENABLE_RENDER_THREADS
 constexpr int MAX_RENDER_THREADS = 6;
-#endif
 
 float rayOriginDistance(
   const WorldBounds& bounds,
