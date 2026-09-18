@@ -415,27 +415,20 @@ std::string World::liminalObjectAt(
   const float maximumDistanceSquared = tolerance * tolerance;
   for (const LiminalObject& object : liminalObjects_) {
     const std::vector<Vec3>* traversal = nullptr;
+    Vec3 endpoint;
     if (levelId == object.fromLevelId) {
       traversal = &object.forwardTraversal;
+      endpoint = object.fromPosition;
     } else if (levelId == object.toLevelId) {
       traversal = &object.reverseTraversal;
+      endpoint = object.toPosition;
     } else {
       continue;
     }
 
-    // A connector landing belongs to its ordinary level. Only positions on
-    // the authored connector interior are liminal. Treating the endpoint as
-    // part of the connector leaves a Character standing near the landing
-    // permanently tagged as "between levels", so it can be projected into the
-    // adjacent level even after movement has finished.
-    if (!traversal || traversal->empty()) continue;
-
-    Vec3 previous = traversal->front();
-    if (distanceSquared(position, previous) <= maximumDistanceSquared) {
-      return object.id;
-    }
-    for (std::size_t index = 1; index < traversal->size(); ++index) {
-      const Vec3& point = (*traversal)[index];
+    if (distanceSquared(position, endpoint) <= maximumDistanceSquared) return object.id;
+    Vec3 previous = endpoint;
+    for (const Vec3& point : *traversal) {
       if (pointSegmentDistanceSquared(position, previous, point) <= maximumDistanceSquared) {
         return object.id;
       }
