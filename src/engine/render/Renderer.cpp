@@ -66,6 +66,11 @@ const std::array<float, 255>& gammaThresholds() {
 Renderer::Renderer(const IWorld& world, Camera& camera, ControlSprites& controls)
     : world_(world), camera_(camera), controls_(controls) {}
 
+void Renderer::setRenderThreadLimit(int limit) {
+  renderThreadLimit_ = std::max(1, std::min(MAX_RENDER_THREADS, limit));
+  staticCacheValid_ = false;
+}
+
 void Renderer::resize(int width, int height) {
   frameWidth_ = std::max(160, std::min(1600, width));
   frameHeight_ = std::max(160, std::min(1600, height));
@@ -597,14 +602,14 @@ void Renderer::render() {
 
 #ifdef ISOWEB_ENABLE_RENDER_THREADS
     unsigned int reportedThreads = std::thread::hardware_concurrency();
-    int renderThreads = static_cast<int>(reportedThreads == 0 ? 2 : reportedThreads);
-    renderThreads = std::max(2, std::min(MAX_RENDER_THREADS, renderThreads));
+    int availableThreads = static_cast<int>(reportedThreads == 0 ? 2 : reportedThreads);
+    int renderThreads = std::max(1, std::min(renderThreadLimit_, availableThreads));
     renderThreads = std::min(renderThreads, frameHeight_);
     lastRenderThreadCount_ = renderThreads;
 
     std::vector<int> completedRows(static_cast<std::size_t>(renderThreads), 0);
     std::vector<std::thread> helpers;
-    helpers.reserve(static_cast<std::size_t>(renderThreads - 1));
+    helpers.reserve(static_cast<std::size_t>(std::max(0, renderThreads - 1)));
 
     for (int worker = 1; worker < renderThreads; ++worker) {
       const int yBegin = frameHeight_ * worker / renderThreads;
