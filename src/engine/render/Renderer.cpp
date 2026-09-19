@@ -6,6 +6,10 @@
 #include <cstring>
 #include <limits>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
+
 #ifdef ISOWEB_ENABLE_RENDER_THREADS
 #include <thread>
 #endif
@@ -564,13 +568,117 @@ void Renderer::render() {
   };
 
   // A full static-cache rebuild is the expensive part of the software renderer:
-  // every pixel traces four independent environment samples. Populate that
-  // read-only scene pass in parallel, then keep preview/runtime compositing on
-  // the calling thread where its demand counters and dynamic state remain
-  // deliberately serial and race-free.
+  // every pixel traces four independent environment samples. A compatible
+  // browser may fill this cache with WebGL2 first; unsupported scenes or
+  // browsers fall straight through to the proven CPU implementation.
+  bool rebuiltStaticCacheOnGpu = false;
   if (rebuildStaticCache) {
     lastRenderThreadCount_ = 1;
     lastRenderHelperRows_ = 0;
+
+#ifdef __EMSCRIPTEN__
+    engine::GpuStaticScene gpuScene;
+    if (world_.buildGpuStaticScene(gpuScene)) {
+      static_assert(sizeof(StaticSample) == sizeof(float) * 4, "GPU sample layout must be RGBA32F");
+
+      gpuScenePacked_.clear();
+      gpuScenePacked_.reserve(
+        32 +
+        gpuScene.visualBoxes.size() * 12 +
+        gpuScene.shadowBoxes.size() * 8 +
+        gpuScene.spheres.size() * 8 +
+        gpuScene.rooms.size() * 8 +
+        gpuScene.floorHoles.size() * 4
+      );
+
+      const auto append4 = [&](float x, float y, float z, float w) {
+        gpuScenePacked_.push_back(x);
+        gpuScenePacked_.push_back(y);
+        gpuScenePacked_.push_back(z);
+        gpuScenePacked_.push_back(w);
+      };
+
+      // Eight vec4 header records. The first four describe scene contents and
+      // lighting; the next four describe the exact CPU ray lattice.
+      append4(
+        1.0f,
+        static_cast<float>(gpuScene.visualBoxes.size()),
+        static_cast<float>(gpuScene.shadowBoxes.size()),
+        static_cast<float>(gpuScene.spheres.size())
+      );
+      append4(
+        static_cast<float>(gpuScene.rooms.size()),
+        static_cast<float>(gpuScene.floorHoles.size()),
+        gpuScene.lightPosition.x,
+        gpuScene.lightPosition.y
+      );
+      append4(
+        gpuScene.lightPosition.z,
+        gpuScene.floorDark.x,
+        gpuScene.floorDark.y,
+        gpuScene.floorDark.z
+      );
+      append4(
+        gpuScene.floorLight.x,
+        gpuScene.floorLight.y,
+        gpuScene.floorLight.z,
+        0.0f
+      );
+      append4(cornerOrigin.x, cornerOrigin.y, cornerOrigin.z, 0.0f);
+      append4(forward.x, forward.y, forward.z, 0.0f);
+      append4(rightStep.x, rightStep.y, rightStep.z, 0.0f);
+      append4(downStep.x, downStep.y, downStep.z, 0.0f);
+
+      for (const GpuStaticBox& box : gpuScene.visualBoxes) {
+        append4(
+          box.centre.x,
+          box.centre.y,
+          box.centre.z,
+          box.floorPattern ? 1.0f : 0.0f
+        );
+        append4(box.halfExtent.x, box.halfExtent.y, box.halfExtent.z, 0.0f);
+        append4(box.colour.x, box.colour.y, box.colour.z, 0.0f);
+      }
+      for (const GpuStaticBox& box : gpuScene.shadowBoxes) {
+        append4(box.centre.x, box.centre.y, box.centre.z, 0.0f);
+        append4(box.halfExtent.x, box.halfExtent.y, box.halfExtent.z, 0.0f);
+      }
+      for (const GpuStaticSphere& sphere : gpuScene.spheres) {
+        append4(sphere.centre.x, sphere.centre.y, sphere.centre.z, sphere.radius);
+        append4(sphere.colour.x, sphere.colour.y, sphere.colour.z, 0.0f);
+      }
+      for (const GpuGroundRoom& room : gpuScene.rooms) {
+        append4(
+          room.centre.x,
+          room.centre.y,
+          room.halfWidth,
+          room.halfDepth
+        );
+        append4(room.centre.z, 0.0f, 0.0f, 0.0f);
+      }
+      for (const GpuFloorHole& hole : gpuScene.floorHoles) {
+        append4(hole.minimumX, hole.maximumX, hole.minimumY, hole.maximumY);
+      }
+
+      rebuiltStaticCacheOnGpu = EM_ASM_INT({
+        const trace = globalThis.isowebTraceStaticWebGl;
+        if (typeof trace !== 'function') return 0;
+        try {
+          return trace(HEAPU8, $0, $1, $2, $3, $4) ? 1 : 0;
+        } catch (error) {
+          console.warn('WebGL static trace failed; using CPU fallback.', error);
+          return 0;
+        }
+      },
+        static_cast<int>(reinterpret_cast<std::uintptr_t>(gpuScenePacked_.data())),
+        static_cast<int>(gpuScenePacked_.size()),
+        static_cast<int>(reinterpret_cast<std::uintptr_t>(staticSamples_.data())),
+        frameWidth_,
+        frameHeight_
+      ) != 0;
+    }
+#endif
+
     const auto sampleStaticRows = [&](int yBegin, int yEnd) {
       // Preserve the exact floating-point path of the original serial renderer.
       // Multiplying downStep by yBegin is mathematically equivalent to repeated
@@ -606,6 +714,7 @@ void Renderer::render() {
       }
     };
 
+    if (!rebuiltStaticCacheOnGpu) {
 #ifdef ISOWEB_ENABLE_RENDER_THREADS
     unsigned int reportedThreads = std::thread::hardware_concurrency();
     int availableThreads = static_cast<int>(reportedThreads == 0 ? 2 : reportedThreads);
@@ -637,6 +746,7 @@ void Renderer::render() {
 #else
     sampleStaticRows(0, frameHeight_);
 #endif
+    }
   }
 
   Vec3 rowOrigin = cornerOrigin;
