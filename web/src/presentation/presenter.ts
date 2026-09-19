@@ -51,7 +51,9 @@ export function installPresenter(): void {
       frameBackend = createFrameBackend(canvas);
       window.isowebPresentationBackend = frameBackend.name;
     }
+    const presentStarted = performance.now();
     frameBackend.present(heap, pointer, width, height);
+    window.isowebLastPresentMilliseconds = performance.now() - presentStarted;
 
     window.isowebViewHeightWorld = viewHeight;
     window.isowebCameraCanPan = canPan;
