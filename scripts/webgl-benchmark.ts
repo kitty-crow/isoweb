@@ -64,6 +64,7 @@ async function measure(page: any, suffix: string) {
       backend: window.isowebPresentationBackend ?? 'unknown',
       totalMs: average(total),
       presentationMs: average(presentation),
+      gpuMs: window.isowebLastGpuMilliseconds ?? null,
       estimatedRendererMs: average(total) - average(presentation),
       width: (document.getElementById('canvas') as HTMLCanvasElement).width,
       height: (document.getElementById('canvas') as HTMLCanvasElement).height
