@@ -83,5 +83,6 @@ declare global {
     isowebViewHeightWorld?: number;
     isowebCameraCanPan?: boolean;
     isowebWholeZoomScale?: number;
+    isowebPresentationBackend?: 'webgl2' | 'canvas2d';
   }
 }
