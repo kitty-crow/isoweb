@@ -39,6 +39,8 @@ type Capture = {
   backend: string;
   width: number;
   height: number;
+  gpuStaticAvailable: boolean;
+  gpuStaticTraceCount: number;
   pixels: number[];
 };
 
@@ -85,6 +87,8 @@ async function capture(page: any, suffix: string): Promise<Capture> {
         backend,
         width,
         height,
+        gpuStaticAvailable: window.isowebGpuStaticAvailable ?? false,
+        gpuStaticTraceCount: window.isowebGpuStaticTraceCount ?? 0,
         pixels: Array.from(context.getImageData(0, 0, width, height).data)
       };
     }
@@ -101,7 +105,14 @@ async function capture(page: any, suffix: string): Promise<Capture> {
         const source = (height - 1 - y) * rowBytes;
         topDown.set(raw.subarray(source, source + rowBytes), y * rowBytes);
       }
-      return { backend, width, height, pixels: Array.from(topDown) };
+      return {
+        backend,
+        width,
+        height,
+        gpuStaticAvailable: window.isowebGpuStaticAvailable ?? false,
+        gpuStaticTraceCount: window.isowebGpuStaticTraceCount ?? 0,
+        pixels: Array.from(topDown)
+      };
     }
 
     throw new Error(`Unknown presentation backend: ${backend}`);
@@ -121,6 +132,12 @@ try {
   }
   if (webgl.backend !== 'webgl2') {
     throw new Error(`Expected WebGL2 backend, got ${webgl.backend}`);
+  }
+  if (!webgl.gpuStaticAvailable || webgl.gpuStaticTraceCount < 1) {
+    throw new Error(`WebGL2 static tracer did not execute: ${JSON.stringify(webgl)}`);
+  }
+  if (canvas.gpuStaticTraceCount !== 0) {
+    throw new Error(`Canvas2D fallback unexpectedly used GPU static tracing: ${JSON.stringify(canvas)}`);
   }
   if (canvas.width !== webgl.width || canvas.height !== webgl.height) {
     throw new Error(
