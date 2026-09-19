@@ -97,6 +97,9 @@ jobs:
       - name: Prove WebGL2 presentation parity
         run: bun run test:webgl-presenter
 
+      - name: Benchmark WebGL2 presentation
+        run: bun run bench:webgl
+
       - name: Test progressive lower-preview loading
         run: bun run test:progressive-preview
 
