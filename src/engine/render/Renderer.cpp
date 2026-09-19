@@ -577,7 +577,7 @@ void Renderer::render() {
     lastRenderHelperRows_ = 0;
 
 #ifdef __EMSCRIPTEN__
-    engine::GpuStaticScene gpuScene;
+    GpuStaticScene gpuScene;
     if (world_.buildGpuStaticScene(gpuScene)) {
       static_assert(sizeof(StaticSample) == sizeof(float) * 4, "GPU sample layout must be RGBA32F");
 
