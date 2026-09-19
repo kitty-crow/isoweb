@@ -91,6 +91,8 @@ class WebGl2FrameBackend implements FrameBackend {
   private textureWidth = 0;
   private textureHeight = 0;
   private sharedCopy: Uint8Array | null = null;
+  private readonly timerExtension: any;
+  private pendingTimerQuery: WebGLQuery | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', {
@@ -115,6 +117,7 @@ class WebGl2FrameBackend implements FrameBackend {
     this.program = program;
     this.texture = texture;
     this.vao = vao;
+    this.timerExtension = gl.getExtension('EXT_disjoint_timer_query_webgl2');
 
     gl.bindVertexArray(vao);
     gl.useProgram(program);
@@ -134,6 +137,34 @@ class WebGl2FrameBackend implements FrameBackend {
 
   present(heap: Uint8Array, pointer: number, width: number, height: number): void {
     const gl = this.gl;
+
+    if (this.pendingTimerQuery && this.timerExtension) {
+      const available = gl.getQueryParameter(
+        this.pendingTimerQuery,
+        gl.QUERY_RESULT_AVAILABLE
+      );
+      if (available) {
+        const disjoint = gl.getParameter(this.timerExtension.GPU_DISJOINT_EXT);
+        if (!disjoint) {
+          const nanoseconds = gl.getQueryParameter(
+            this.pendingTimerQuery,
+            gl.QUERY_RESULT
+          ) as number;
+          window.isowebLastGpuMilliseconds = nanoseconds / 1_000_000;
+        }
+        gl.deleteQuery(this.pendingTimerQuery);
+        this.pendingTimerQuery = null;
+      }
+    }
+
+    let timerQuery: WebGLQuery | null = null;
+    if (this.timerExtension && !this.pendingTimerQuery) {
+      timerQuery = gl.createQuery();
+      if (timerQuery) {
+        gl.beginQuery(this.timerExtension.TIME_ELAPSED_EXT, timerQuery);
+      }
+    }
+
     const byteLength = width * height * 4;
     const source = new Uint8Array(
       heap.buffer,
@@ -191,6 +222,11 @@ class WebGl2FrameBackend implements FrameBackend {
     }
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    if (timerQuery && this.timerExtension) {
+      gl.endQuery(this.timerExtension.TIME_ELAPSED_EXT);
+      this.pendingTimerQuery = timerQuery;
+    }
   }
 }
 
