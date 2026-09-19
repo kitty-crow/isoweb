@@ -59,6 +59,7 @@ public:
   }
 
   virtual bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const = 0;
+  virtual bool buildGpuStaticScene(GpuStaticScene&) const { return false; }
 
   // Exact any-hit query for shadow rays. The default is correct for existing
   // levels; optimized levels can terminate on the first blocker.
@@ -95,6 +96,7 @@ public:
   const WorldBounds& cameraBounds() const override;
   Vec3 sample(const Ray& ray, float backgroundY) const override;
   bool supportsStaticSampleCache() const override { return true; }
+  bool buildGpuStaticScene(GpuStaticScene& scene) const override;
   bool supportsLowDetailLowerPreview() const override {
     return lowerLevelPreviewDepth_ > 0 && activeLevelIndex_ > 0;
   }

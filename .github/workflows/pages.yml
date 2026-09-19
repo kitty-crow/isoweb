@@ -48,6 +48,9 @@ jobs:
       - name: Test unified world geometry
         run: bun run test:geometry
 
+      - name: Test GPU static scene contract
+        run: bun run test:gpu-static-scene
+
       - name: Test three-level Character routing
         run: bun run test:multilevel-routing
 
@@ -93,6 +96,12 @@ jobs:
 
       - name: Smoke-test WASM browser boot
         run: bun run test:runtime
+
+      - name: Prove WebGL2 presentation parity
+        run: bun run test:webgl-presenter
+
+      - name: Benchmark WebGL2 presentation
+        run: bun run bench:webgl
 
       - name: Test progressive lower-preview loading
         run: bun run test:progressive-preview

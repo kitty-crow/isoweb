@@ -212,6 +212,11 @@ const WorldBounds& World::cameraBounds() const {
   return activeLevel().bounds();
 }
 
+bool World::buildGpuStaticScene(GpuStaticScene& scene) const {
+  scene.clear();
+  return activeLevel().buildGpuStaticScene(scene);
+}
+
 const WorldBounds& World::bounds(const std::string& levelId) const {
   return levelFor(levelId).bounds();
 }

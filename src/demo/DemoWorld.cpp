@@ -716,6 +716,137 @@ public:
     renderViewDirection_ = viewDirection;
   }
 
+  bool buildGpuStaticScene(engine::GpuStaticScene& scene) const override {
+    // Stage one deliberately supports the default middle level exactly. Cone,
+    // pyramid and polyhedron intersections remain on the software fallback
+    // until their GLSL equivalents are validated.
+    if (!definition_.floorProxies.empty()) return false;
+    for (const RenderObject& object : definition_.objects) {
+      if (object.kind != ShapeKind::Cube && object.kind != ShapeKind::Sphere) {
+        return false;
+      }
+    }
+
+    scene.clear();
+    scene.lightPosition = definition_.lightPosition;
+    scene.floorDark = definition_.floorDark;
+    scene.floorLight = definition_.floorLight;
+
+    const auto appendBox = [](
+      std::vector<engine::GpuStaticBox>& destination,
+      const Vec3& centre,
+      const Vec3& halfExtent,
+      const Vec3& colour,
+      bool floorPattern
+    ) {
+      engine::GpuStaticBox box;
+      box.centre = centre;
+      box.halfExtent = halfExtent;
+      box.colour = colour;
+      box.floorPattern = floorPattern;
+      destination.push_back(box);
+    };
+
+    for (const RenderObject& object : definition_.objects) {
+      if (object.kind == ShapeKind::Sphere) {
+        engine::GpuStaticSphere sphere;
+        sphere.centre = object.position;
+        sphere.radius = object.size;
+        sphere.colour = object.colour;
+        scene.spheres.push_back(sphere);
+        continue;
+      }
+
+      const Vec3 halfExtent(object.size, object.size, object.height * 0.5f);
+      appendBox(scene.visualBoxes, object.position, halfExtent, object.colour, false);
+      appendBox(scene.shadowBoxes, object.position, halfExtent, object.colour, false);
+    }
+
+    for (const RoomWallBox& wall : roomWalls_) {
+      // Shadows always see the authored full wall.
+      appendBox(scene.shadowBoxes, wall.centre, wall.halfExtent, wall.colour, false);
+
+      if (!roomWallFacesViewer(wall)) {
+        appendBox(scene.visualBoxes, wall.centre, wall.halfExtent, wall.colour, false);
+        continue;
+      }
+
+      // Match intersectRoomWallVisual(): the camera-facing wall becomes a low
+      // sill plus two narrow full-height end caps.
+      const float fullHeight = wall.halfExtent.z * 2.0f;
+      const float floorZ = wall.centre.z - wall.halfExtent.z;
+      const float sillHeight = std::min(fullHeight, ROOM_CUTAWAY_HEIGHT);
+      if (sillHeight > 0.01f) {
+        Vec3 sillCentre = wall.centre;
+        Vec3 sillHalf = wall.halfExtent;
+        sillCentre.z = floorZ + sillHeight * 0.5f;
+        sillHalf.z = sillHeight * 0.5f;
+        appendBox(scene.visualBoxes, sillCentre, sillHalf, wall.colour, false);
+      }
+
+      const bool horizontal = wall.halfExtent.x >= wall.halfExtent.y;
+      const float halfSpan = horizontal ? wall.halfExtent.x : wall.halfExtent.y;
+      const float capWidth = std::max(
+        0.0f,
+        std::min(ROOM_CUTAWAY_END_CAP_WIDTH, halfSpan - 0.18f)
+      );
+      if (capWidth > 0.02f) {
+        const float capHalf = capWidth * 0.5f;
+        const float offset = halfSpan - capHalf;
+        for (float sign : {-1.0f, 1.0f}) {
+          Vec3 capCentre = wall.centre;
+          Vec3 capHalfExtent = wall.halfExtent;
+          if (horizontal) {
+            capCentre.x += sign * offset;
+            capHalfExtent.x = capHalf;
+          } else {
+            capCentre.y += sign * offset;
+            capHalfExtent.y = capHalf;
+          }
+          appendBox(scene.visualBoxes, capCentre, capHalfExtent, wall.colour, false);
+        }
+      }
+    }
+
+    for (const auto& staircase : stairSteps_) {
+      for (const StairStep& step : staircase) {
+        appendBox(
+          scene.visualBoxes,
+          step.centre,
+          step.halfExtent,
+          definition_.floorDark,
+          true
+        );
+        appendBox(
+          scene.shadowBoxes,
+          step.centre,
+          step.halfExtent,
+          definition_.floorDark,
+          true
+        );
+      }
+    }
+
+    for (const Room& room : definition_.roomLayout.rooms) {
+      engine::GpuGroundRoom gpuRoom;
+      gpuRoom.centre = {room.centre.x, room.centre.y, room.floorZ};
+      gpuRoom.halfWidth = room.width * 0.5f;
+      gpuRoom.halfDepth = room.depth * 0.5f;
+      scene.rooms.push_back(gpuRoom);
+    }
+
+    for (const FloorHole& hole : definition_.floorHoles) {
+      engine::GpuFloorHole gpuHole;
+      gpuHole.minimumX = hole.minimumX;
+      gpuHole.maximumX = hole.maximumX;
+      gpuHole.minimumY = hole.minimumY;
+      gpuHole.maximumY = hole.maximumY;
+      scene.floorHoles.push_back(gpuHole);
+    }
+
+    return true;
+  }
+
   bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const override {
     const Ray ray{{x, y, 100.0f}, {0.0f, 0.0f, -1.0f}};
     Hit closest;
