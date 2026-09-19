@@ -1,3 +1,5 @@
+import { WebGlStaticTracer } from './staticTracer';
+
 export type FrameBackendName = 'webgl2' | 'canvas2d';
 
 export interface FrameBackend {
@@ -118,6 +120,17 @@ class WebGl2FrameBackend implements FrameBackend {
     this.texture = texture;
     this.vao = vao;
     this.timerExtension = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+
+    if (new URLSearchParams(location.search).get('gpuStatic') !== '0') {
+      try {
+        const staticTracer = new WebGlStaticTracer(gl);
+        (globalThis as any).isowebTraceStaticWebGl = staticTracer.trace;
+        window.isowebGpuStaticAvailable = true;
+      } catch (error) {
+        window.isowebGpuStaticAvailable = false;
+        console.warn('WebGL2 static ray tracing unavailable; using CPU static renderer.', error);
+      }
+    }
 
     gl.bindVertexArray(vao);
     gl.useProgram(program);
@@ -292,6 +305,8 @@ class Canvas2dFrameBackend implements FrameBackend {
 }
 
 export function createFrameBackend(canvas: HTMLCanvasElement): FrameBackend {
+  (globalThis as any).isowebTraceStaticWebGl = undefined;
+  window.isowebGpuStaticAvailable = false;
   const params = new URLSearchParams(location.search);
   const webglDisabled = params.get('webgl') === '0';
 
