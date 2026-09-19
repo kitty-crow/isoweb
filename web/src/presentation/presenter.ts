@@ -17,8 +17,9 @@ function enabled(mask: number, flag: number): boolean {
 }
 
 export function installPresenter(): void {
-  let elements: ReturnType<typeof getAppElements> | null = null;
-  let frameBackend: FrameBackend | null = null;
+  let elements: ReturnType<typeof getAppElements> | null = getAppElements();
+  let frameBackend: FrameBackend | null = createFrameBackend(elements.canvas);
+  window.isowebPresentationBackend = frameBackend.name;
   let lastControlMask = -1;
   let lastActiveLevel = -1;
   let levelCount = -1;
