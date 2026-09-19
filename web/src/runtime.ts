@@ -86,5 +86,8 @@ declare global {
     isowebPresentationBackend?: 'webgl2' | 'canvas2d';
     isowebLastPresentMilliseconds?: number;
     isowebLastGpuMilliseconds?: number;
+    isowebGpuStaticAvailable?: boolean;
+    isowebGpuStaticTraceCount?: number;
+    isowebLastGpuStaticMilliseconds?: number;
   }
 }
