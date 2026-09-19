@@ -26,6 +26,7 @@
     "audit:mobile": "bun vendor/pages/src/cli.ts audit-mobile site",
     "test:pthreads": "bun scripts/pthread-browser-smoke.ts",
     "test:threaded-pages": "bun scripts/threaded-pages-smoke.ts",
-    "test:webgl-presenter": "bun scripts/webgl-presenter-smoke.ts"
+    "test:webgl-presenter": "bun scripts/webgl-presenter-smoke.ts",
+    "bench:webgl": "bun scripts/webgl-benchmark.ts"
   }
 }
