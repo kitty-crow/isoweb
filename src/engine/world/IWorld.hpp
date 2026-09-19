@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "engine/math/Vec3.hpp"
+#include "engine/render/GpuStaticScene.hpp"
 #include "engine/render/Ray.hpp"
 #include "engine/world/SceneSurface.hpp"
 #include "engine/world/WorldObject.hpp"
@@ -34,6 +35,11 @@ public:
   // renderer may cache exact static supersamples while the camera/level stay
   // unchanged. Defaults preserve compatibility for worlds that do not opt in.
   virtual bool supportsStaticSampleCache() const { return false; }
+
+  // Optional compact static scene for GPU ray/shadow evaluation. Worlds that
+  // cannot faithfully describe the active level return false and the software
+  // renderer remains authoritative.
+  virtual bool buildGpuStaticScene(GpuStaticScene&) const { return false; }
 
   // Lower levels are decorative previews, not additional fully rendered scenes.
   // Implementations may expose a cheap analytic preview sampler which the
