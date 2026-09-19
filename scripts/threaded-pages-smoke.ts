@@ -63,7 +63,8 @@ try {
       controlled: Boolean(navigator.serviceWorker.controller),
       hardwareConcurrency: navigator.hardwareConcurrency,
       threadCount: module._isoweb_last_render_thread_count(),
-      helperRows: module._isoweb_last_render_helper_rows()
+      helperRows: module._isoweb_last_render_helper_rows(),
+      presentationBackend: window.isowebPresentationBackend ?? 'unknown'
     };
   });
 
@@ -73,11 +74,14 @@ try {
   if (result.threadCount < 2 || result.helperRows <= 0) {
     throw new Error(`Threaded Pages route did not use helper threads: ${JSON.stringify(result)}`);
   }
+  if (result.presentationBackend !== 'webgl2') {
+    throw new Error(`Threaded Pages route did not use WebGL2: ${JSON.stringify(result)}`);
+  }
   if (errors.length) throw new Error(errors.join('\n\n'));
 
   console.log(
     `Threaded Pages smoke passed: isolated=${result.isolated}, ` +
-    `${result.threadCount} render threads, ${result.helperRows} helper rows.`
+    `${result.threadCount} render threads, ${result.helperRows} helper rows, backend=${result.presentationBackend}.`
   );
 } finally {
   await browser.close();
