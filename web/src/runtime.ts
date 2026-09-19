@@ -85,5 +85,6 @@ declare global {
     isowebWholeZoomScale?: number;
     isowebPresentationBackend?: 'webgl2' | 'canvas2d';
     isowebLastPresentMilliseconds?: number;
+    isowebLastGpuMilliseconds?: number;
   }
 }
