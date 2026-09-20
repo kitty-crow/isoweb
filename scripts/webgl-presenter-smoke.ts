@@ -41,6 +41,7 @@ type Capture = {
   height: number;
   gpuStaticAvailable: boolean;
   gpuStaticTraceCount: number;
+  gpuStaticError: string | null;
   pixels: number[];
 };
 
@@ -89,6 +90,7 @@ async function capture(page: any, suffix: string): Promise<Capture> {
         height,
         gpuStaticAvailable: window.isowebGpuStaticAvailable ?? false,
         gpuStaticTraceCount: window.isowebGpuStaticTraceCount ?? 0,
+        gpuStaticError: window.isowebGpuStaticError ?? null,
         pixels: Array.from(context.getImageData(0, 0, width, height).data)
       };
     }
@@ -111,6 +113,7 @@ async function capture(page: any, suffix: string): Promise<Capture> {
         height,
         gpuStaticAvailable: window.isowebGpuStaticAvailable ?? false,
         gpuStaticTraceCount: window.isowebGpuStaticTraceCount ?? 0,
+        gpuStaticError: window.isowebGpuStaticError ?? null,
         pixels: Array.from(topDown)
       };
     }
