@@ -575,6 +575,7 @@ void Renderer::render() {
   if (rebuildStaticCache) {
     lastRenderThreadCount_ = 1;
     lastRenderHelperRows_ = 0;
+    lastStaticRenderBackend_ = StaticRenderBackend::SingleThreadCpu;
 
 #ifdef __EMSCRIPTEN__
     GpuStaticScene gpuScene;
@@ -676,6 +677,9 @@ void Renderer::render() {
         frameWidth_,
         frameHeight_
       ) != 0;
+      if (rebuiltStaticCacheOnGpu) {
+        lastStaticRenderBackend_ = StaticRenderBackend::WebGl2;
+      }
     }
 #endif
 
@@ -721,6 +725,9 @@ void Renderer::render() {
     int renderThreads = std::max(1, std::min(renderThreadLimit_, availableThreads));
     renderThreads = std::min(renderThreads, frameHeight_);
     lastRenderThreadCount_ = renderThreads;
+    lastStaticRenderBackend_ = renderThreads > 1
+      ? StaticRenderBackend::MultiThreadCpu
+      : StaticRenderBackend::SingleThreadCpu;
 
     std::vector<int> completedRows(static_cast<std::size_t>(renderThreads), 0);
     std::vector<std::thread> helpers;
