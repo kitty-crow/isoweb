@@ -128,6 +128,7 @@ class WebGl2FrameBackend implements FrameBackend {
         window.isowebGpuStaticAvailable = true;
       } catch (error) {
         window.isowebGpuStaticAvailable = false;
+        window.isowebGpuStaticError = error instanceof Error ? error.message : String(error);
         console.warn('WebGL2 static ray tracing unavailable; using CPU static renderer.', error);
       }
     }
