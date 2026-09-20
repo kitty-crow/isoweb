@@ -200,10 +200,16 @@ try {
 
   if (mismatches !== 0) {
     throw new Error(
-      `WebGL2 frame differs from Canvas2D: ${JSON.stringify({` +
-      `mismatches, mismatchedPixels, maxDelta, firstMismatch, ` +
-      `bbox: { minX, minY, maxX, maxY }, channelMismatches, examples` +
-      `})}`
+      'WebGL2 frame differs from Canvas2D: ' +
+      JSON.stringify({
+        mismatches,
+        mismatchedPixels,
+        maxDelta,
+        firstMismatch,
+        bbox: { minX, minY, maxX, maxY },
+        channelMismatches,
+        examples
+      })
     );
   }
 
