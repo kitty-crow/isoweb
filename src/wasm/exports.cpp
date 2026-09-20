@@ -151,6 +151,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_last_render_helper_rows() {
   return application().lastRenderHelperRows();
 }
 
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_last_static_render_backend() {
+  return application().lastStaticRenderBackend();
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_preview_coarse_sample_count() {
   return static_cast<int>(application().previewCoarseSampleCount());
 }

@@ -48,6 +48,9 @@ jobs:
       - name: Test unified world geometry
         run: bun run test:geometry
 
+      - name: Test GPU static scene contract
+        run: bun run test:gpu-static-scene
+
       - name: Test three-level Character routing
         run: bun run test:multilevel-routing
 
@@ -94,6 +97,12 @@ jobs:
       - name: Smoke-test WASM browser boot
         run: bun run test:runtime
 
+      - name: Prove WebGL2 presentation parity
+        run: bun run test:webgl-presenter
+
+      - name: Benchmark WebGL2 presentation
+        run: bun run bench:webgl
+
       - name: Test progressive lower-preview loading
         run: bun run test:progressive-preview
 
@@ -111,6 +120,23 @@ jobs:
 
       - name: Prove pthread rendering in Chromium
         run: bun run test:pthreads
+
+      - name: Prove adaptive GPU MT ST hierarchy
+        run: bun run test:adaptive-render
+
+      - name: Package adaptive Pages route
+        run: |
+          rm -rf site/adaptive
+          mkdir -p site/adaptive/single
+          cp -R site-threaded/. site/adaptive/
+          cp site/assets/isoweb.js site/adaptive/single/isoweb.js
+          cp site/assets/isoweb.wasm site/adaptive/single/isoweb.wasm
+          cp scripts/adaptive-pages/index.html site/adaptive/index.html
+          cp scripts/adaptive-pages/adaptive-loader.js site/adaptive/adaptive-loader.js
+          cp scripts/adaptive-pages/coi-serviceworker.js site/adaptive/coi-serviceworker.js
+
+      - name: Prove adaptive Pages route
+        run: bun run test:adaptive-pages
 
       - name: Package threaded Pages test route
         run: |

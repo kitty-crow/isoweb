@@ -85,7 +85,7 @@ function browserMessages(): string {
 
 try {
   console.log('[runtime-smoke] booting default world');
-  await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${server.port}/?webgl=0`, { waitUntil: 'domcontentloaded' });
   await waitForWasmReady();
 
   const bootState = await page.evaluate(() => {
