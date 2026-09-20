@@ -584,7 +584,7 @@ void Renderer::render() {
 
       gpuScenePacked_.clear();
       gpuScenePacked_.reserve(
-        32 +
+        48 +
         gpuScene.visualBoxes.size() * 12 +
         gpuScene.shadowBoxes.size() * 8 +
         gpuScene.spheres.size() * 8 +
@@ -599,8 +599,11 @@ void Renderer::render() {
         gpuScenePacked_.push_back(w);
       };
 
-      // Eight vec4 header records. The first four describe scene contents and
-      // lighting; the next four describe the exact CPU ray lattice.
+      // Twelve vec4 header records. The first four describe scene contents and
+      // lighting; the next four describe the camera basis and the final four
+      // are the exact CPU-computed supersample offsets. Pixel origins are
+      // uploaded separately after following the same repeated-addition path
+      // used by the software renderer.
       append4(
         1.0f,
         static_cast<float>(gpuScene.visualBoxes.size()),
@@ -629,6 +632,10 @@ void Renderer::render() {
       append4(forward.x, forward.y, forward.z, 0.0f);
       append4(rightStep.x, rightStep.y, rightStep.z, 0.0f);
       append4(downStep.x, downStep.y, downStep.z, 0.0f);
+
+      for (const Vec3& offset : sampleOffsets) {
+        append4(offset.x, offset.y, offset.z, 0.0f);
+      }
 
       for (const GpuStaticBox& box : gpuScene.visualBoxes) {
         append4(
@@ -661,11 +668,27 @@ void Renderer::render() {
         append4(hole.minimumX, hole.maximumX, hole.minimumY, hole.maximumY);
       }
 
+      gpuRayOriginsPacked_.resize(pixelCount * 4);
+      Vec3 gpuRowOrigin = cornerOrigin;
+      std::size_t gpuPixelIndex = 0;
+      for (int y = 0; y < frameHeight_; ++y) {
+        Vec3 gpuPixelOrigin = gpuRowOrigin;
+        for (int x = 0; x < frameWidth_; ++x, ++gpuPixelIndex) {
+          const std::size_t base = gpuPixelIndex * 4;
+          gpuRayOriginsPacked_[base] = gpuPixelOrigin.x;
+          gpuRayOriginsPacked_[base + 1] = gpuPixelOrigin.y;
+          gpuRayOriginsPacked_[base + 2] = gpuPixelOrigin.z;
+          gpuRayOriginsPacked_[base + 3] = 0.0f;
+          gpuPixelOrigin = gpuPixelOrigin + rightStep;
+        }
+        gpuRowOrigin = gpuRowOrigin + downStep;
+      }
+
       rebuiltStaticCacheOnGpu = EM_ASM_INT({
         const trace = globalThis.isowebTraceStaticWebGl;
         if (typeof trace !== 'function') return 0;
         try {
-          return trace(HEAPU8, $0, $1, $2, $3, $4) ? 1 : 0;
+          return trace(HEAPU8, $0, $1, $2, $3, $4, $5) ? 1 : 0;
         } catch (error) {
           console.warn('WebGL static trace failed; using CPU fallback.', error);
           return 0;
@@ -673,6 +696,7 @@ void Renderer::render() {
       },
         static_cast<int>(reinterpret_cast<std::uintptr_t>(gpuScenePacked_.data())),
         static_cast<int>(gpuScenePacked_.size()),
+        static_cast<int>(reinterpret_cast<std::uintptr_t>(gpuRayOriginsPacked_.data())),
         static_cast<int>(reinterpret_cast<std::uintptr_t>(staticSamples_.data())),
         frameWidth_,
         frameHeight_
