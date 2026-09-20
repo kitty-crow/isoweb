@@ -87,6 +87,7 @@ declare global {
     isowebLastPresentMilliseconds?: number;
     isowebLastGpuMilliseconds?: number;
     isowebGpuStaticAvailable?: boolean;
+    isowebGpuStaticError?: string;
     isowebGpuStaticTraceCount?: number;
     isowebLastGpuStaticMilliseconds?: number;
   }
