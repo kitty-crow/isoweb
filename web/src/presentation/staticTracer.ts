@@ -66,7 +66,7 @@ uniform sampler2D uScene;
 uniform int uFrameWidth;
 uniform int uFrameHeight;
 
-out vec4 outSample;
+out uvec4 outSample;
 
 const float EPSILON = 0.0015;
 const float FAR_DISTANCE = 1000.0;
@@ -434,7 +434,7 @@ void main() {
     vec3 colour =
       vec3(0.075, 0.12, 0.18) * (1.0 - t) +
       vec3(0.20, 0.28, 0.34) * t;
-    outSample = vec4(colour, NO_HIT_DISTANCE);
+    outSample = floatBitsToUint(vec4(colour, NO_HIT_DISTANCE));
     return;
   }
 
@@ -467,7 +467,7 @@ void main() {
     );
   }
 
-  outSample = vec4(shaded, closest);
+  outSample = floatBitsToUint(vec4(shaded, closest));
 }
 `;
 
@@ -482,13 +482,9 @@ export class WebGlStaticTracer {
   private readonly heightUniform: WebGLUniformLocation;
   private resultWidth = 0;
   private resultHeight = 0;
-  private resultBuffer = new Float32Array(0);
+  private resultBuffer = new Uint32Array(0);
 
   constructor(private readonly gl: WebGL2RenderingContext) {
-    if (!gl.getExtension('EXT_color_buffer_float')) {
-      throw new Error('EXT_color_buffer_float is unavailable.');
-    }
-
     this.program = link(gl, VERTEX_SOURCE, FRAGMENT_SOURCE);
     const vao = gl.createVertexArray();
     const sceneTexture = gl.createTexture();
@@ -599,17 +595,17 @@ export class WebGlStaticTracer {
       gl.texImage2D(
         gl.TEXTURE_2D,
         0,
-        gl.RGBA32F,
+        gl.RGBA32UI,
         outputWidth,
         height,
         0,
-        gl.RGBA,
-        gl.FLOAT,
+        gl.RGBA_INTEGER,
+        gl.UNSIGNED_INT,
         null
       );
       this.resultWidth = outputWidth;
       this.resultHeight = height;
-      this.resultBuffer = new Float32Array(outputWidth * height * 4);
+      this.resultBuffer = new Uint32Array(outputWidth * height * 4);
     }
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
@@ -644,14 +640,16 @@ export class WebGlStaticTracer {
       0,
       outputWidth,
       height,
-      gl.RGBA,
-      gl.FLOAT,
+      gl.RGBA_INTEGER,
+      gl.UNSIGNED_INT,
       this.resultBuffer
     );
     window.isowebLastGpuStaticMilliseconds = performance.now() - started;
 
     const outputFloatCount = width * height * 16;
-    const target = new Float32Array(
+    // StaticSample is four float32 values. Preserve the GPU-computed IEEE-754
+    // bit patterns exactly by copying through a Uint32 view of WASM memory.
+    const target = new Uint32Array(
       heap.buffer,
       heap.byteOffset + outputPointer,
       outputFloatCount
