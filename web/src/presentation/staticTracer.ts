@@ -63,7 +63,6 @@ precision highp float;
 precision highp int;
 
 uniform sampler2D uScene;
-uniform int uFrameWidth;
 uniform int uFrameHeight;
 
 out uvec4 outSample;
@@ -478,7 +477,6 @@ export class WebGlStaticTracer {
   private readonly resultTexture: WebGLTexture;
   private readonly framebuffer: WebGLFramebuffer;
   private readonly sceneUniform: WebGLUniformLocation;
-  private readonly widthUniform: WebGLUniformLocation;
   private readonly heightUniform: WebGLUniformLocation;
   private resultWidth = 0;
   private resultHeight = 0;
@@ -491,7 +489,6 @@ export class WebGlStaticTracer {
     const resultTexture = gl.createTexture();
     const framebuffer = gl.createFramebuffer();
     const sceneUniform = gl.getUniformLocation(this.program, 'uScene');
-    const widthUniform = gl.getUniformLocation(this.program, 'uFrameWidth');
     const heightUniform = gl.getUniformLocation(this.program, 'uFrameHeight');
 
     if (
@@ -500,7 +497,6 @@ export class WebGlStaticTracer {
       !resultTexture ||
       !framebuffer ||
       sceneUniform === null ||
-      widthUniform === null ||
       heightUniform === null
     ) {
       throw new Error('Could not allocate WebGL static-trace resources.');
@@ -511,7 +507,6 @@ export class WebGlStaticTracer {
     this.resultTexture = resultTexture;
     this.framebuffer = framebuffer;
     this.sceneUniform = sceneUniform;
-    this.widthUniform = widthUniform;
     this.heightUniform = heightUniform;
 
     gl.bindTexture(gl.TEXTURE_2D, sceneTexture);
@@ -627,7 +622,6 @@ export class WebGlStaticTracer {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
     gl.uniform1i(this.sceneUniform, 0);
-    gl.uniform1i(this.widthUniform, width);
     gl.uniform1i(this.heightUniform, height);
     gl.disable(gl.BLEND);
     gl.disable(gl.DEPTH_TEST);
