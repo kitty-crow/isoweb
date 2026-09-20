@@ -121,6 +121,9 @@ jobs:
       - name: Prove pthread rendering in Chromium
         run: bun run test:pthreads
 
+      - name: Prove adaptive GPU MT ST hierarchy
+        run: bun run test:adaptive-render
+
       - name: Package threaded Pages test route
         run: |
           rm -rf site/threaded
