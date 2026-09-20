@@ -578,9 +578,12 @@ void Renderer::render() {
     lastStaticRenderBackend_ = StaticRenderBackend::SingleThreadCpu;
 
 #ifdef __EMSCRIPTEN__
+    const bool gpuStaticCallbackAvailable = EM_ASM_INT({
+      return typeof globalThis.isowebTraceStaticWebGl === 'function' ? 1 : 0;
+    }) != 0;
     GpuStaticScene gpuScene;
-    if (world_.buildGpuStaticScene(gpuScene)) {
-      static_assert(sizeof(StaticSample) == sizeof(float) * 4, "GPU sample layout must be RGBA32F");
+    if (gpuStaticCallbackAvailable && world_.buildGpuStaticScene(gpuScene)) {
+      static_assert(sizeof(StaticSample) == sizeof(float) * 4, "GPU sample layout must be four float32 values");
 
       gpuScenePacked_.clear();
       gpuScenePacked_.reserve(
