@@ -2,6 +2,7 @@ export type StaticTraceCallback = (
   heap: Uint8Array,
   scenePointer: number,
   sceneFloatCount: number,
+  rayOriginsPointer: number,
   outputPointer: number,
   width: number,
   height: number
@@ -63,6 +64,7 @@ precision highp float;
 precision highp int;
 
 uniform sampler2D uScene;
+uniform sampler2D uRayOrigins;
 uniform int uFrameHeight;
 
 out uvec4 outSample;
@@ -316,7 +318,7 @@ void main() {
   int roomCount = int(header1.x + 0.5);
   int holeCount = int(header1.y + 0.5);
 
-  int visualStart = 8;
+  int visualStart = 12;
   int shadowStart = visualStart + visualCount * 3;
   int sphereStart = shadowStart + shadowCount * 2;
   int roomStart = sphereStart + sphereCount * 2;
@@ -325,22 +327,16 @@ void main() {
   vec3 lightPosition = vec3(header1.z, header1.w, header2.x);
   vec3 floorDark = header2.yzw;
   vec3 floorLight = header3.xyz;
-  vec3 cornerOrigin = recordAt(4).xyz;
   vec3 rayDirection = recordAt(5).xyz;
-  vec3 rightStep = recordAt(6).xyz;
-  vec3 downStep = recordAt(7).xyz;
 
   int outputX = int(floor(gl_FragCoord.x));
   int sampleIndex = outputX & 3;
   int pixelX = outputX >> 2;
   int pixelY = uFrameHeight - 1 - int(floor(gl_FragCoord.y));
 
-  float sampleX = (sampleIndex == 0 || sampleIndex == 2) ? 0.25 : 0.75;
   float sampleY = sampleIndex < 2 ? 0.25 : 0.75;
-  vec3 rayOrigin =
-    cornerOrigin +
-    rightStep * (float(pixelX) + sampleX) +
-    downStep * (float(pixelY) + sampleY);
+  vec3 pixelOrigin = texelFetch(uRayOrigins, ivec2(pixelX, pixelY), 0).xyz;
+  vec3 rayOrigin = pixelOrigin + recordAt(8 + sampleIndex).xyz;
 
   float closest = FAR_DISTANCE;
   bool found = false;
@@ -474,9 +470,11 @@ export class WebGlStaticTracer {
   private readonly program: WebGLProgram;
   private readonly vao: WebGLVertexArrayObject;
   private readonly sceneTexture: WebGLTexture;
+  private readonly rayOriginsTexture: WebGLTexture;
   private readonly resultTexture: WebGLTexture;
   private readonly framebuffer: WebGLFramebuffer;
   private readonly sceneUniform: WebGLUniformLocation;
+  private readonly rayOriginsUniform: WebGLUniformLocation;
   private readonly heightUniform: WebGLUniformLocation;
   private resultWidth = 0;
   private resultHeight = 0;
@@ -486,17 +484,21 @@ export class WebGlStaticTracer {
     this.program = link(gl, VERTEX_SOURCE, FRAGMENT_SOURCE);
     const vao = gl.createVertexArray();
     const sceneTexture = gl.createTexture();
+    const rayOriginsTexture = gl.createTexture();
     const resultTexture = gl.createTexture();
     const framebuffer = gl.createFramebuffer();
     const sceneUniform = gl.getUniformLocation(this.program, 'uScene');
+    const rayOriginsUniform = gl.getUniformLocation(this.program, 'uRayOrigins');
     const heightUniform = gl.getUniformLocation(this.program, 'uFrameHeight');
 
     if (
       !vao ||
       !sceneTexture ||
+      !rayOriginsTexture ||
       !resultTexture ||
       !framebuffer ||
       sceneUniform === null ||
+      rayOriginsUniform === null ||
       heightUniform === null
     ) {
       throw new Error('Could not allocate WebGL static-trace resources.');
@@ -504,12 +506,20 @@ export class WebGlStaticTracer {
 
     this.vao = vao;
     this.sceneTexture = sceneTexture;
+    this.rayOriginsTexture = rayOriginsTexture;
     this.resultTexture = resultTexture;
     this.framebuffer = framebuffer;
     this.sceneUniform = sceneUniform;
+    this.rayOriginsUniform = rayOriginsUniform;
     this.heightUniform = heightUniform;
 
     gl.bindTexture(gl.TEXTURE_2D, sceneTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    gl.bindTexture(gl.TEXTURE_2D, rayOriginsTexture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -526,11 +536,12 @@ export class WebGlStaticTracer {
     heap,
     scenePointer,
     sceneFloatCount,
+    rayOriginsPointer,
     outputPointer,
     width,
     height
   ) => {
-    if (width <= 0 || height <= 0 || sceneFloatCount < 32 || (sceneFloatCount & 3) !== 0) {
+    if (width <= 0 || height <= 0 || sceneFloatCount < 48 || (sceneFloatCount & 3) !== 0) {
       return false;
     }
 
@@ -585,6 +596,25 @@ export class WebGlStaticTracer {
       scene
     );
 
+    const rawRayOrigins = new Float32Array(
+      heap.buffer,
+      heap.byteOffset + rayOriginsPointer,
+      width * height * 4
+    );
+    const rayOrigins = new Float32Array(rawRayOrigins);
+    gl.bindTexture(gl.TEXTURE_2D, this.rayOriginsTexture);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA32F,
+      width,
+      height,
+      0,
+      gl.RGBA,
+      gl.FLOAT,
+      rayOrigins
+    );
+
     if (this.resultWidth !== outputWidth || this.resultHeight !== height) {
       gl.bindTexture(gl.TEXTURE_2D, this.resultTexture);
       gl.texImage2D(
@@ -622,6 +652,9 @@ export class WebGlStaticTracer {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
     gl.uniform1i(this.sceneUniform, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.rayOriginsTexture);
+    gl.uniform1i(this.rayOriginsUniform, 1);
     gl.uniform1i(this.heightUniform, height);
     gl.disable(gl.BLEND);
     gl.disable(gl.DEPTH_TEST);
