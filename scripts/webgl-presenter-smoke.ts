@@ -150,21 +150,60 @@ try {
   }
 
   let mismatches = 0;
+  let mismatchedPixels = 0;
   let maxDelta = 0;
   let firstMismatch = -1;
-  for (let index = 0; index < canvas.pixels.length; ++index) {
-    const delta = Math.abs(canvas.pixels[index] - webgl.pixels[index]);
-    if (delta !== 0) {
-      ++mismatches;
-      if (firstMismatch < 0) firstMismatch = index;
-      if (delta > maxDelta) maxDelta = delta;
+  let minX = canvas.width;
+  let minY = canvas.height;
+  let maxX = -1;
+  let maxY = -1;
+  const channelMismatches = [0, 0, 0, 0];
+  const examples: Array<{
+    x: number;
+    y: number;
+    cpu: number[];
+    gpu: number[];
+  }> = [];
+
+  for (let pixel = 0; pixel < canvas.width * canvas.height; ++pixel) {
+    const base = pixel * 4;
+    let pixelMismatch = false;
+    for (let channel = 0; channel < 4; ++channel) {
+      const index = base + channel;
+      const delta = Math.abs(canvas.pixels[index] - webgl.pixels[index]);
+      if (delta !== 0) {
+        ++mismatches;
+        ++channelMismatches[channel];
+        pixelMismatch = true;
+        if (firstMismatch < 0) firstMismatch = index;
+        if (delta > maxDelta) maxDelta = delta;
+      }
+    }
+    if (!pixelMismatch) continue;
+
+    ++mismatchedPixels;
+    const x = pixel % canvas.width;
+    const y = Math.floor(pixel / canvas.width);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+    if (examples.length < 16) {
+      examples.push({
+        x,
+        y,
+        cpu: canvas.pixels.slice(base, base + 4),
+        gpu: webgl.pixels.slice(base, base + 4)
+      });
     }
   }
 
   if (mismatches !== 0) {
     throw new Error(
-      `WebGL2 frame differs from Canvas2D: mismatches=${mismatches}, ` +
-      `maxDelta=${maxDelta}, firstMismatch=${firstMismatch}`
+      `WebGL2 frame differs from Canvas2D: ${JSON.stringify({` +
+      `mismatches, mismatchedPixels, maxDelta, firstMismatch, ` +
+      `bbox: { minX, minY, maxX, maxY }, channelMismatches, examples` +
+      `})}`
     );
   }
 
