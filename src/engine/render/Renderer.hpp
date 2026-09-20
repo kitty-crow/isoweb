@@ -114,6 +114,7 @@ private:
 
   std::vector<StaticSample> staticSamples_;
   std::vector<float> gpuScenePacked_;
+  std::vector<float> gpuRayOriginsPacked_;
   std::vector<PreviewSample> previewSamples_;
   std::vector<std::uint8_t> previewDemand_;
   std::vector<std::uint8_t> previewTileDemand_;
