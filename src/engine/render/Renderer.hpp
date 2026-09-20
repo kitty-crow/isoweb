@@ -12,6 +12,12 @@
 namespace isoweb {
 namespace engine {
 
+enum class StaticRenderBackend {
+  SingleThreadCpu = 0,
+  MultiThreadCpu = 1,
+  WebGl2 = 2
+};
+
 class Renderer {
 public:
   Renderer(const IWorld& world, Camera& camera, ControlSprites& controls);
@@ -34,6 +40,7 @@ public:
   std::size_t staticCacheShiftCount() const { return staticCacheShiftCount_; }
   int lastRenderThreadCount() const { return lastRenderThreadCount_; }
   int lastRenderHelperRows() const { return lastRenderHelperRows_; }
+  StaticRenderBackend lastStaticRenderBackend() const { return lastStaticRenderBackend_; }
   std::size_t previewCoarseSampleCount() const { return previewCoarseSampleCount_; }
   std::size_t previewRefinedSampleCount() const { return previewRefinedSampleCount_; }
   std::size_t previewDemandedTexelCount() const { return previewDemandedTexelCount_; }
@@ -136,6 +143,7 @@ private:
   std::size_t staticCacheShiftCount_ = 0;
   int lastRenderThreadCount_ = 1;
   int lastRenderHelperRows_ = 0;
+  StaticRenderBackend lastStaticRenderBackend_ = StaticRenderBackend::SingleThreadCpu;
   int renderThreadLimit_ = 6;
 
   CameraControlState frameCameraState_;
