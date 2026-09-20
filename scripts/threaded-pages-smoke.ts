@@ -42,7 +42,7 @@ page.on('pageerror', (error: Error) => errors.push(error.stack || error.message)
 
 try {
   console.log('[threaded-pages] opening Pages-style route without server isolation headers');
-  await page.goto(`http://127.0.0.1:${server.port}/threaded/`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${server.port}/threaded/?gpuStatic=0`, { waitUntil: 'domcontentloaded' });
 
   await page.waitForFunction(
     () =>
