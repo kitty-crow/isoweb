@@ -121,15 +121,22 @@ class WebGl2FrameBackend implements FrameBackend {
     this.vao = vao;
     this.timerExtension = gl.getExtension('EXT_disjoint_timer_query_webgl2');
 
-    if (new URLSearchParams(location.search).get('gpuStatic') !== '0') {
+    const params = new URLSearchParams(location.search);
+    const gpuStaticOverride = params.get('gpuStatic');
+    const adaptiveRoute = Boolean((globalThis as any).isowebAdaptiveContainer);
+    const allowGpuStatic =
+      gpuStaticOverride === '1' ||
+      (gpuStaticOverride !== '0' && adaptiveRoute);
+
+    if (allowGpuStatic) {
       try {
         const staticTracer = new WebGlStaticTracer(gl);
         (globalThis as any).isowebTraceStaticWebGl = staticTracer.trace;
         window.isowebGpuStaticAvailable = true;
       } catch (error) {
         window.isowebGpuStaticAvailable = false;
-  window.isowebFrameGpuBytes = 0;
-  window.isowebStaticGpuBytes = 0;
+        window.isowebFrameGpuBytes = 0;
+        window.isowebStaticGpuBytes = 0;
         window.isowebGpuStaticError = error instanceof Error ? error.message : String(error);
         console.warn('WebGL2 static ray tracing unavailable; using CPU static renderer.', error);
       }
