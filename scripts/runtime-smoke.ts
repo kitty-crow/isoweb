@@ -263,6 +263,22 @@ try {
     );
   }
 
+  const movementTrace: Array<{ x: number; y: number; z: number; crouching: number; moving: number }> = [];
+  for (let sample = 0; sample < 60; ++sample) {
+    movementTrace.push(await page.evaluate(() => {
+      const module = (globalThis as any).Module;
+      return {
+        x: Number(module.ccall('isoweb_character_position_x', 'number', ['string'], ['demo-character'])),
+        y: Number(module.ccall('isoweb_character_position_y', 'number', ['string'], ['demo-character'])),
+        z: Number(module.ccall('isoweb_character_position_z', 'number', ['string'], ['demo-character'])),
+        crouching: Number(module.ccall('isoweb_character_is_crouching', 'number', ['string'], ['demo-character'])),
+        moving: Number(module.ccall('isoweb_character_is_moving', 'number', ['string'], ['demo-character']))
+      };
+    }));
+    await page.waitForTimeout(50);
+  }
+  console.log('[flat-floor-diagnostic] movement trace', JSON.stringify(movementTrace));
+
   const selectedAfterFirstMove = await page.evaluate(
     () => (globalThis as any).Module._isoweb_selected_character_count()
   );
