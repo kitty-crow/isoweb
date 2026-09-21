@@ -232,82 +232,19 @@ try {
     throw new Error(`Forced same-view rebuild did not rebuild exactly once: ${JSON.stringify(panParity)}`);
   }
   if (panParity.differingPixels !== 0) {
-    console.log(
-      '[flat-floor-diagnostic] separate pan-cache mismatch confirmed; checking whether it requires dynamic entities'
+    throw new Error(
+      `Pan-shifted static cache diverged from an exact same-view rebuild: ${JSON.stringify(panParity)}`
     );
   }
 
-  const staticOnlyPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  const staticOnlyParity = await (async () => {
-    try {
-      await staticOnlyPage.goto(`http://127.0.0.1:${server.port}/?webgl=0`, { waitUntil: 'domcontentloaded' });
-      await staticOnlyPage.waitForFunction(
-        () => document.documentElement.classList.contains('wasm-ready'),
-        undefined,
-        { timeout: 60_000 }
-      );
-      return await staticOnlyPage.evaluate(() => {
-        const module = (globalThis as any).Module;
-        const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
-        if (!canvas) return { ok: false, reason: 'canvas missing' };
-        const context = canvas.getContext('2d');
-        if (!context) return { ok: false, reason: '2d context missing' };
-
-        module._isoweb_clear_entities();
-        module._isoweb_reset_yaw();
-        module._isoweb_reset_zoom();
-        module._isoweb_zoom_in();
-        module._isoweb_render();
-
-        const buildsBeforePan = module._isoweb_static_cache_build_count();
-        module._isoweb_pan(0, 0.75);
-        const buildsAfterPan = module._isoweb_static_cache_build_count();
-        const shifted = context.getImageData(0, 0, canvas.width, canvas.height).data.slice();
-
-        module._isoweb_set_render_thread_limit(1);
-        module._isoweb_render();
-        const buildsAfterRebuild = module._isoweb_static_cache_build_count();
-        const rebuilt = context.getImageData(0, 0, canvas.width, canvas.height).data;
-
-        let differingPixels = 0;
-        let maxDelta = 0;
-        for (let index = 0; index < rebuilt.length; index += 4) {
-          let pixelDifferent = false;
-          for (let channel = 0; channel < 3; ++channel) {
-            const delta = Math.abs(Number(shifted[index + channel]) - Number(rebuilt[index + channel]));
-            if (delta !== 0) {
-              pixelDifferent = true;
-              maxDelta = Math.max(maxDelta, delta);
-            }
-          }
-          if (pixelDifferent) ++differingPixels;
-        }
-
-        return {
-          ok: true,
-          buildsBeforePan,
-          buildsAfterPan,
-          buildsAfterRebuild,
-          differingPixels,
-          maxDelta
-        };
-      });
-    } finally {
-      await staticOnlyPage.close();
-    }
-  })();
-  console.log('[flat-floor-diagnostic] static-only pan parity', JSON.stringify(staticOnlyParity));
-
-  // Return to the exact default view before probing the reported Character issue.
-  moduleReset: {
-    await page.evaluate(() => {
-      const module = (globalThis as any).Module;
-      module._isoweb_reset_camera();
-      module._isoweb_reset_zoom();
-      module._isoweb_reset_yaw();
-      module._isoweb_render();
-    });
-  }
+  // Return to the exact default view before continuing the interaction smoke.
+  await page.evaluate(() => {
+    const module = (globalThis as any).Module;
+    module._isoweb_reset_camera();
+    module._isoweb_reset_zoom();
+    module._isoweb_reset_yaw();
+    module._isoweb_render();
+  });
 
   console.log('[runtime-smoke] locating rendered Character through picker');
   const characterPoint = await page.evaluate(() => {
@@ -403,21 +340,18 @@ try {
     );
   }
 
-  const movementTrace: Array<{ x: number; y: number; z: number; crouching: number; moving: number }> = [];
-  for (let sample = 0; sample < 60; ++sample) {
-    movementTrace.push(await page.evaluate(() => {
-      const module = (globalThis as any).Module;
-      return {
-        x: Number(module.ccall('isoweb_character_position_x', 'number', ['string'], ['demo-character'])),
-        y: Number(module.ccall('isoweb_character_position_y', 'number', ['string'], ['demo-character'])),
-        z: Number(module.ccall('isoweb_character_position_z', 'number', ['string'], ['demo-character'])),
-        crouching: Number(module.ccall('isoweb_character_is_crouching', 'number', ['string'], ['demo-character'])),
-        moving: Number(module.ccall('isoweb_character_is_moving', 'number', ['string'], ['demo-character']))
-      };
-    }));
-    await page.waitForTimeout(50);
+  const flatFloorState = await page.evaluate(() => {
+    const module = (globalThis as any).Module;
+    return {
+      z: Number(module.ccall('isoweb_character_position_z', 'number', ['string'], ['demo-character'])),
+      crouching: Number(module.ccall('isoweb_character_is_crouching', 'number', ['string'], ['demo-character']))
+    };
+  });
+  if (Math.abs(flatFloorState.z) > 1.0e-5 || flatFloorState.crouching !== 0) {
+    throw new Error(
+      `Ordinary flat-floor movement changed Character height/posture unexpectedly: ${JSON.stringify(flatFloorState)}`
+    );
   }
-  console.log('[flat-floor-diagnostic] movement trace', JSON.stringify(movementTrace));
 
   const selectedAfterFirstMove = await page.evaluate(
     () => (globalThis as any).Module._isoweb_selected_character_count()
