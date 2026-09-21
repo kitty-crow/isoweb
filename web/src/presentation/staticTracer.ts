@@ -615,6 +615,11 @@ export class WebGlStaticTracer {
       rayOrigins
     );
 
+    window.isowebStaticGpuBytes =
+      sceneRecordCount * 16 +
+      width * height * 16 +
+      outputWidth * height * 16;
+
     if (this.resultWidth !== outputWidth || this.resultHeight !== height) {
       gl.bindTexture(gl.TEXTURE_2D, this.resultTexture);
       gl.texImage2D(
