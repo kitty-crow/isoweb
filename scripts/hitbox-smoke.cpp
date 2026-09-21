@@ -299,10 +299,9 @@ int main() {
   system.tick(0.10f, camera);
   if (samePosition(beforeOffscreenTick, runner->location.position)) return 52;
 
-  // Foreground props may obscure a controllable Character in an isometric
-  // projection, but they must not make the Character look geometrically sliced.
-  // Preserve real floor/stair depth while keeping the Character fully opaque
-  // through foreground Object occluders.
+  // Foreground static geometry must retain ordinary depth authority over
+  // Characters. This regression specifically proves that a foreground Object
+  // occludes the Character instead of allowing an x-ray/always-on-top override.
   world.resetLevel();
   system.clearSelection();
   runner->sprites = isoweb::engine::CharacterSpriteSet();
@@ -345,7 +344,6 @@ int main() {
   world.prepareRenderFrame(viewDirection);
   int objectBlockedRays = 0;
   int foregroundVisibleRays = 0;
-  int foregroundOpaqueRays = 0;
   int groundBlockedRays = 0;
   constexpr int sampleX = 56;
   constexpr int sampleY = 112;
@@ -388,30 +386,12 @@ int main() {
       if (colourDistance(composited, environmentColour) > 0.01f) {
         ++foregroundVisibleRays;
       }
-
-      // Opaque runtime composition must be independent of the colour behind
-      // it. Calling the compositor with two deliberately different background
-      // colours should therefore produce the same Character pixel.
-      const Vec3 overBlack = world.compositeRuntime(
-        ray,
-        {0.0f, 0.0f, 0.0f},
-        environmentDistance
-      );
-      const Vec3 overWhite = world.compositeRuntime(
-        ray,
-        {1.0f, 1.0f, 1.0f},
-        environmentDistance
-      );
-      if (colourDistance(overBlack, overWhite) < 0.001f) {
-        ++foregroundOpaqueRays;
-      }
     }
   }
 
   if (groundBlockedRays != 0) return 53;
   if (objectBlockedRays < 1000) return 54;
-  if (foregroundVisibleRays != objectBlockedRays) return 55;
-  if (foregroundOpaqueRays != objectBlockedRays) return 56;
+  if (foregroundVisibleRays != 0) return 55;
 
   std::cout << "Generic object and full character-system smoke test passed.\n";
   return 0;
