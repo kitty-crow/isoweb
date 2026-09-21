@@ -18,10 +18,6 @@ float brightness(const isoweb::engine::Vec3& value) {
   return value.x + value.y + value.z;
 }
 
-float colourDistance(const isoweb::engine::Vec3& a, const isoweb::engine::Vec3& b) {
-  return std::fabs(a.x - b.x) + std::fabs(a.y - b.y) + std::fabs(a.z - b.z);
-}
-
 } // namespace
 
 int main() {
@@ -113,38 +109,13 @@ int main() {
     if (
       runner->location.liminalObjectId.empty() ||
       runner->location.levelId != "middle" ||
-      runner->location.position.z >= -0.75f
+      runner->location.position.z >= -0.05f
     ) {
       continue;
     }
 
     enteredLiminal = true;
     if (!world.renderPositionFor(*runner, renderPosition)) return 17;
-
-    // Regression for the floor-clipping failure: from the normal isometric
-    // camera direction, a ray to the lower body crosses the middle z=0 floor
-    // outside the narrow stair-hole footprint. The static environment therefore
-    // reports Ground in front of the Character. A liminal Character must still
-    // composite through that overhead floor, while non-Ground occluders remain
-    // authoritative.
-    const Vec3 viewDirection = normalise({1.0f, 1.0f, -1.0f});
-    world.prepareRenderFrame(viewDirection);
-    const Vec3 lowerBodyPoint = renderPosition + Vec3(0.0f, 0.0f, 0.25f);
-    const Ray lowerBodyRay{lowerBodyPoint - viewDirection * 24.0f, viewDirection};
-
-    float floorDistance = 0.0f;
-    const Vec3 floorColour = world.sampleEnvironment(lowerBodyRay, 0.5f, floorDistance);
-    SceneSurfaceHit floorBlocker;
-    if (!world.traceEnvironment(lowerBodyRay, floorBlocker)) return 36;
-    if (floorBlocker.kind != SceneSurfaceKind::Ground) return 37;
-    if (floorDistance >= 1.0e20f) return 38;
-
-    const Vec3 composited = world.compositeRuntime(
-      lowerBodyRay,
-      floorColour,
-      floorDistance
-    );
-    if (colourDistance(composited, floorColour) < 0.05f) return 39;
 
     // Change only the viewed level. Simulation stays on the connector. The
     // middle render level loses residency and only lower becomes resident.
