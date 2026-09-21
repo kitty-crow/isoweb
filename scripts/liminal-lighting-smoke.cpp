@@ -82,6 +82,13 @@ int main() {
   const Vec3 clear = world.shadeRuntimeSurface("middle", clearPoint, normal, baseColour);
   if (brightness(shadowed) >= brightness(clear)) return 15;
 
+  // Runtime entities must remain readable even inside a hard static-world
+  // shadow. The old 19% ambient-only result made Character faces visually
+  // merge into the shadowed floor and look like floor geometry was drawn over
+  // them. Preserve the shadow contrast, but enforce the runtime readability floor.
+  if (brightness(shadowed) < brightness(baseColour) * 0.50f) return 36;
+  if (world.runtimeSpriteLightFactor("middle", shadowedPoint) < 0.50f) return 37;
+
   // Reproduce the real interaction: a Character starts on middle, is ordered
   // to lower, enters the shared staircase, and remains visible if the viewed
   // level is switched to lower while it is still physically between levels.

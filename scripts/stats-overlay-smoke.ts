@@ -113,31 +113,69 @@ async function inspectNarrowHorizontalScroll(): Promise<Record<string, unknown>>
 
     return await page.evaluate(() => {
       const panel = document.getElementById('performance-stats');
+      const scroll = panel?.querySelector('.stats-scroll');
       const value = panel?.querySelector('.stats-value');
-      if (!(panel instanceof HTMLElement)) {
+      const toggle = panel?.querySelector('.stats-toggle');
+      if (
+        !(panel instanceof HTMLElement) ||
+        !(scroll instanceof HTMLElement) ||
+        !(toggle instanceof HTMLButtonElement)
+      ) {
         return { panel: false };
       }
 
-      const style = getComputedStyle(panel);
+      const panelStyle = getComputedStyle(panel);
+      const scrollStyle = getComputedStyle(scroll);
       const valueStyle = value instanceof HTMLElement ? getComputedStyle(value) : null;
-      const before = panel.scrollLeft;
-      panel.scrollLeft = panel.scrollWidth;
-      const after = panel.scrollLeft;
-      const rect = panel.getBoundingClientRect();
+      const before = scroll.scrollLeft;
+      scroll.scrollLeft = scroll.scrollWidth;
+      const after = scroll.scrollLeft;
+      const expandedRect = panel.getBoundingClientRect();
+
+      toggle.click();
+      const minimisedRect = panel.getBoundingClientRect();
+      const toggleRect = toggle.getBoundingClientRect();
+      const controlIds = [
+        'zoom-in', 'reset-zoom', 'zoom-out',
+        'level-up', 'reset-level', 'level-down',
+        'rotate-counterclockwise', 'reset-yaw', 'rotate-clockwise',
+        'pan-up', 'pan-down', 'pan-left', 'pan-right', 'reset-camera'
+      ];
+      const overlaps = (a: DOMRect, b: DOMRect): boolean =>
+        a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+      const overlappingControls = controlIds.filter(id => {
+        const control = document.getElementById(id);
+        return control instanceof HTMLElement && overlaps(toggleRect, control.getBoundingClientRect());
+      });
+      const minimised =
+        panel.classList.contains('stats-panel--minimised') &&
+        toggle.getAttribute('aria-expanded') === 'false' &&
+        getComputedStyle(scroll).display === 'none';
+
+      toggle.click();
+      const restored =
+        !panel.classList.contains('stats-panel--minimised') &&
+        toggle.getAttribute('aria-expanded') === 'true';
 
       return {
         panel: true,
         viewportWidth: window.innerWidth,
-        left: rect.left,
-        right: rect.right,
-        clientWidth: panel.clientWidth,
-        scrollWidth: panel.scrollWidth,
+        left: expandedRect.left,
+        right: expandedRect.right,
+        clientWidth: scroll.clientWidth,
+        scrollWidth: scroll.scrollWidth,
         before,
         after,
-        overflowX: style.overflowX,
-        touchAction: style.touchAction,
-        pointerEvents: style.pointerEvents,
-        valueWhiteSpace: valueStyle?.whiteSpace ?? ''
+        overflowX: scrollStyle.overflowX,
+        touchAction: scrollStyle.touchAction,
+        pointerEvents: panelStyle.pointerEvents,
+        valueWhiteSpace: valueStyle?.whiteSpace ?? '',
+        minimised,
+        restored,
+        minimisedLeft: minimisedRect.left,
+        minimisedRight: minimisedRect.right,
+        minimisedWidth: minimisedRect.width,
+        overlappingControls
       };
     });
   } finally {
@@ -218,9 +256,22 @@ try {
   ) {
     throw new Error(`narrow: scroll interaction styles are wrong: ${JSON.stringify(narrow)}`);
   }
+  if (!narrow.minimised || !narrow.restored) {
+    throw new Error(`narrow: stats minimise/restore failed: ${JSON.stringify(narrow)}`);
+  }
+  if (
+    Number(narrow.minimisedLeft) < -0.5 ||
+    Number(narrow.minimisedRight) > Number(narrow.viewportWidth) + 0.5 ||
+    Number(narrow.minimisedWidth) > 44
+  ) {
+    throw new Error(`narrow: minimised stats icon escaped or grew too large: ${JSON.stringify(narrow)}`);
+  }
+  if ((narrow.overlappingControls as string[]).length !== 0) {
+    throw new Error(`narrow: minimised stats icon overlaps controls: ${JSON.stringify(narrow)}`);
+  }
 
   console.log(
-    'Stats overlay passed in single-thread, pthread and WebGL2 GPU modes, including narrow horizontal scrolling.'
+    'Stats overlay passed in single-thread, pthread and WebGL2 GPU modes, including narrow scrolling and control-safe minimise/restore.'
   );
 } finally {
   await browser.close();

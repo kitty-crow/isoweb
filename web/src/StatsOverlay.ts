@@ -53,10 +53,24 @@ export class StatsOverlay {
     root.className = 'stats-panel';
     root.setAttribute('aria-label', 'IsoWeb rendering statistics');
 
+    const header = document.createElement('div');
+    header.className = 'stats-header';
+
     const title = document.createElement('strong');
     title.className = 'stats-title';
     title.textContent = 'IsoWeb stats';
-    root.appendChild(title);
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'stats-toggle';
+    toggle.setAttribute('aria-label', 'Minimise rendering statistics');
+    toggle.setAttribute('aria-expanded', 'true');
+    toggle.title = 'Minimise stats';
+    header.append(title, toggle);
+    root.appendChild(header);
+
+    const scroll = document.createElement('div');
+    scroll.className = 'stats-scroll';
 
     for (const label of [
       'FPS',
@@ -78,7 +92,7 @@ export class StatsOverlay {
       value.className = 'stats-value';
       value.textContent = '…';
       row.append(key, value);
-      root.appendChild(row);
+      scroll.appendChild(row);
       this.values.set(label, value);
     }
 
@@ -86,7 +100,23 @@ export class StatsOverlay {
     note.className = 'stats-note';
     note.textContent =
       'Browser sandbox: OS core IDs, per-core utilisation and total process VRAM are not exposed. VRAM shown is IsoWeb-owned WebGL allocation estimate.';
-    root.appendChild(note);
+    scroll.appendChild(note);
+    root.appendChild(scroll);
+
+    const setMinimised = (minimised: boolean): void => {
+      root.classList.toggle('stats-panel--minimised', minimised);
+      toggle.setAttribute('aria-expanded', minimised ? 'false' : 'true');
+      toggle.setAttribute(
+        'aria-label',
+        minimised ? 'Restore rendering statistics' : 'Minimise rendering statistics'
+      );
+      toggle.title = minimised ? 'Restore stats' : 'Minimise stats';
+      if (minimised) root.scrollLeft = 0;
+    };
+    toggle.addEventListener('click', event => {
+      event.stopPropagation();
+      setMinimised(!root.classList.contains('stats-panel--minimised'));
+    });
 
     document.body.appendChild(root);
     this.root = root;
