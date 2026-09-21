@@ -20,7 +20,10 @@ if (
 ) throw new Error('World package round-trip changed the demo');
 
 for (const level of levels) {
-  if (writer.writeLevelBytes(level).byteLength < 100) throw new Error(`Empty isolevel ${level.id}`);
+  const levelBytes = writer.writeLevelBytes(level);
+  if (levelBytes.byteLength < 100) throw new Error(`Empty isolevel ${level.id}`);
+  const roundTripped = new PackageReader().loadLevelBytes(levelBytes);
+  if (roundTripped.id !== level.id) throw new Error(`isolevel round-trip changed ${level.id}`);
 }
 
 const malicious = zipSync({ '../outside.json': strToU8('{}'), 'manifest.json': strToU8('{}') });

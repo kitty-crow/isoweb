@@ -162,6 +162,9 @@ bool RuntimeWorldBuilder::validate(std::string* error) const {
   std::unordered_set<std::string> levelIds;
   for (const LevelBuild& level : levels_) {
     if (level.id.empty()) return fail(error, "level id must not be empty");
+    if (level.id.compare(0, 15, "__isoweb_build_") == 0) {
+      return fail(error, "level id uses a reserved runtime prefix");
+    }
     if (!levelIds.insert(level.id).second) return fail(error, "level ids must be unique");
     if (!finiteVec(level.viewOrigin) || !finiteVec(level.definition.lightPosition) ||
         !finiteVec(level.definition.floorDark) || !finiteVec(level.definition.floorLight) ||

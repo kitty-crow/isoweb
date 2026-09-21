@@ -29,6 +29,7 @@ function inspectZip(bytes: Uint8Array): void {
   if (count === 0xffff || centralSize === 0xffffffff || centralOffset === 0xffffffff) throw new Error('ZIP64 is unsupported');
   if (count > MAX_FILE_COUNT || centralOffset + centralSize > eocd) throw new Error('ZIP central directory is invalid');
   const decoder = new TextDecoder();
+  const names = new Set<string>();
   let offset = centralOffset, expanded = 0;
   for (let index = 0; index < count; ++index) {
     if (offset + 46 > bytes.byteLength || view.getUint32(offset, true) !== 0x02014b50) throw new Error('Malformed ZIP entry');
@@ -40,8 +41,11 @@ function inspectZip(bytes: Uint8Array): void {
     const start = offset + 46, end = start + nameLength;
     if (end > bytes.byteLength) throw new Error('ZIP filename is out of bounds');
     const name = decoder.decode(bytes.subarray(start, end));
+    const canonicalName = name.endsWith('/') ? name.slice(0, -1) : name;
+    if (canonicalName) safePath(canonicalName);
+    if (names.has(name)) throw new Error(`Duplicate package path: ${name}`);
+    names.add(name);
     if (!name.endsWith('/')) {
-      safePath(name);
       if (size > MAX_FILE_BYTES) throw new Error(`Package file is too large: ${name}`);
       expanded += size;
       if (expanded > MAX_EXPANDED_BYTES) throw new Error('Expanded package is too large');
@@ -63,15 +67,31 @@ class Archive {
 }
 
 export class PackageReader {
-  async loadWorld(source: string | Blob | Uint8Array): Promise<LoadedWorldPackage> {
-    let bytes: Uint8Array;
+  private async bytes(source: string | Blob | Uint8Array, label: string): Promise<Uint8Array> {
     if (typeof source === 'string') {
       const response = await fetch(source, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`Unable to load world package: ${response.status}`);
-      bytes = new Uint8Array(await response.arrayBuffer());
-    } else if (source instanceof Blob) bytes = new Uint8Array(await source.arrayBuffer());
-    else bytes = source;
-    return this.loadWorldBytes(bytes);
+      if (!response.ok) throw new Error(`Unable to load ${label} package: ${response.status}`);
+      return new Uint8Array(await response.arrayBuffer());
+    }
+    if (source instanceof Blob) return new Uint8Array(await source.arrayBuffer());
+    return source;
+  }
+
+  async loadLevel(source: string | Blob | Uint8Array): Promise<LevelDocument> {
+    return this.loadLevelBytes(await this.bytes(source, 'level'));
+  }
+
+  loadLevelBytes(bytes: Uint8Array): LevelDocument {
+    inspectZip(bytes);
+    const archive = new Archive(unzipSync(bytes));
+    const manifest = validateManifest(archive.json<PackageManifest>('manifest.json'), 'isolevel');
+    const level = validateLevelDocument(archive.json<LevelDocument>(manifest.entry));
+    if (level.id !== manifest.id) throw new Error('Manifest and level ids disagree');
+    return level;
+  }
+
+  async loadWorld(source: string | Blob | Uint8Array): Promise<LoadedWorldPackage> {
+    return this.loadWorldBytes(await this.bytes(source, 'world'));
   }
 
   loadWorldBytes(bytes: Uint8Array): LoadedWorldPackage {
