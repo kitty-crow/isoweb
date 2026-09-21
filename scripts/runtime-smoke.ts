@@ -427,8 +427,7 @@ try {
           xorPixels,
           shiftedOnly,
           rebuiltOnly,
-          cacheBuilds: module._isoweb_static_cache_build_count(),
-          cacheShifts: module._isoweb_static_cache_shift_count()
+          cacheBuilds: module._isoweb_static_cache_build_count()
         };
       });
     } finally {
