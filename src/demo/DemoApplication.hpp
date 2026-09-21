@@ -11,6 +11,7 @@
 #include "engine/character/CharacterSystem.hpp"
 #include "engine/platform/BrowserPresenter.hpp"
 #include "engine/render/Renderer.hpp"
+#include "engine/world/RuntimeWorldBuilder.hpp"
 #include "engine/ui/ControlSprites.hpp"
 
 namespace isoweb {
@@ -103,11 +104,15 @@ public:
 
   engine::CharacterSystem& characterSystem() { return characters_; }
   engine::World& world() { return world_; }
+  engine::RuntimeWorldBuilder& worldBuilder() { return worldBuilder_; }
+  bool commitWorldBuild();
+
 
 private:
   void redraw(bool refreshPresentation = true);
 
   DemoWorld world_;
+  engine::RuntimeWorldBuilder worldBuilder_;
   engine::Camera camera_;
   engine::ControlSprites controls_;
   engine::Renderer renderer_;

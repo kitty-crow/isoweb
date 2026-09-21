@@ -37,6 +37,25 @@ DemoApplication::DemoApplication()
   world_.setLevelLight("upper", {3.80f, 4.40f, 7.20f});
 }
 
+
+bool DemoApplication::commitWorldBuild() {
+  const bool restoreObstacles = obstacles_.enabled();
+  obstacles_.setEnabled(false);
+  characters_.clearSelection();
+  characterSpawns_.clear();
+
+  std::string error;
+  if (!worldBuilder_.commit(world_, &error)) {
+    if (restoreObstacles) obstacles_.setEnabled(true);
+    return false;
+  }
+
+  renderer_.invalidateWorldCache();
+  camera_.resetPan();
+  if (restoreObstacles) obstacles_.setEnabled(true);
+  return true;
+}
+
 void DemoApplication::redraw(bool refreshPresentation) {
   if (refreshPresentation) characters_.updatePresentation(camera_);
   renderer_.render();
