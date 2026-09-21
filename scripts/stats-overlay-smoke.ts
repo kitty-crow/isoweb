@@ -97,6 +97,54 @@ async function inspect(
   }
 }
 
+
+async function inspectNarrowHorizontalScroll(): Promise<Record<string, unknown>> {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  try {
+    await page.goto(`http://127.0.0.1:${server.port}/single/?stats&gpuStatic=0`, {
+      waitUntil: 'domcontentloaded'
+    });
+    await page.waitForFunction(
+      () => document.documentElement.classList.contains('wasm-ready'),
+      undefined,
+      { timeout: 60_000 }
+    );
+    await page.waitForTimeout(400);
+
+    return await page.evaluate(() => {
+      const panel = document.getElementById('performance-stats');
+      const value = panel?.querySelector('.stats-value');
+      if (!(panel instanceof HTMLElement)) {
+        return { panel: false };
+      }
+
+      const style = getComputedStyle(panel);
+      const valueStyle = value instanceof HTMLElement ? getComputedStyle(value) : null;
+      const before = panel.scrollLeft;
+      panel.scrollLeft = panel.scrollWidth;
+      const after = panel.scrollLeft;
+      const rect = panel.getBoundingClientRect();
+
+      return {
+        panel: true,
+        viewportWidth: window.innerWidth,
+        left: rect.left,
+        right: rect.right,
+        clientWidth: panel.clientWidth,
+        scrollWidth: panel.scrollWidth,
+        before,
+        after,
+        overflowX: style.overflowX,
+        touchAction: style.touchAction,
+        pointerEvents: style.pointerEvents,
+        valueWhiteSpace: valueStyle?.whiteSpace ?? ''
+      };
+    });
+  } finally {
+    await page.close();
+  }
+}
+
 try {
   const single = await inspect('single/?stats&gpuStatic=0', () => {
     const module = (globalThis as any).Module;
@@ -148,7 +196,32 @@ try {
     throw new Error(`gpu: wrong renderer label: ${JSON.stringify(gpu)}`);
   }
 
-  console.log('Stats overlay passed in single-thread, pthread and WebGL2 GPU modes.');
+  const narrow = await inspectNarrowHorizontalScroll();
+  if (!narrow.panel) throw new Error('narrow: stats panel missing');
+  if (
+    Number(narrow.left) < -0.5 ||
+    Number(narrow.right) > Number(narrow.viewportWidth) + 0.5
+  ) {
+    throw new Error(`narrow: panel escaped viewport: ${JSON.stringify(narrow)}`);
+  }
+  if (Number(narrow.scrollWidth) <= Number(narrow.clientWidth)) {
+    throw new Error(`narrow: content did not overflow horizontally: ${JSON.stringify(narrow)}`);
+  }
+  if (Number(narrow.after) <= Number(narrow.before)) {
+    throw new Error(`narrow: panel could not scroll horizontally: ${JSON.stringify(narrow)}`);
+  }
+  if (
+    narrow.overflowX !== 'auto' ||
+    narrow.touchAction !== 'pan-x' ||
+    narrow.pointerEvents !== 'auto' ||
+    narrow.valueWhiteSpace !== 'nowrap'
+  ) {
+    throw new Error(`narrow: scroll interaction styles are wrong: ${JSON.stringify(narrow)}`);
+  }
+
+  console.log(
+    'Stats overlay passed in single-thread, pthread and WebGL2 GPU modes, including narrow horizontal scrolling.'
+  );
 } finally {
   await browser.close();
   server.stop(true);
