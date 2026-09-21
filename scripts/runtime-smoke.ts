@@ -605,6 +605,91 @@ try {
   })();
   console.log('[flat-floor-diagnostic] silhouette-scan', JSON.stringify(silhouetteScan));
 
+  console.log('[flat-floor-diagnostic] sweeping Character height above floor');
+  const zSweepPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const zSweep = await (async () => {
+    try {
+      await zSweepPage.goto(`http://127.0.0.1:${server.port}/?webgl=0`, { waitUntil: 'domcontentloaded' });
+      await zSweepPage.waitForFunction(
+        () => document.documentElement.classList.contains('wasm-ready'),
+        undefined,
+        { timeout: 60_000 }
+      );
+      await zSweepPage.waitForFunction(
+        () => (globalThis as any).Module?._isoweb_character_count?.() === 1,
+        undefined,
+        { timeout: 15_000 }
+      );
+      return await zSweepPage.evaluate(() => {
+        const module = (globalThis as any).Module;
+        const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+        const context = canvas?.getContext('2d');
+        if (!canvas || !context) return { ok: false, reason: 'canvas missing' };
+
+        module._isoweb_reset_camera();
+        module._isoweb_reset_yaw();
+        module._isoweb_reset_zoom();
+        module._isoweb_clear_entities();
+        module._isoweb_render();
+        const background = context.getImageData(0, 0, canvas.width, canvas.height).data.slice();
+
+        const silhouette = (frame: Uint8ClampedArray) => {
+          let pixels = 0;
+          let minX = canvas.width, maxX = -1, minY = canvas.height, maxY = -1;
+          for (let p = 0; p < canvas.width * canvas.height; ++p) {
+            const b = p * 4;
+            const delta =
+              Math.abs(frame[b] - background[b]) +
+              Math.abs(frame[b + 1] - background[b + 1]) +
+              Math.abs(frame[b + 2] - background[b + 2]);
+            if (delta < 8) continue;
+            const x = p % canvas.width;
+            const y = Math.floor(p / canvas.width);
+            ++pixels;
+            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+          }
+          return pixels ? {
+            pixels,
+            width: maxX - minX + 1,
+            height: maxY - minY + 1,
+            minX, maxX, minY, maxY
+          } : { pixels: 0, width: 0, height: 0, minX: -1, maxX: -1, minY: -1, maxY: -1 };
+        };
+
+        const renderAtZ = (z: number) => {
+          module._isoweb_clear_entities();
+          module.ccall(
+            'isoweb_create_character',
+            'number',
+            ['string', 'string', 'string', 'string', 'number', 'number', 'number'],
+            ['diagnostic-character', 'demo', 'default', 'middle', 0.0, 2.4, z]
+          );
+          module.ccall(
+            'isoweb_set_character_hitbox',
+            'number',
+            ['string', 'number', 'number', 'number', 'number', 'number', 'number'],
+            ['diagnostic-character', -0.28, -0.20, 0.0, 0.28, 0.20, 1.65]
+          );
+          module.ccall(
+            'isoweb_set_character_forward',
+            'number',
+            ['string', 'number', 'number'],
+            ['diagnostic-character', 1.0, 0.0]
+          );
+          module._isoweb_render();
+          return silhouette(context.getImageData(0, 0, canvas.width, canvas.height).data);
+        };
+
+        const zs = [0, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.34, 0.5, 1.0, 2.4];
+        return { ok: true, values: zs.map(z => ({ z, silhouette: renderAtZ(z) })) };
+      });
+    } finally {
+      await zSweepPage.close();
+    }
+  })();
+  console.log('[flat-floor-diagnostic] z-sweep', JSON.stringify(zSweep));
+
   console.log('[runtime-smoke] locating rendered Character through picker');
   const characterPoint = await page.evaluate(() => {
     const module = (globalThis as any).Module;
