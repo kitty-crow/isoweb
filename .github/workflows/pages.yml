@@ -138,6 +138,9 @@ jobs:
       - name: Prove adaptive Pages route
         run: bun run test:adaptive-pages
 
+      - name: Test stats overlay in ST MT GPU modes
+        run: bun run test:stats
+
       - name: Package threaded Pages test route
         run: |
           rm -rf site/threaded
