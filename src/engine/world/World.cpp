@@ -990,38 +990,6 @@ Vec3 World::sampleRuntimeEntities(
   std::vector<RuntimeSample>& samples = runtimeSampleScratch_;
   samples.clear();
 
-  // A Character that is physically inside a cross-level connector can be below
-  // the active floor plane while still belonging to that stairwell. At an
-  // oblique isometric view, a ray to the Character crosses z=0 outside the
-  // narrow authored floor opening, so the cached Ground depth would otherwise
-  // slice the Character into triangular fragments. Only let an overhead
-  // walkable Ground surface yield in this specific liminal case. Walls,
-  // objects, stair treads and ordinary non-liminal Characters retain normal
-  // depth occlusion.
-  const auto runtimeVisiblePastEnvironment = [&](
-    const RuntimeRenderEntry& entry,
-    const Vec3& runtimePoint,
-    float runtimeDistance
-  ) {
-    if (runtimeDistance <= environmentHitDistance + 1.0e-5f) return true;
-    if (
-      !entry.character ||
-      entry.character->location.liminalObjectId.empty() ||
-      entry.previewOverlay
-    ) {
-      return false;
-    }
-
-    SceneSurfaceHit blocker;
-    if (!traceVisibleEnvironment(ray, blocker) || !blocker.found) return false;
-    if (blocker.kind != SceneSurfaceKind::Ground) return false;
-
-    const float characterBaseZ =
-      entry.renderPosition.z + entry.proxy.hitBox.minimum.z;
-    return blocker.point.z > characterBaseZ + 1.0e-4f &&
-      runtimePoint.z < blocker.point.z + 1.0e-4f;
-  };
-
   for (const RuntimeRenderEntry& entry : runtimeRenderEntries_) {
     const Character* character = entry.character;
     if (!character) continue;
@@ -1032,9 +1000,8 @@ Vec3 World::sampleRuntimeEntities(
     if (entry.artworkReady && entry.animation && runtimeSpritePlaneValid_) {
       const float t = dot(entry.spriteCentre - ray.origin, runtimeSpritePlaneNormal_) *
         runtimeSpriteInverseDenominator_;
-      if (t > 0.001f) {
+      if (t > 0.001f && t < environmentHitDistance) {
         const Vec3 point = ray.origin + ray.direction * t;
-        if (!runtimeVisiblePastEnvironment(entry, point, t)) continue;
         const Vec3 delta = point - entry.spriteCentre;
         const float u = dot(delta, runtimeSpriteScreenRight_) * entry.spriteInverseWidth + 0.5f;
         const float v = 0.5f - delta.z * entry.spriteInverseHeight;
@@ -1071,13 +1038,7 @@ Vec3 World::sampleRuntimeEntities(
     }
 
     ObjectRayHit hit;
-    const bool liminal =
-      character && !character->location.liminalObjectId.empty() && !entry.previewOverlay;
-    const float maximumRuntimeDistance = liminal
-      ? std::numeric_limits<float>::max()
-      : environmentHitDistance;
-    if (!entry.proxy.intersectRay(ray, 0.001f, maximumRuntimeDistance, hit)) continue;
-    if (!runtimeVisiblePastEnvironment(entry, hit.worldPoint, hit.distance)) continue;
+    if (!entry.proxy.intersectRay(ray, 0.001f, environmentHitDistance, hit)) continue;
     sample.distance = hit.distance;
     sample.point = hit.worldPoint;
     sample.colour = labelPixel(*character, hit)
