@@ -20,7 +20,7 @@ function resolvePath(pathname: string): string | null {
   for (const [prefix, root] of [
     ['single/', 'site/'],
     ['threaded/', 'site-threaded/'],
-    ['adaptive/', 'site/adaptive/']
+    ['webgl/', 'site/webgl/']
   ] as const) {
     if (clean === prefix.slice(0, -1)) return root + 'index.html';
     if (clean.startsWith(prefix)) {
@@ -196,7 +196,7 @@ try {
     module._isoweb_render();
   });
 
-  const gpu = await inspect('adaptive/?stats', () => {
+  const gpu = await inspect('webgl/?stats', () => {
     const module = (globalThis as any).Module;
     module._isoweb_set_render_thread_limit(4);
     module._isoweb_reset_level();
