@@ -46,7 +46,11 @@ export class App {
 
     const stateLoader = new WorldStateLoader(this.module);
     void stateLoader.load()
-      .then(() => this.module._isoweb_set_obstacles_enabled(obstaclesEnabled ? 1 : 0))
+      .then(() => {
+        this.module._isoweb_set_obstacles_enabled(obstaclesEnabled ? 1 : 0);
+        document.documentElement.classList.add('world-ready');
+        this.module._isoweb_render();
+      })
       .catch(error => console.error('[IsoWeb world package]', error));
 
     let previousTime = performance.now();

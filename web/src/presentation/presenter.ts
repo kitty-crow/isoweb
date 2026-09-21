@@ -95,7 +95,7 @@ export function installPresenter(): void {
       lastActiveLevel = activeLevel;
     }
 
-    if (!readyPresented) {
+    if (!readyPresented && document.documentElement.classList.contains('world-ready')) {
       document.documentElement.classList.add('wasm-ready');
       loading.hidden = true;
       readyPresented = true;

@@ -16,7 +16,6 @@ export class WorldStateLoader {
     const packageData = await this.packages.loadWorld(url);
     const resources = this.builder.build(packageData);
     await Promise.all(Array.from(resources, resource => this.loadWebPAtlas(resource)));
-    this.module._isoweb_render();
   }
 
   private callNumber(ident: string, argTypes: CCallArgType[], args: unknown[]): number {
