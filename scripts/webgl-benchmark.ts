@@ -77,7 +77,7 @@ try {
   const canvasPage = await browser.newPage({ viewport: { width: 960, height: 720 } });
   const webglPage = await browser.newPage({ viewport: { width: 960, height: 720 } });
   const canvas = await measure(canvasPage, '?webgl=0');
-  const webgl = await measure(webglPage, '');
+  const webgl = await measure(webglPage, '?gpuStatic=0');
 
   if (canvas.backend !== 'canvas2d' || webgl.backend !== 'webgl2') {
     throw new Error(`Unexpected backends: ${JSON.stringify({ canvas, webgl })}`);
