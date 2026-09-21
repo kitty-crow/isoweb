@@ -169,6 +169,74 @@ try {
     );
   }
 
+  console.log('[runtime-smoke] proving vertical pan cache matches a full rebuild');
+  const panParity = await page.evaluate(() => {
+    const module = (globalThis as any).Module;
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return { ok: false, reason: 'canvas missing' };
+    const context = canvas.getContext('2d');
+    if (!context) return { ok: false, reason: '2d context missing' };
+
+    module._isoweb_reset_yaw();
+    module._isoweb_reset_zoom();
+    module._isoweb_zoom_in();
+    module._isoweb_render();
+
+    const buildsBeforePan = module._isoweb_static_cache_build_count();
+    module._isoweb_pan(0, 0.75);
+    const buildsAfterPan = module._isoweb_static_cache_build_count();
+    const shifted = context.getImageData(0, 0, canvas.width, canvas.height).data.slice();
+
+    // setRenderThreadLimit invalidates the static cache without changing the
+    // camera. Re-rendering therefore gives an exact same-view full rebuild to
+    // compare against the pan-shifted cache.
+    module._isoweb_set_render_thread_limit(1);
+    module._isoweb_render();
+    const buildsAfterRebuild = module._isoweb_static_cache_build_count();
+    const rebuilt = context.getImageData(0, 0, canvas.width, canvas.height).data;
+
+    let differingChannels = 0;
+    let differingPixels = 0;
+    let maxDelta = 0;
+    for (let index = 0; index < rebuilt.length; index += 4) {
+      let pixelDifferent = false;
+      for (let channel = 0; channel < 3; ++channel) {
+        const delta = Math.abs(Number(shifted[index + channel]) - Number(rebuilt[index + channel]));
+        if (delta !== 0) {
+          ++differingChannels;
+          pixelDifferent = true;
+          maxDelta = Math.max(maxDelta, delta);
+        }
+      }
+      if (pixelDifferent) ++differingPixels;
+    }
+
+    return {
+      ok: true,
+      buildsBeforePan,
+      buildsAfterPan,
+      buildsAfterRebuild,
+      differingChannels,
+      differingPixels,
+      maxDelta,
+      width: canvas.width,
+      height: canvas.height
+    };
+  });
+  console.log('[flat-floor-diagnostic] pan parity', JSON.stringify(panParity));
+  if (!panParity.ok) throw new Error(`Pan parity setup failed: ${JSON.stringify(panParity)}`);
+  if (panParity.buildsAfterPan !== panParity.buildsBeforePan) {
+    throw new Error(`Vertical pan did not exercise the static-cache shift path: ${JSON.stringify(panParity)}`);
+  }
+  if (panParity.buildsAfterRebuild !== panParity.buildsAfterPan + 1) {
+    throw new Error(`Forced same-view rebuild did not rebuild exactly once: ${JSON.stringify(panParity)}`);
+  }
+  if (panParity.differingPixels !== 0) {
+    throw new Error(
+      `Pan-shifted static cache diverged from an exact same-view rebuild: ${JSON.stringify(panParity)}`
+    );
+  }
+
   console.log('[runtime-smoke] locating rendered Character through picker');
   const characterPoint = await page.evaluate(() => {
     const module = (globalThis as any).Module;
