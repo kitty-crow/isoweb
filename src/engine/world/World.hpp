@@ -68,6 +68,14 @@ public:
     return traceEnvironment(ray, hit) && hit.distance < maximumDistance;
   }
 
+  // Runtime entities may need different visibility semantics from the static
+  // presentation. For example, a camera-facing cutaway wall is intentionally
+  // drawn as a low sill but must not slice a Character standing behind it.
+  // Worlds without presentation-only geometry keep ordinary ray occlusion.
+  virtual bool runtimeRayOccluded(const Ray& ray, float maximumDistance) const {
+    return rayOccluded(ray, maximumDistance);
+  }
+
   // Static presentation may depend on camera orientation (for example,
   // cutaway walls). This is render state only and must not mutate collision.
   virtual void prepareRenderFrame(const Vec3&) const {}
