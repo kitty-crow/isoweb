@@ -149,7 +149,12 @@ export class StatsOverlay {
 
     this.set('FPS', `${this.renderFps.toFixed(1)} render · ${displayFps.toFixed(1)} display`);
     this.set('Frame', frameDetail || 'waiting for first frame');
-    this.set('Activity', this.activity);
+    const recentPresent =
+      now - (window.isowebLastPresentedAt ?? Number.NEGATIVE_INFINITY) < 300;
+    this.set(
+      'Activity',
+      this.activity === 'idle' && recentPresent ? 'render / presentation' : this.activity
+    );
     this.set('Renderer', `${staticBackendLabel(backend)} · ${presentation} present`);
     this.set(
       'CPU',
