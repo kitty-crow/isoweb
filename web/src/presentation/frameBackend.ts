@@ -128,6 +128,8 @@ class WebGl2FrameBackend implements FrameBackend {
         window.isowebGpuStaticAvailable = true;
       } catch (error) {
         window.isowebGpuStaticAvailable = false;
+  window.isowebFrameGpuBytes = 0;
+  window.isowebStaticGpuBytes = 0;
         window.isowebGpuStaticError = error instanceof Error ? error.message : String(error);
         console.warn('WebGL2 static ray tracing unavailable; using CPU static renderer.', error);
       }
@@ -221,6 +223,7 @@ class WebGl2FrameBackend implements FrameBackend {
       );
       this.textureWidth = width;
       this.textureHeight = height;
+      window.isowebFrameGpuBytes = byteLength;
     } else {
       gl.texSubImage2D(
         gl.TEXTURE_2D,
