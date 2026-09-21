@@ -229,7 +229,21 @@ bool Renderer::shiftStaticCacheForPan(
     for (int x = destinationX1; x < frameWidth_; ++x) invalidatePixel(x, y);
   }
 
-  const float forwardShift = dot(panDelta, forward);
+  // Cache entries store distance from the ray origin, not an absolute world
+  // depth. Panning can move the ray-origin plane along the view direction
+  // because rayOriginDistance() depends on the panned focus. Preserve the
+  // original world-space hit point when reusing a shifted sample.
+  const Vec3 oldFocus = bounds.focus + Vec3(
+    staticCacheKey_.panX,
+    staticCacheKey_.panY,
+    0.0f
+  );
+  const Vec3 newFocus = bounds.focus + Vec3(key.panX, key.panY, 0.0f);
+  const float oldOriginDistance = rayOriginDistance(bounds, forward, oldFocus);
+  const float newOriginDistance = rayOriginDistance(bounds, forward, newFocus);
+  const float rayOriginForwardShift =
+    dot(panDelta, forward) - (newOriginDistance - oldOriginDistance);
+
   for (int y = destinationY0; y < destinationY1; ++y) {
     for (int x = destinationX0; x < destinationX1; ++x) {
       StaticSample* samples = staticSamples_.data() +
@@ -238,7 +252,10 @@ bool Renderer::shiftStaticCacheForPan(
         StaticSample& sample = samples[sampleIndex];
         if (sample.environmentDistance < 0.0f) continue;
         if (sample.environmentDistance < NO_HIT_DISTANCE) {
-          sample.environmentDistance = std::max(0.001f, sample.environmentDistance - forwardShift);
+          sample.environmentDistance = std::max(
+            0.001f,
+            sample.environmentDistance - rayOriginForwardShift
+          );
         } else if (sourceShiftY != 0) {
           sample.colour = panBackgroundRows_[
             static_cast<std::size_t>(y) * 2 + (sampleIndex >> 1)
@@ -545,7 +562,7 @@ void Renderer::render() {
       staticCacheValid_ = false;
     }
     if (!staticCacheMatches(nextStaticKey) && staticCacheMatchesExceptPan(nextStaticKey)) {
-      shiftStaticCacheForPan(nextStaticKey, forward, right, up, width, height, bounds);
+      shiftStaticCacheForPan(nextStaticKey, forward, right, up, width, height, visibleBounds);
     }
   } else {
     staticCacheValid_ = false;
