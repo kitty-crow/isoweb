@@ -58,8 +58,7 @@ const browser = await chromium.launch({ headless: true });
 
 async function inspect(
   route: string,
-  expectedBackend: number,
-  configure: (module: any) => void
+  configure: () => void
 ): Promise<Record<string, unknown>> {
   const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
   try {
@@ -99,17 +98,20 @@ async function inspect(
 }
 
 try {
-  const single = await inspect('single/?stats&gpuStatic=0', 0, module => {
+  const single = await inspect('single/?stats&gpuStatic=0', () => {
+    const module = (globalThis as any).Module;
     module._isoweb_set_render_thread_limit(1);
     module._isoweb_render();
   });
 
-  const threaded = await inspect('threaded/?stats&gpuStatic=0', 1, module => {
+  const threaded = await inspect('threaded/?stats&gpuStatic=0', () => {
+    const module = (globalThis as any).Module;
     module._isoweb_set_render_thread_limit(4);
     module._isoweb_render();
   });
 
-  const gpu = await inspect('adaptive/?stats', 2, module => {
+  const gpu = await inspect('adaptive/?stats', () => {
+    const module = (globalThis as any).Module;
     module._isoweb_set_render_thread_limit(4);
     module._isoweb_reset_level();
     module._isoweb_render();
