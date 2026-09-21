@@ -243,17 +243,87 @@ try {
     );
   }
 
-  const shiftedFrame = await page.locator('#canvas').screenshot();
-  await page.evaluate(() => {
+  const shiftedFrame = await page.evaluate(() => {
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+    if (!canvas) throw new Error('Canvas missing.');
+    const read = (): Uint8Array => {
+      const gl = canvas.getContext('webgl2');
+      if (gl) {
+        const pixels = new Uint8Array(canvas.width * canvas.height * 4);
+        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return pixels;
+      }
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('No readable canvas context.');
+      return new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
+    };
+    const pixels = read();
+    (globalThis as any).__isowebShiftedDepthFrame = pixels;
+    return { width: canvas.width, height: canvas.height };
+  });
+
+  const depthParity = await page.evaluate(() => {
     const module = (globalThis as any).Module;
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+    if (!canvas) throw new Error('Canvas missing.');
     module._isoweb_set_render_thread_limit(1);
     module._isoweb_render();
+
+    const gl = canvas.getContext('webgl2');
+    let rebuilt: Uint8Array;
+    if (gl) {
+      rebuilt = new Uint8Array(canvas.width * canvas.height * 4);
+      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, rebuilt);
+    } else {
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('No readable canvas context.');
+      rebuilt = new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
+    }
+
+    const shifted = (globalThis as any).__isowebShiftedDepthFrame as Uint8Array;
+    let differingBytes = 0;
+    let differingPixels = 0;
+    let minX = canvas.width;
+    let minY = canvas.height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let offset = 0; offset < rebuilt.length; offset += 4) {
+      let pixelDiffers = false;
+      for (let channel = 0; channel < 4; ++channel) {
+        if (shifted[offset + channel] !== rebuilt[offset + channel]) {
+          ++differingBytes;
+          pixelDiffers = true;
+        }
+      }
+      if (!pixelDiffers) continue;
+      ++differingPixels;
+      const pixel = offset >> 2;
+      const x = pixel % canvas.width;
+      const y = Math.floor(pixel / canvas.width);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+    return {
+      differingBytes,
+      differingPixels,
+      minX,
+      minY,
+      maxX,
+      maxY,
+      width: canvas.width,
+      height: canvas.height
+    };
   });
-  const rebuiltFrame = await page.locator('#canvas').screenshot();
-  if (!shiftedFrame.equals(rebuiltFrame)) {
+
+  if (depthParity.differingPixels !== 0) {
     throw new Error(
-      'A pan-shifted z=0 scene differs from a full rebuild at the same camera position; cached depth moved in world space.'
+      `A pan-shifted z=0 scene differs from a full rebuild at the same camera position: ${JSON.stringify(depthParity)}`
     );
+  }
+  if (shiftedFrame.width <= 0 || shiftedFrame.height <= 0) {
+    throw new Error('Depth parity frame was empty.');
   }
 
   if (errors.length) throw new Error(errors.join('\n\n'));
