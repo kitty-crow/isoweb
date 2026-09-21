@@ -240,7 +240,7 @@ try {
   const staticOnlyPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const staticOnlyParity = await (async () => {
     try {
-      await staticOnlyPage.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: 'domcontentloaded' });
+      await staticOnlyPage.goto(`http://127.0.0.1:${server.port}/?webgl=0`, { waitUntil: 'domcontentloaded' });
       await staticOnlyPage.waitForFunction(
         () => document.documentElement.classList.contains('wasm-ready'),
         undefined,
