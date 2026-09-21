@@ -318,121 +318,165 @@ try {
     module._isoweb_render();
   });
 
-  console.log('[flat-floor-diagnostic] measuring grounded vs lifted Character silhouette');
-  const silhouetteDiagnostics = await page.evaluate(() => {
-    const module = (globalThis as any).Module;
-    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
-    if (!canvas) return { ok: false, reason: 'canvas missing' };
-    const context = canvas.getContext('2d');
-    if (!context) return { ok: false, reason: '2d context missing' };
-
-    const renderAt = (x: number, y: number, z: number) => {
-      const changed = module.ccall(
-        'isoweb_set_character_location',
-        'number',
-        ['string', 'string', 'string', 'string', 'number', 'number', 'number'],
-        ['demo-character', 'demo', 'default', 'middle', x, y, z]
+  console.log('[flat-floor-diagnostic] scanning flat-floor Character silhouette');
+  const silhouettePage = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const silhouetteScan = await (async () => {
+    try {
+      await silhouettePage.goto(`http://127.0.0.1:${server.port}/?webgl=0`, {
+        waitUntil: 'domcontentloaded'
+      });
+      await silhouettePage.waitForFunction(
+        () => document.documentElement.classList.contains('wasm-ready'),
+        undefined,
+        { timeout: 60_000 }
       );
-      if (!changed) throw new Error('unable to position diagnostic Character');
-      module._isoweb_render();
-      return context.getImageData(0, 0, canvas.width, canvas.height).data.slice();
-    };
+      await silhouettePage.waitForFunction(
+        () => (globalThis as any).Module?._isoweb_character_count?.() === 1,
+        undefined,
+        { timeout: 15_000 }
+      );
 
-    const componentsFor = (a: Uint8ClampedArray, b: Uint8ClampedArray) => {
-      const width = canvas.width;
-      const height = canvas.height;
-      const mask = new Uint8Array(width * height);
-      for (let pixel = 0; pixel < width * height; ++pixel) {
-        const base = pixel * 4;
-        const delta =
-          Math.abs(a[base] - b[base]) +
-          Math.abs(a[base + 1] - b[base + 1]) +
-          Math.abs(a[base + 2] - b[base + 2]);
-        if (delta >= 8) mask[pixel] = 1;
-      }
+      return await silhouettePage.evaluate(() => {
+        const module = (globalThis as any).Module;
+        const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+        if (!canvas) return { ok: false, reason: 'canvas missing' };
+        const context = canvas.getContext('2d');
+        if (!context) return { ok: false, reason: '2d context missing' };
 
-      const visited = new Uint8Array(mask.length);
-      const components: Array<{
-        pixels: number;
-        minX: number;
-        maxX: number;
-        minY: number;
-        maxY: number;
-      }> = [];
-      const queue: number[] = [];
+        module._isoweb_reset_camera();
+        module._isoweb_reset_yaw();
+        module._isoweb_reset_zoom();
+        module._isoweb_clear_entities();
+        module._isoweb_render();
+        const baseline = context.getImageData(0, 0, canvas.width, canvas.height).data.slice();
 
-      for (let seed = 0; seed < mask.length; ++seed) {
-        if (!mask[seed] || visited[seed]) continue;
-        visited[seed] = 1;
-        queue.length = 0;
-        queue.push(seed);
-        let cursor = 0;
-        let pixels = 0;
-        let minX = width;
-        let maxX = -1;
-        let minY = height;
-        let maxY = -1;
+        const createCharacter = (x: number, y: number, z: number, fx: number, fy: number) => {
+          module._isoweb_clear_entities();
+          const created = module.ccall(
+            'isoweb_create_character',
+            'number',
+            ['string', 'string', 'string', 'string', 'number', 'number', 'number'],
+            ['diagnostic-character', 'demo', 'default', 'middle', x, y, z]
+          );
+          if (!created) throw new Error('unable to create diagnostic Character');
+          module.ccall(
+            'isoweb_set_character_hitbox',
+            'number',
+            ['string', 'number', 'number', 'number', 'number', 'number', 'number'],
+            ['diagnostic-character', -0.28, -0.20, 0.0, 0.28, 0.20, 1.65]
+          );
+          module.ccall(
+            'isoweb_set_character_forward',
+            'number',
+            ['string', 'number', 'number'],
+            ['diagnostic-character', fx, fy]
+          );
+          module._isoweb_render();
+          return context.getImageData(0, 0, canvas.width, canvas.height).data.slice();
+        };
 
-        while (cursor < queue.length) {
-          const index = queue[cursor++];
-          const x = index % width;
-          const y = Math.floor(index / width);
-          ++pixels;
-          minX = Math.min(minX, x);
-          maxX = Math.max(maxX, x);
-          minY = Math.min(minY, y);
-          maxY = Math.max(maxY, y);
+        const silhouette = (frame: Uint8ClampedArray) => {
+          const width = canvas.width;
+          const height = canvas.height;
+          let pixels = 0;
+          let minX = width;
+          let maxX = -1;
+          let minY = height;
+          let maxY = -1;
+          for (let pixel = 0; pixel < width * height; ++pixel) {
+            const base = pixel * 4;
+            const delta =
+              Math.abs(frame[base] - baseline[base]) +
+              Math.abs(frame[base + 1] - baseline[base + 1]) +
+              Math.abs(frame[base + 2] - baseline[base + 2]);
+            if (delta < 3) continue;
+            const x = pixel % width;
+            const y = Math.floor(pixel / width);
+            ++pixels;
+            minX = Math.min(minX, x);
+            maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y);
+            maxY = Math.max(maxY, y);
+          }
+          return pixels === 0
+            ? { pixels: 0, width: 0, height: 0, minX: -1, maxX: -1, minY: -1, maxY: -1 }
+            : {
+                pixels,
+                width: maxX - minX + 1,
+                height: maxY - minY + 1,
+                minX,
+                maxX,
+                minY,
+                maxY
+              };
+        };
 
-          for (let dy = -1; dy <= 1; ++dy) {
-            for (let dx = -1; dx <= 1; ++dx) {
-              if (dx === 0 && dy === 0) continue;
-              const nx = x + dx;
-              const ny = y + dy;
-              if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
-              const next = ny * width + nx;
-              if (!mask[next] || visited[next]) continue;
-              visited[next] = 1;
-              queue.push(next);
-            }
+        const positions = [
+          [-2.4, -2.4], [-2.4, 0.0], [-2.4, 2.4],
+          [0.0, -2.4],                 [0.0, 2.4],
+          [2.4, -2.4],  [2.4, 0.0],   [2.4, 2.4]
+        ];
+        const directions = [
+          [0.0, 1.0],
+          [1.0, 0.0],
+          [0.0, -1.0],
+          [-1.0, 0.0],
+          [0.70710678, 0.70710678],
+          [-0.70710678, 0.70710678],
+          [0.70710678, -0.70710678],
+          [-0.70710678, -0.70710678]
+        ];
+
+        const samples: any[] = [];
+        for (const [x, y] of positions) {
+          for (const [fx, fy] of directions) {
+            const grounded = silhouette(createCharacter(x, y, 0.0, fx, fy));
+            const lifted = silhouette(createCharacter(x, y, 2.4, fx, fy));
+            const areaRatio = lifted.pixels > 0 ? grounded.pixels / lifted.pixels : null;
+            const heightRatio = lifted.height > 0 ? grounded.height / lifted.height : null;
+            samples.push({
+              x, y, fx, fy,
+              grounded,
+              lifted,
+              areaRatio,
+              heightRatio
+            });
           }
         }
 
-        if (pixels >= 8) components.push({ pixels, minX, maxX, minY, maxY });
-      }
+        module._isoweb_clear_entities();
+        module._isoweb_render();
 
-      components.sort((left, right) => right.pixels - left.pixels);
-      return components.slice(0, 8).map(component => ({
-        ...component,
-        width: component.maxX - component.minX + 1,
-        height: component.maxY - component.minY + 1,
-        centreY: (component.minY + component.maxY) * 0.5
-      }));
-    };
+        const visiblePairs = samples.filter(sample =>
+          sample.grounded.pixels > 100 &&
+          sample.lifted.pixels > 100 &&
+          sample.grounded.minX > 1 &&
+          sample.grounded.maxX < canvas.width - 2 &&
+          sample.grounded.minY > 1 &&
+          sample.grounded.maxY < canvas.height - 2 &&
+          sample.lifted.minX > 1 &&
+          sample.lifted.maxX < canvas.width - 2 &&
+          sample.lifted.minY > 1 &&
+          sample.lifted.maxY < canvas.height - 2
+        );
+        visiblePairs.sort((a, b) =>
+          (a.areaRatio ?? 999) - (b.areaRatio ?? 999)
+        );
 
-    module._isoweb_reset_camera();
-    module._isoweb_reset_yaw();
-    module._isoweb_reset_zoom();
-    module._isoweb_zoom_in();
-
-    const positions = [
-      { x: -2.0, y: -2.0 },
-      { x: 0.0, y: 2.4 },
-      { x: -2.0, y: 2.0 },
-      { x: 2.0, y: 2.0 }
-    ];
-
-    const results = [];
-    for (const position of positions) {
-      const grounded = renderAt(position.x, position.y, 0.0);
-      const lifted = renderAt(position.x, position.y, 3.0);
-      const components = componentsFor(grounded, lifted);
-      results.push({ ...position, components });
+        return {
+          ok: true,
+          width: canvas.width,
+          height: canvas.height,
+          tested: samples.length,
+          visible: visiblePairs.length,
+          worst: visiblePairs.slice(0, 12)
+        };
+      });
+    } finally {
+      await silhouettePage.close();
     }
-
-    renderAt(0.0, 2.4, 0.0);
-    return { ok: true, width: canvas.width, height: canvas.height, results };
-  });
-  console.log('[flat-floor-diagnostic] silhouette', JSON.stringify(silhouetteDiagnostics));
+  })();
+  console.log('[flat-floor-diagnostic] silhouette-scan', JSON.stringify(silhouetteScan));
 
   console.log('[runtime-smoke] locating rendered Character through picker');
   const characterPoint = await page.evaluate(() => {
