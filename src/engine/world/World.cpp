@@ -1006,11 +1006,11 @@ Vec3 World::sampleRuntimeEntities(
       if (blocker.distance >= sampleDistance - 0.0005f) return 1.0f;
 
       // Preserve genuine vertical/depth occlusion from floors, stairs and lower
-      // preview planes. Foreground props and cutaway wall geometry instead get
-      // an x-ray treatment so a controllable Character cannot visually appear
-      // sliced into the floor simply because an opaque object crosses it in
-      // orthographic projection.
-      return blocker.kind == SceneSurfaceKind::Object ? 0.58f : 0.0f;
+      // preview planes. Foreground props and cutaway wall geometry must not
+      // slice a controllable Character in orthographic projection, but this is
+      // a visibility override rather than a translucency effect: the Character
+      // remains fully opaque.
+      return blocker.kind == SceneSurfaceKind::Object ? 1.0f : 0.0f;
     };
 
     if (entry.artworkReady && entry.animation && runtimeSpritePlaneValid_) {
