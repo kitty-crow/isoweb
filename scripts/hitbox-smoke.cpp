@@ -22,7 +22,12 @@ using isoweb::engine::EntityLocation;
 using isoweb::engine::HitBox;
 using isoweb::engine::NavigationLink;
 using isoweb::engine::Object;
+using isoweb::engine::ObjectRayHit;
+using isoweb::engine::Ray;
+using isoweb::engine::SceneSurfaceHit;
+using isoweb::engine::SceneSurfaceKind;
 using isoweb::engine::SelectionMode;
+using isoweb::engine::Vec3;
 using isoweb::engine::SpriteAnimation;
 using isoweb::engine::SpriteAtlasRegistry;
 using isoweb::engine::WorldObject;
@@ -55,6 +60,10 @@ bool near(float a, float b, float tolerance = 0.0001f) {
 
 bool samePosition(const isoweb::engine::Vec3& a, const isoweb::engine::Vec3& b) {
   return near(a.x, b.x) && near(a.y, b.y) && near(a.z, b.z);
+}
+
+float colourDistance(const Vec3& a, const Vec3& b) {
+  return std::fabs(a.x - b.x) + std::fabs(a.y - b.y) + std::fabs(a.z - b.z);
 }
 
 void assignAllDirections(isoweb::engine::DirectionalSpriteSet& set, const SpriteAnimation& animation) {
@@ -289,6 +298,101 @@ int main() {
   const auto beforeOffscreenTick = runner->location.position;
   system.tick(0.10f, camera);
   if (samePosition(beforeOffscreenTick, runner->location.position)) return 52;
+
+  // Foreground props may obscure a controllable Character in an isometric
+  // projection, but they must not make the Character look geometrically sliced.
+  // Preserve real floor/stair depth while compositing the occluded portion as a
+  // translucent x-ray overlay.
+  world.resetLevel();
+  system.clearSelection();
+  runner->sprites = isoweb::engine::CharacterSpriteSet();
+  runner->controllable = true;
+  runner->crouching = false;
+  runner->location = {"demo", "default", "middle", {0.0f, 2.4f, 0.0f}};
+  runner->hitBox = box(-0.28f, -0.20f, 0.0f, 0.28f, 0.20f, 1.65f);
+  runner->forward = {0.0f, 1.0f, 0.0f};
+  blocker->location.position = {-3.7f, 3.7f, 0.0f};
+
+  const Vec3 viewDirection = isoweb::engine::normalise({1.0f, 1.0f, -1.0f});
+  const Vec3 screenRight = isoweb::engine::normalise(
+    isoweb::engine::cross(viewDirection, {0.0f, 0.0f, 1.0f})
+  );
+  const Vec3 screenUp = isoweb::engine::normalise(
+    isoweb::engine::cross(screenRight, viewDirection)
+  );
+
+  Object renderProxy;
+  renderProxy.location = runner->location;
+  renderProxy.forward = runner->forward;
+  renderProxy.hitBox = runner->hitBox;
+
+  float minX = 1.0e9f;
+  float minY = 1.0e9f;
+  float maxX = -1.0e9f;
+  float maxY = -1.0e9f;
+  for (float x : {runner->hitBox.minimum.x, runner->hitBox.maximum.x}) {
+    for (float y : {runner->hitBox.minimum.y, runner->hitBox.maximum.y}) {
+      for (float z : {runner->hitBox.minimum.z, runner->hitBox.maximum.z}) {
+        const Vec3 point = renderProxy.localToWorld({x, y, z});
+        minX = std::min(minX, isoweb::engine::dot(point, screenRight));
+        minY = std::min(minY, isoweb::engine::dot(point, screenUp));
+        maxX = std::max(maxX, isoweb::engine::dot(point, screenRight));
+        maxY = std::max(maxY, isoweb::engine::dot(point, screenUp));
+      }
+    }
+  }
+
+  world.prepareRenderFrame(viewDirection);
+  int objectBlockedRays = 0;
+  int xrayVisibleRays = 0;
+  int groundBlockedRays = 0;
+  constexpr int sampleX = 56;
+  constexpr int sampleY = 112;
+  for (int iy = 0; iy < sampleY; ++iy) {
+    const float sy = minY + (maxY - minY) *
+      (static_cast<float>(iy) + 0.5f) / sampleY;
+    for (int ix = 0; ix < sampleX; ++ix) {
+      const float sx = minX + (maxX - minX) *
+        (static_cast<float>(ix) + 0.5f) / sampleX;
+      const Ray ray{
+        screenRight * sx + screenUp * sy - viewDirection * 50.0f,
+        viewDirection
+      };
+
+      ObjectRayHit characterHit;
+      if (!renderProxy.intersectRay(ray, 0.001f, 1000.0f, characterHit)) continue;
+
+      SceneSurfaceHit blockerHit;
+      if (!world.traceEnvironment(ray, blockerHit)) continue;
+      if (blockerHit.distance >= characterHit.distance - 1.0e-4f) continue;
+
+      if (blockerHit.kind == SceneSurfaceKind::Ground) {
+        ++groundBlockedRays;
+        continue;
+      }
+      if (blockerHit.kind != SceneSurfaceKind::Object) continue;
+      ++objectBlockedRays;
+
+      float environmentDistance = 0.0f;
+      const Vec3 environmentColour = world.sampleEnvironment(
+        ray,
+        0.5f,
+        environmentDistance
+      );
+      const Vec3 composited = world.compositeRuntime(
+        ray,
+        environmentColour,
+        environmentDistance
+      );
+      if (colourDistance(composited, environmentColour) > 0.01f) {
+        ++xrayVisibleRays;
+      }
+    }
+  }
+
+  if (groundBlockedRays != 0) return 53;
+  if (objectBlockedRays < 1000) return 54;
+  if (xrayVisibleRays != objectBlockedRays) return 55;
 
   std::cout << "Generic object and full character-system smoke test passed.\n";
   return 0;
