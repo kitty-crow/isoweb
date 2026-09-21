@@ -214,7 +214,7 @@ try {
     }
 
     const rows = result.rows as Record<string, string>;
-    for (const required of ['FPS', 'Frame', 'Activity', 'Renderer', 'CPU', 'RAM', 'VRAM', 'GPU']) {
+    for (const required of ['FPS', 'Frame', 'Activity', 'Renderer', 'Display', 'CPU', 'RAM', 'VRAM', 'GPU']) {
       if (!rows[required] || rows[required] === '…') {
         throw new Error(`${name}: missing ${required}: ${JSON.stringify(result)}`);
       }
