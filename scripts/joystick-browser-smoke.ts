@@ -171,6 +171,39 @@ try {
   await page.locator('#reset-camera').click();
   await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('pan X 0.00; Y 0.00'));
 
+  console.log('[joystick-browser] shifted pan cache preserves exact world-space depth');
+  const depthBuildsBefore = await page.evaluate(
+    () => (globalThis as any).Module._isoweb_static_cache_build_count()
+  );
+  await drag('#reset-camera', 0, 44, 900);
+  const depthBuildsAfterShift = await page.evaluate(
+    () => (globalThis as any).Module._isoweb_static_cache_build_count()
+  );
+  if (depthBuildsAfterShift !== depthBuildsBefore) {
+    throw new Error(
+      `Depth regression setup unexpectedly rebuilt static cache: ${depthBuildsBefore} -> ${depthBuildsAfterShift}`
+    );
+  }
+
+  const shiftedFrame = await page.locator('#canvas').screenshot();
+  await page.evaluate(() => {
+    const module = (globalThis as any).Module;
+    // setRenderThreadLimit deliberately invalidates the static cache. Rendering
+    // again at the identical camera position gives the exact full-rebuild
+    // reference for the shifted cache.
+    module._isoweb_set_render_thread_limit(1);
+    module._isoweb_render();
+  });
+  const rebuiltFrame = await page.locator('#canvas').screenshot();
+  if (!shiftedFrame.equals(rebuiltFrame)) {
+    throw new Error(
+      'Pan-cache frame differs from a full rebuild at the same camera position; cached world depth moved.'
+    );
+  }
+
+  await page.locator('#reset-camera').click();
+  await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('pan X 0.00; Y 0.00'));
+
   console.log('[joystick-browser] portrait pan centre disc reaches beyond the centre room');
   await drag('#reset-camera', 0, 56, 3200);
   const farPanStatus = await status();
@@ -209,7 +242,7 @@ try {
   );
 
   if (errors.length) throw new Error(errors.join('\n\n'));
-  console.log('Centre joystick browser smoke passed: page gestures locked, full portrait pan range, tap resets, pan/yaw/zoom/Z drags, and pan cache reuse.');
+  console.log('Centre joystick browser smoke passed: page gestures locked, full portrait pan range, tap resets, pan/yaw/zoom/Z drags, pan cache reuse, and shifted-cache/full-rebuild depth parity.');
 } finally {
   await browser.close();
   server.stop(true);
