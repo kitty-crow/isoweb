@@ -39,6 +39,9 @@ jobs:
       - name: Check Pages configuration
         run: bun run check
 
+      - name: Test world package round-trip and safety
+        run: bun run test:world-package
+
       - name: Build static site
         run: bun run build
 
