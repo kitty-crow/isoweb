@@ -295,6 +295,40 @@ int main() {
   system.tick(0.10f, camera);
   if (samePosition(beforeOffscreenTick, runner->location.position)) return 52;
 
+  // In the demo middle level every static collider rises from the floor past
+  // the configured 1.05 crouch height. Therefore crouching cannot legitimately
+  // turn a collision into a non-collision anywhere on ordinary flat floor.
+  // If it does, the convex collision query is inventing low-clearance space and
+  // CharacterSystem will incorrectly shrink the Character.
+  {
+    Character standingProbe;
+    standingProbe.id = "posture-probe";
+    standingProbe.location = {"demo", "default", "middle", {0.0f, 0.0f, 0.0f}};
+    standingProbe.hitBox = box(-0.28f, -0.20f, 0.0f, 0.28f, 0.20f, 1.65f);
+    standingProbe.crouchedHeight = 1.05f;
+    standingProbe.forward = {0.0f, 1.0f, 0.0f};
+
+    int standingOnly = 0;
+    for (int yi = -80; yi <= 80; ++yi) {
+      for (int xi = -80; xi <= 80; ++xi) {
+        const float x = static_cast<float>(xi) * 0.05f;
+        const float y = static_cast<float>(yi) * 0.05f;
+        standingProbe.location.position = {x, y, 0.0f};
+        standingProbe.crouching = false;
+        const bool standingCollision = world.collidesWith(standingProbe);
+        standingProbe.crouching = true;
+        const bool crouchedCollision = world.collidesWith(standingProbe);
+        if (standingCollision && !crouchedCollision) {
+          if (standingOnly < 40) {
+            std::cout << "[posture-collision] standing-only x=" << x << " y=" << y << "\n";
+          }
+          ++standingOnly;
+        }
+      }
+    }
+    std::cout << "[posture-collision] standing-only-count=" << standingOnly << "\n";
+  }
+
   // Diagnostic: classify exactly what can sit in front of an ordinary grounded
   // Character for the default isometric view. This samples the Character's
   // complete projected box without involving browser presentation or caches.
