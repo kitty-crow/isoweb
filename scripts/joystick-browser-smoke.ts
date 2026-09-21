@@ -223,44 +223,45 @@ try {
     module.ccall('isoweb_render', null, [], []);
   });
 
-  const depthBuildsBefore = await page.evaluate(
-    () => (globalThis as any).Module._isoweb_static_cache_build_count()
-  );
-  await page.evaluate(() => {
-    (globalThis as any).Module.ccall(
+  const shiftedFrame = await page.evaluate(() => {
+    const module = (globalThis as any).Module;
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+    if (!canvas) throw new Error('Canvas missing.');
+
+    const buildsBefore = module._isoweb_static_cache_build_count();
+    module.ccall(
       'isoweb_pan',
       null,
       ['number', 'number'],
       [0.0, 1.35]
     );
-  });
-  const depthBuildsAfterShift = await page.evaluate(
-    () => (globalThis as any).Module._isoweb_static_cache_build_count()
-  );
-  if (depthBuildsAfterShift !== depthBuildsBefore) {
-    throw new Error(
-      `Depth regression setup unexpectedly rebuilt static cache: ${depthBuildsBefore} -> ${depthBuildsAfterShift}`
-    );
-  }
+    const buildsAfter = module._isoweb_static_cache_build_count();
 
-  const shiftedFrame = await page.evaluate(() => {
-    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
-    if (!canvas) throw new Error('Canvas missing.');
-    const read = (): Uint8Array => {
-      const gl = canvas.getContext('webgl2');
-      if (gl) {
-        const pixels = new Uint8Array(canvas.width * canvas.height * 4);
-        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-        return pixels;
-      }
+    const gl = canvas.getContext('webgl2');
+    let pixels: Uint8Array;
+    if (gl) {
+      pixels = new Uint8Array(canvas.width * canvas.height * 4);
+      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    } else {
       const context = canvas.getContext('2d');
       if (!context) throw new Error('No readable canvas context.');
-      return new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
-    };
-    const pixels = read();
+      pixels = new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
+    }
+
     (globalThis as any).__isowebShiftedDepthFrame = pixels;
-    return { width: canvas.width, height: canvas.height };
+    return {
+      width: canvas.width,
+      height: canvas.height,
+      buildsBefore,
+      buildsAfter
+    };
   });
+
+  if (shiftedFrame.buildsAfter !== shiftedFrame.buildsBefore) {
+    throw new Error(
+      `Depth regression setup unexpectedly rebuilt static cache: ${shiftedFrame.buildsBefore} -> ${shiftedFrame.buildsAfter}`
+    );
+  }
 
   const depthParity = await page.evaluate(() => {
     const module = (globalThis as any).Module;
