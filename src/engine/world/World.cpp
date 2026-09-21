@@ -15,6 +15,12 @@ namespace isoweb {
 namespace engine {
 namespace {
 
+// Dynamic Characters still receive the world's directional/ray-traced lighting,
+// but they must remain legible over the floor. A binary shadow or a back-facing
+// normal previously dropped them to the world's 19% ambient term, making large
+// polygons of the Character visually indistinguishable from floor shadows.
+constexpr float RUNTIME_ENTITY_MIN_LIGHT_FACTOR = 0.52f;
+
 float distanceSquared(const Vec3& a, const Vec3& b) {
   const Vec3 delta = a - b;
   return dot(delta, delta);
@@ -726,7 +732,8 @@ Vec3 World::shadeRuntimeSurface(
       levels_[index]->rayOccluded({point + direction * 0.003f, direction}, maximumDistance)
     ? 0.0f
     : 1.0f;
-  const float factor = light.ambient + visibility * diffuse * attenuation * light.directScale;
+  const float rawFactor = light.ambient + visibility * diffuse * attenuation * light.directScale;
+  const float factor = std::max(RUNTIME_ENTITY_MIN_LIGHT_FACTOR, rawFactor);
   const Vec3 shaded = colour * factor;
   return {
     std::min(shaded.x, 1.0f),
@@ -748,7 +755,8 @@ float World::runtimeSpriteLightFactor(std::size_t index, const Vec3& point) cons
   if (index >= levelLights_.size() || !levelLights_[index].configured) return 1.0f;
   const LevelLight& light = levelLights_[index];
   const float visibility = runtimeLightVisibility(index, point);
-  return light.ambient + visibility * (1.0f - light.ambient);
+  const float rawFactor = light.ambient + visibility * (1.0f - light.ambient);
+  return std::max(RUNTIME_ENTITY_MIN_LIGHT_FACTOR, rawFactor);
 }
 
 float World::runtimeSpriteLightFactor(const std::string& levelId, const Vec3& point) const {
