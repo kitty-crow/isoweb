@@ -318,6 +318,125 @@ try {
     module._isoweb_render();
   });
 
+  console.log('[flat-floor-diagnostic] comparing Character occlusion after cache shift vs full rebuild');
+  const occlusionParityPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const occlusionParity = await (async () => {
+    try {
+      await occlusionParityPage.goto(`http://127.0.0.1:${server.port}/?webgl=0`, {
+        waitUntil: 'domcontentloaded'
+      });
+      await occlusionParityPage.waitForFunction(
+        () => document.documentElement.classList.contains('wasm-ready'),
+        undefined,
+        { timeout: 60_000 }
+      );
+      await occlusionParityPage.waitForFunction(
+        () => (globalThis as any).Module?._isoweb_character_count?.() === 1,
+        undefined,
+        { timeout: 15_000 }
+      );
+
+      return await occlusionParityPage.evaluate(() => {
+        const module = (globalThis as any).Module;
+        const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+        if (!canvas) return { ok: false, reason: 'canvas missing' };
+        const context = canvas.getContext('2d');
+        if (!context) return { ok: false, reason: '2d context missing' };
+
+        const frame = () =>
+          context.getImageData(0, 0, canvas.width, canvas.height).data.slice();
+
+        const createDiagnosticCharacter = () => {
+          module._isoweb_clear_entities();
+          const created = module.ccall(
+            'isoweb_create_character',
+            'number',
+            ['string', 'string', 'string', 'string', 'number', 'number', 'number'],
+            ['diagnostic-character', 'demo', 'default', 'middle', 0.0, 2.4, 0.0]
+          );
+          if (!created) throw new Error('unable to create diagnostic Character');
+          module.ccall(
+            'isoweb_set_character_hitbox',
+            'number',
+            ['string', 'number', 'number', 'number', 'number', 'number', 'number'],
+            ['diagnostic-character', -0.28, -0.20, 0.0, 0.28, 0.20, 1.65]
+          );
+          module.ccall(
+            'isoweb_set_character_forward',
+            'number',
+            ['string', 'number', 'number'],
+            ['diagnostic-character', 0.0, 1.0]
+          );
+        };
+
+        const maskBetween = (withCharacter: Uint8ClampedArray, background: Uint8ClampedArray) => {
+          const mask = new Uint8Array(canvas.width * canvas.height);
+          let pixels = 0;
+          for (let pixel = 0; pixel < mask.length; ++pixel) {
+            const base = pixel * 4;
+            const delta =
+              Math.abs(withCharacter[base] - background[base]) +
+              Math.abs(withCharacter[base + 1] - background[base + 1]) +
+              Math.abs(withCharacter[base + 2] - background[base + 2]);
+            if (delta >= 8) {
+              mask[pixel] = 1;
+              ++pixels;
+            }
+          }
+          return { mask, pixels };
+        };
+
+        module._isoweb_reset_camera();
+        module._isoweb_reset_yaw();
+        module._isoweb_reset_zoom();
+        module._isoweb_zoom_in();
+
+        createDiagnosticCharacter();
+        module._isoweb_render();
+        module._isoweb_pan(0, 0.75);
+
+        const shiftedWithCharacter = frame();
+        module._isoweb_clear_entities();
+        module._isoweb_render();
+        const shiftedBackground = frame();
+        const shiftedMask = maskBetween(shiftedWithCharacter, shiftedBackground);
+
+        createDiagnosticCharacter();
+        module._isoweb_set_render_thread_limit(1);
+        module._isoweb_render();
+        const rebuiltWithCharacter = frame();
+        module._isoweb_clear_entities();
+        module._isoweb_render();
+        const rebuiltBackground = frame();
+        const rebuiltMask = maskBetween(rebuiltWithCharacter, rebuiltBackground);
+
+        let xorPixels = 0;
+        let shiftedOnly = 0;
+        let rebuiltOnly = 0;
+        for (let i = 0; i < shiftedMask.mask.length; ++i) {
+          if (shiftedMask.mask[i] === rebuiltMask.mask[i]) continue;
+          ++xorPixels;
+          if (shiftedMask.mask[i]) ++shiftedOnly;
+          else ++rebuiltOnly;
+        }
+
+        return {
+          ok: true,
+          shiftedPixels: shiftedMask.pixels,
+          rebuiltPixels: rebuiltMask.pixels,
+          xorPixels,
+          shiftedOnly,
+          rebuiltOnly,
+          cacheBuilds: module._isoweb_static_cache_build_count(),
+          cacheShifts: module._isoweb_static_cache_shift_count()
+        };
+      });
+    } finally {
+      await occlusionParityPage.close();
+    }
+  })();
+  console.log('[flat-floor-diagnostic] occlusion-parity', JSON.stringify(occlusionParity));
+
   console.log('[flat-floor-diagnostic] scanning flat-floor Character silhouette');
   const silhouettePage = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const silhouetteScan = await (async () => {
