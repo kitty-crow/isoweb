@@ -997,10 +997,27 @@ Vec3 World::sampleRuntimeEntities(
 
     RuntimeSample sample;
 
+    const auto objectOcclusionAlpha = [&](float sampleDistance) {
+      if (sampleDistance < environmentHitDistance) return 1.0f;
+      if (entry.previewOverlay || !character->controllable) return 0.0f;
+
+      SceneSurfaceHit blocker;
+      if (!traceEnvironment(ray, blocker) || !blocker.found) return 0.0f;
+      if (blocker.distance >= sampleDistance - 0.0005f) return 1.0f;
+
+      // Preserve genuine vertical/depth occlusion from floors, stairs and lower
+      // preview planes. Foreground props and cutaway wall geometry instead get
+      // an x-ray treatment so a controllable Character cannot visually appear
+      // sliced into the floor simply because an opaque object crosses it in
+      // orthographic projection.
+      return blocker.kind == SceneSurfaceKind::Object ? 0.58f : 0.0f;
+    };
+
     if (entry.artworkReady && entry.animation && runtimeSpritePlaneValid_) {
       const float t = dot(entry.spriteCentre - ray.origin, runtimeSpritePlaneNormal_) *
         runtimeSpriteInverseDenominator_;
-      if (t > 0.001f && t < environmentHitDistance) {
+      const float visibilityAlpha = objectOcclusionAlpha(t);
+      if (t > 0.001f && visibilityAlpha > 0.0f) {
         const Vec3 point = ray.origin + ray.direction * t;
         const Vec3 delta = point - entry.spriteCentre;
         const float u = dot(delta, runtimeSpriteScreenRight_) * entry.spriteInverseWidth + 0.5f;
@@ -1018,7 +1035,7 @@ Vec3 World::sampleRuntimeEntities(
             sample.distance = t;
             sample.point = point;
             sample.colour = pixel.colour;
-            sample.alpha = pixel.alpha;
+            sample.alpha = pixel.alpha * visibilityAlpha;
             if (entry.selected && characterSystem_) {
               sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
             }
@@ -1038,13 +1055,22 @@ Vec3 World::sampleRuntimeEntities(
     }
 
     ObjectRayHit hit;
-    if (!entry.proxy.intersectRay(ray, 0.001f, environmentHitDistance, hit)) continue;
+    if (!entry.proxy.intersectRay(
+      ray,
+      0.001f,
+      std::numeric_limits<float>::max(),
+      hit
+    )) {
+      continue;
+    }
+    const float visibilityAlpha = objectOcclusionAlpha(hit.distance);
+    if (visibilityAlpha <= 0.0f) continue;
     sample.distance = hit.distance;
     sample.point = hit.worldPoint;
     sample.colour = labelPixel(*character, hit)
       ? Vec3(0.96f, 0.97f, 1.0f)
       : faceColour(hit.face);
-    sample.alpha = 1.0f;
+    sample.alpha = visibilityAlpha;
     if (entry.selected && characterSystem_) {
       sample.colour = applyTint(sample.colour, characterSystem_->selectionStyle());
     }
