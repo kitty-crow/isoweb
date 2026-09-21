@@ -16,6 +16,12 @@ The reusable engine lives under `src/engine/`; demo-world content lives under `s
 
 The current demo geometry is still mapped to hitboxes around each rendered object's extents and all six demo objects are solid. Stairs and floors remain traversal surfaces rather than blocking world objects.
 
+## Runtime stats
+
+Add `?stats` to any browser route to show the live rendering diagnostics overlay. It works on the normal single-thread build, the pthread build, and the adaptive GPU route, and follows the renderer dynamically when the adaptive path falls back between WebGL2 and CPU rendering.
+
+The overlay reports render/display FPS, presentation and GPU timings where available, current activity, active static-render backend, logical CPU count and actual IsoWeb render-thread count, JS/WASM memory, tracked IsoWeb WebGL allocations, GPU identity, and progressive-preview work. Browsers do not expose OS core IDs, per-core utilisation, or total process VRAM, so those values are explicitly marked as unavailable rather than inferred.
+
 ## Regression checks
 
 After the static build, CI compiles and runs a generic object/character collision smoke test covering overlap, edge contact, rotated hitboxes, `solid = false`, must-collide overrides, character inheritance, optional sprite definitions, and active-level demo collision. After the WASM build, CI validates the generated Emscripten `ASM_CONSTS` bridge so a wrapper cannot reference undeclared `$N` arguments. CI then launches Chromium against the built site and verifies that WASM reaches its first rendered frame, clears the loading state, presents non-transparent canvas pixels, and updates camera-control state after a real rotation.
