@@ -229,24 +229,7 @@ bool Renderer::shiftStaticCacheForPan(
     for (int x = destinationX1; x < frameWidth_; ++x) invalidatePixel(x, y);
   }
 
-  // Cached hit distances are measured from the ray origin, not from camera
-  // focus. Before rayOriginDistance() followed the panned focus, the ray origin
-  // inherited the camera's along-forward pan and subtracting dot(panDelta,
-  // forward) was correct. Since the ray-origin safety fix, originDistance itself
-  // changes with focus and can cancel that motion. Adjust cached distances only
-  // by the *actual* along-ray movement of the ray origin.
-  const Vec3 oldFocus =
-    bounds.focus + Vec3(staticCacheKey_.panX, staticCacheKey_.panY, 0.0f);
-  const Vec3 newFocus =
-    bounds.focus + Vec3(key.panX, key.panY, 0.0f);
-  const WorldBounds& visibleBounds = world_.bounds();
-  const float oldOriginDistance =
-    rayOriginDistance(visibleBounds, forward, oldFocus);
-  const float newOriginDistance =
-    rayOriginDistance(visibleBounds, forward, newFocus);
-  const float rayOriginForwardShift =
-    dot(panDelta, forward) - (newOriginDistance - oldOriginDistance);
-
+  const float forwardShift = dot(panDelta, forward);
   for (int y = destinationY0; y < destinationY1; ++y) {
     for (int x = destinationX0; x < destinationX1; ++x) {
       StaticSample* samples = staticSamples_.data() +
@@ -255,10 +238,7 @@ bool Renderer::shiftStaticCacheForPan(
         StaticSample& sample = samples[sampleIndex];
         if (sample.environmentDistance < 0.0f) continue;
         if (sample.environmentDistance < NO_HIT_DISTANCE) {
-          sample.environmentDistance = std::max(
-            0.001f,
-            sample.environmentDistance - rayOriginForwardShift
-          );
+          sample.environmentDistance = std::max(0.001f, sample.environmentDistance - forwardShift);
         } else if (sourceShiftY != 0) {
           sample.colour = panBackgroundRows_[
             static_cast<std::size_t>(y) * 2 + (sampleIndex >> 1)
