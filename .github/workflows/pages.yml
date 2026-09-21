@@ -124,18 +124,18 @@ jobs:
       - name: Prove adaptive GPU MT ST hierarchy
         run: bun run test:adaptive-render
 
-      - name: Package adaptive Pages route
+      - name: Package WebGL Pages route
         run: |
-          rm -rf site/adaptive
-          mkdir -p site/adaptive/single
-          cp -R site-threaded/. site/adaptive/
-          cp site/assets/isoweb.js site/adaptive/single/isoweb.js
-          cp site/assets/isoweb.wasm site/adaptive/single/isoweb.wasm
-          cp scripts/adaptive-pages/index.html site/adaptive/index.html
-          cp scripts/adaptive-pages/adaptive-loader.js site/adaptive/adaptive-loader.js
-          cp scripts/adaptive-pages/coi-serviceworker.js site/adaptive/coi-serviceworker.js
+          rm -rf site/webgl site/adaptive
+          mkdir -p site/webgl/single
+          cp -R site-threaded/. site/webgl/
+          cp site/assets/isoweb.js site/webgl/single/isoweb.js
+          cp site/assets/isoweb.wasm site/webgl/single/isoweb.wasm
+          cp scripts/adaptive-pages/index.html site/webgl/index.html
+          cp scripts/adaptive-pages/adaptive-loader.js site/webgl/adaptive-loader.js
+          cp scripts/adaptive-pages/coi-serviceworker.js site/webgl/coi-serviceworker.js
 
-      - name: Prove adaptive Pages route
+      - name: Prove WebGL Pages route
         run: bun run test:adaptive-pages
 
       - name: Test stats overlay in ST MT GPU modes
