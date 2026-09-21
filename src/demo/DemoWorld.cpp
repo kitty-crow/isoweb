@@ -712,34 +712,6 @@ public:
     return maximumDistance > EPSILON && traceAny(ray, EPSILON, maximumDistance);
   }
 
-  bool runtimeRayOccluded(const Ray& ray, float maximumDistance) const override {
-    if (maximumDistance <= EPSILON) return false;
-
-    Hit hit;
-    for (const RenderObject& object : definition_.objects) {
-      if (intersectObject(ray, object, EPSILON, maximumDistance, hit)) return true;
-    }
-
-    // A camera-facing room wall is deliberately converted into a Sims-style
-    // cutaway for presentation. Its low sill/end caps must not become a depth
-    // mask over Characters inside the room. Non-facing walls remain genuine
-    // visual occluders, as do obstacles, stairs and floors.
-    for (const RoomWallBox& wall : roomWalls_) {
-      if (roomWallFacesViewer(wall)) continue;
-      if (intersectAxisAlignedBox(ray, wall.centre, wall.halfExtent, EPSILON, maximumDistance, hit)) {
-        return true;
-      }
-    }
-
-    for (std::size_t index = 0; index < stairSteps_.size(); ++index) {
-      if (intersectStaircase(ray, index, EPSILON, maximumDistance, hit)) return true;
-    }
-    for (const FloorProxy& floor : definition_.floorProxies) {
-      if (intersectFloorProxy(ray, floor, EPSILON, maximumDistance, hit)) return true;
-    }
-    return intersectGround(ray, EPSILON, maximumDistance, hit);
-  }
-
   void prepareRenderFrame(const Vec3& viewDirection) const override {
     renderViewDirection_ = viewDirection;
   }
