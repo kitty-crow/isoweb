@@ -39,6 +39,7 @@ export interface IsowebModule {
   _isoweb_static_cache_build_count(): number;
   _isoweb_last_render_thread_count(): number;
   _isoweb_last_render_helper_rows(): number;
+  _isoweb_last_static_render_backend(): number;
   _isoweb_preview_coarse_sample_count(): number;
   _isoweb_preview_refined_sample_count(): number;
   _isoweb_preview_demanded_texel_count(): number;
@@ -90,5 +91,9 @@ declare global {
     isowebGpuStaticError?: string;
     isowebGpuStaticTraceCount?: number;
     isowebLastGpuStaticMilliseconds?: number;
+    isowebPresentedFrameCount?: number;
+    isowebLastPresentedAt?: number;
+    isowebFrameGpuBytes?: number;
+    isowebStaticGpuBytes?: number;
   }
 }
