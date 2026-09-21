@@ -990,6 +990,22 @@ Vec3 World::sampleRuntimeEntities(
   std::vector<RuntimeSample>& samples = runtimeSampleScratch_;
   samples.clear();
 
+  const auto runtimeSampleVisible = [&](const RuntimeRenderEntry& entry, float sampleDistance) {
+    if (sampleDistance <= 0.001f) return false;
+    if (sampleDistance < environmentHitDistance) return true;
+
+    // Lower-preview Characters retain the active-level hole/exposure rule.
+    // Active and liminal Characters, however, may sit behind presentation-only
+    // cutaway geometry. Ask the level whether a genuine runtime occluder exists
+    // before rejecting a Character sample merely because the static colour hit
+    // happened first.
+    if (entry.previewOverlay || entry.levelIndex >= levels_.size()) return false;
+    return !levels_[entry.levelIndex]->runtimeRayOccluded(
+      ray,
+      std::max(0.001f, sampleDistance - 0.0005f)
+    );
+  };
+
   for (const RuntimeRenderEntry& entry : runtimeRenderEntries_) {
     const Character* character = entry.character;
     if (!character) continue;
@@ -1000,7 +1016,7 @@ Vec3 World::sampleRuntimeEntities(
     if (entry.artworkReady && entry.animation && runtimeSpritePlaneValid_) {
       const float t = dot(entry.spriteCentre - ray.origin, runtimeSpritePlaneNormal_) *
         runtimeSpriteInverseDenominator_;
-      if (t > 0.001f && t < environmentHitDistance) {
+      if (runtimeSampleVisible(entry, t)) {
         const Vec3 point = ray.origin + ray.direction * t;
         const Vec3 delta = point - entry.spriteCentre;
         const float u = dot(delta, runtimeSpriteScreenRight_) * entry.spriteInverseWidth + 0.5f;
@@ -1038,7 +1054,15 @@ Vec3 World::sampleRuntimeEntities(
     }
 
     ObjectRayHit hit;
-    if (!entry.proxy.intersectRay(ray, 0.001f, environmentHitDistance, hit)) continue;
+    if (!entry.proxy.intersectRay(
+      ray,
+      0.001f,
+      std::numeric_limits<float>::max(),
+      hit
+    )) {
+      continue;
+    }
+    if (!runtimeSampleVisible(entry, hit.distance)) continue;
     sample.distance = hit.distance;
     sample.point = hit.worldPoint;
     sample.colour = labelPixel(*character, hit)
