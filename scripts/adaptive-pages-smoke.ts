@@ -34,7 +34,7 @@ const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
 
 try {
-  await page.goto(`http://127.0.0.1:${server.port}/adaptive/`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${server.port}/webgl/`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(
     () =>
       document.documentElement.classList.contains('wasm-ready') &&
@@ -70,19 +70,19 @@ try {
   });
 
   if (!result.isolated || !result.sharedArrayBuffer || !result.controlled) {
-    throw new Error(`Adaptive route is not isolated: ${JSON.stringify(result)}`);
+    throw new Error(`WebGL route is not isolated: ${JSON.stringify(result)}`);
   }
   if (result.container !== 'pthread') {
-    throw new Error(`Adaptive route did not choose pthread container: ${JSON.stringify(result)}`);
+    throw new Error(`WebGL route did not choose pthread container: ${JSON.stringify(result)}`);
   }
   if (result.presentation !== 'webgl2' || !result.gpuStaticAvailable || result.middleBackend !== 2) {
-    throw new Error(`Adaptive route did not choose GPU on supported scene: ${JSON.stringify(result)}`);
+    throw new Error(`WebGL route did not choose GPU on supported scene: ${JSON.stringify(result)}`);
   }
   if (result.lowerBackend !== 1 || result.lowerThreads < 2 || result.lowerHelpers <= 0) {
-    throw new Error(`Adaptive route did not fall back to MT CPU: ${JSON.stringify(result)}`);
+    throw new Error(`WebGL route did not fall back to MT CPU: ${JSON.stringify(result)}`);
   }
 
-  console.log(`Adaptive Pages route passed: ${JSON.stringify(result)}`);
+  console.log(`WebGL Pages route passed: ${JSON.stringify(result)}`);
 } finally {
   await browser.close();
   server.stop(true);

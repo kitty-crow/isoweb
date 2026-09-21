@@ -77,6 +77,7 @@ export class StatsOverlay {
       'Frame',
       'Activity',
       'Renderer',
+      'Display',
       'CPU',
       'RAM',
       'VRAM',
@@ -185,7 +186,8 @@ export class StatsOverlay {
       'Activity',
       this.activity === 'idle' && recentPresent ? 'render / presentation' : this.activity
     );
-    this.set('Renderer', `${staticBackendLabel(backend)} · ${presentation} present`);
+    this.set('Renderer', staticBackendLabel(backend));
+    this.set('Display', presentation === 'webgl2' ? 'WebGL2' : 'Canvas2D');
     this.set(
       'CPU',
       backend === 2

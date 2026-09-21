@@ -42,7 +42,7 @@ page.on('pageerror', (error: Error) => errors.push(error.stack || error.message)
 
 try {
   console.log('[threaded-pages] opening Pages-style route without server isolation headers');
-  await page.goto(`http://127.0.0.1:${server.port}/threaded/?gpuStatic=0`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${server.port}/threaded/`, { waitUntil: 'domcontentloaded' });
 
   await page.waitForFunction(
     () =>
@@ -64,6 +64,7 @@ try {
       hardwareConcurrency: navigator.hardwareConcurrency,
       threadCount: module._isoweb_last_render_thread_count(),
       helperRows: module._isoweb_last_render_helper_rows(),
+      staticBackend: module._isoweb_last_static_render_backend(),
       presentationBackend: window.isowebPresentationBackend ?? 'unknown'
     };
   });
@@ -74,8 +75,11 @@ try {
   if (result.threadCount < 2 || result.helperRows <= 0) {
     throw new Error(`Threaded Pages route did not use helper threads: ${JSON.stringify(result)}`);
   }
+  if (result.staticBackend !== 1) {
+    throw new Error(`Threaded Pages route did not stay on MT CPU static rendering: ${JSON.stringify(result)}`);
+  }
   if (result.presentationBackend !== 'webgl2') {
-    throw new Error(`Threaded Pages route did not use WebGL2: ${JSON.stringify(result)}`);
+    throw new Error(`Threaded Pages route did not use WebGL2 presentation: ${JSON.stringify(result)}`);
   }
   if (errors.length) throw new Error(errors.join('\n\n'));
 

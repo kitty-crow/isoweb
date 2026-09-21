@@ -18,7 +18,9 @@ The current demo geometry is still mapped to hitboxes around each rendered objec
 
 ## Runtime stats
 
-Add `?stats` to any browser route to show the live rendering diagnostics overlay. It works on the normal single-thread build, the pthread build, and the adaptive GPU route, and follows the renderer dynamically when the adaptive path falls back between WebGL2 and CPU rendering.
+Add `?stats` to any browser route to show the live rendering diagnostics overlay. It works on the normal single-thread route, the `/threaded/` route, and the `/webgl/` route, and follows the renderer dynamically when the WebGL path falls back between GPU and CPU rendering.
+
+Static-render policy is route-specific. The normal route keeps static ray tracing on the single CPU thread, `/threaded/` keeps it on the multithreaded CPU renderer, and `/webgl/` alone may select the WebGL2 static tracer before falling back to MT CPU and then ST CPU. WebGL2 may still be used purely to present the already-rendered framebuffer on any route; that display step is independent of the static renderer.
 
 The overlay reports render/display FPS, presentation and GPU timings where available, current activity, active static-render backend, logical CPU count and actual IsoWeb render-thread count, JS/WASM memory, tracked IsoWeb WebGL allocations, GPU identity, and progressive-preview work. Browsers do not expose OS core IDs, per-core utilisation, or total process VRAM, so those values are explicitly marked as unavailable rather than inferred.
 

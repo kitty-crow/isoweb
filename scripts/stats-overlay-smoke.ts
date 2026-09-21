@@ -20,7 +20,7 @@ function resolvePath(pathname: string): string | null {
   for (const [prefix, root] of [
     ['single/', 'site/'],
     ['threaded/', 'site-threaded/'],
-    ['adaptive/', 'site/adaptive/']
+    ['webgl/', 'site/webgl/']
   ] as const) {
     if (clean === prefix.slice(0, -1)) return root + 'index.html';
     if (clean.startsWith(prefix)) {
@@ -101,7 +101,7 @@ async function inspect(
 async function inspectNarrowHorizontalScroll(): Promise<Record<string, unknown>> {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   try {
-    await page.goto(`http://127.0.0.1:${server.port}/single/?stats&gpuStatic=0`, {
+    await page.goto(`http://127.0.0.1:${server.port}/single/?stats`, {
       waitUntil: 'domcontentloaded'
     });
     await page.waitForFunction(
@@ -184,19 +184,19 @@ async function inspectNarrowHorizontalScroll(): Promise<Record<string, unknown>>
 }
 
 try {
-  const single = await inspect('single/?stats&gpuStatic=0', () => {
+  const single = await inspect('single/?stats', () => {
     const module = (globalThis as any).Module;
     module._isoweb_set_render_thread_limit(1);
     module._isoweb_render();
   });
 
-  const threaded = await inspect('threaded/?stats&gpuStatic=0', () => {
+  const threaded = await inspect('threaded/?stats', () => {
     const module = (globalThis as any).Module;
     module._isoweb_set_render_thread_limit(4);
     module._isoweb_render();
   });
 
-  const gpu = await inspect('adaptive/?stats', () => {
+  const gpu = await inspect('webgl/?stats', () => {
     const module = (globalThis as any).Module;
     module._isoweb_set_render_thread_limit(4);
     module._isoweb_reset_level();
@@ -214,7 +214,7 @@ try {
     }
 
     const rows = result.rows as Record<string, string>;
-    for (const required of ['FPS', 'Frame', 'Activity', 'Renderer', 'CPU', 'RAM', 'VRAM', 'GPU']) {
+    for (const required of ['FPS', 'Frame', 'Activity', 'Renderer', 'Display', 'CPU', 'RAM', 'VRAM', 'GPU']) {
       if (!rows[required] || rows[required] === '…') {
         throw new Error(`${name}: missing ${required}: ${JSON.stringify(result)}`);
       }

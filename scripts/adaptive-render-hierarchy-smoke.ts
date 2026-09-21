@@ -38,7 +38,7 @@ const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
 
 try {
-  await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${server.port}/?gpuStatic=1`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(
     () =>
       crossOriginIsolated &&
