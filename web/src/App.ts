@@ -7,6 +7,7 @@ import { PointerController } from './input/PointerController';
 import { WorldStateLoader } from './state/WorldStateLoader';
 import { WheelController } from './input/WheelController';
 import { ViewportController } from './viewport/ViewportController';
+import { StatsOverlay } from './StatsOverlay';
 
 export class App {
   constructor(private readonly module: IsowebModule) {}
@@ -23,6 +24,7 @@ export class App {
     const detailedZoomMode = browserArgs.get('dzoom') === '1';
     const detailedYawMode = browserArgs.get('dyaw') === '1';
     const obstaclesEnabled = browserArgs.get('obstacles') === '1';
+    const statsEnabled = browserArgs.has('stats') && browserArgs.get('stats') !== '0';
 
     controls.bind();
     wheel.bind();
@@ -34,6 +36,7 @@ export class App {
     this.module._isoweb_set_obstacles_enabled(obstaclesEnabled ? 1 : 0);
     viewport.syncRendererSize();
     controls.enableInitialState();
+    const stats = statsEnabled ? new StatsOverlay(this.module) : null;
 
     window.addEventListener('keydown', event => {
       if (event.key === 'Escape') this.module._isoweb_clear_selection();
@@ -46,15 +49,19 @@ export class App {
     const animate = (now: number): void => {
       const deltaSeconds = Math.min(0.10, Math.max(0, (now - previousTime) / 1000));
       previousTime = now;
+      let activity = 'idle';
       if (this.module._isoweb_needs_tick()) {
+        activity = 'simulation + dynamic render';
         this.module._isoweb_tick(deltaSeconds);
       } else if (this.module._isoweb_preview_needs_refinement()) {
+        activity = 'progressive preview refinement';
         // Camera motion still gets the coarse fallback immediately and the idle
         // guard prevents refinement from competing with panning. Once idle,
         // refine a small batch in one pass so a full-resolution preview settles
         // quickly without causing eight separate full-frame redraws.
         this.module._isoweb_refine_preview(8);
       }
+      stats?.frame(now, activity);
       requestAnimationFrame(animate);
     };
     requestAnimationFrame(animate);
