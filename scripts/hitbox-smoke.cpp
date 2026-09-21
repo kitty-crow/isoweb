@@ -301,8 +301,8 @@ int main() {
 
   // Foreground props may obscure a controllable Character in an isometric
   // projection, but they must not make the Character look geometrically sliced.
-  // Preserve real floor/stair depth while compositing the occluded portion as a
-  // translucent x-ray overlay.
+  // Preserve real floor/stair depth while keeping the Character fully opaque
+  // through foreground Object occluders.
   world.resetLevel();
   system.clearSelection();
   runner->sprites = isoweb::engine::CharacterSpriteSet();
@@ -344,7 +344,8 @@ int main() {
 
   world.prepareRenderFrame(viewDirection);
   int objectBlockedRays = 0;
-  int xrayVisibleRays = 0;
+  int foregroundVisibleRays = 0;
+  int foregroundOpaqueRays = 0;
   int groundBlockedRays = 0;
   constexpr int sampleX = 56;
   constexpr int sampleY = 112;
@@ -385,14 +386,32 @@ int main() {
         environmentDistance
       );
       if (colourDistance(composited, environmentColour) > 0.01f) {
-        ++xrayVisibleRays;
+        ++foregroundVisibleRays;
+      }
+
+      // Opaque runtime composition must be independent of the colour behind
+      // it. Calling the compositor with two deliberately different background
+      // colours should therefore produce the same Character pixel.
+      const Vec3 overBlack = world.compositeRuntime(
+        ray,
+        {0.0f, 0.0f, 0.0f},
+        environmentDistance
+      );
+      const Vec3 overWhite = world.compositeRuntime(
+        ray,
+        {1.0f, 1.0f, 1.0f},
+        environmentDistance
+      );
+      if (colourDistance(overBlack, overWhite) < 0.001f) {
+        ++foregroundOpaqueRays;
       }
     }
   }
 
   if (groundBlockedRays != 0) return 53;
   if (objectBlockedRays < 1000) return 54;
-  if (xrayVisibleRays != objectBlockedRays) return 55;
+  if (foregroundVisibleRays != objectBlockedRays) return 55;
+  if (foregroundOpaqueRays != objectBlockedRays) return 56;
 
   std::cout << "Generic object and full character-system smoke test passed.\n";
   return 0;
