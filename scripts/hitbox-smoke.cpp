@@ -371,6 +371,10 @@ int main() {
       int characterRays = 0;
       int groundOccluded = 0;
       int objectOccluded = 0;
+      int cubeOccluded = 0;
+      int sphereOccluded = 0;
+      int wallOccluded = 0;
+      int otherObjectOccluded = 0;
       int stairOccluded = 0;
       int proxyOccluded = 0;
       constexpr int sxCount = 56;
@@ -392,10 +396,37 @@ int main() {
           if (environment.distance >= characterHit.distance - 1.0e-4f) continue;
 
           switch (environment.kind) {
-            case SceneSurfaceKind::Ground: ++groundOccluded; break;
-            case SceneSurfaceKind::Stair: ++stairOccluded; break;
-            case SceneSurfaceKind::Proxy: ++proxyOccluded; break;
-            case SceneSurfaceKind::Object: ++objectOccluded; break;
+            case SceneSurfaceKind::Ground:
+              ++groundOccluded;
+              break;
+            case SceneSurfaceKind::Stair:
+              ++stairOccluded;
+              break;
+            case SceneSurfaceKind::Proxy:
+              ++proxyOccluded;
+              break;
+            case SceneSurfaceKind::Object: {
+              ++objectOccluded;
+              const auto colourDistance = [](const Vec3& a, const Vec3& b) {
+                const Vec3 delta = a - b;
+                return isoweb::engine::dot(delta, delta);
+              };
+              if (colourDistance(environment.colour, {0.18f, 0.48f, 0.88f}) < 0.0025f) {
+                ++cubeOccluded;
+              } else if (colourDistance(environment.colour, {0.95f, 0.43f, 0.12f}) < 0.0025f) {
+                ++sphereOccluded;
+              } else if (
+                colourDistance(
+                  environment.colour,
+                  {0.567f * 0.68f, 0.6048f * 0.68f, 0.630f * 0.68f}
+                ) < 0.0025f
+              ) {
+                ++wallOccluded;
+              } else {
+                ++otherObjectOccluded;
+              }
+              break;
+            }
           }
         }
       }
@@ -406,6 +437,10 @@ int main() {
         << " rays=" << characterRays
         << " ground=" << groundOccluded
         << " object=" << objectOccluded
+        << " cube=" << cubeOccluded
+        << " sphere=" << sphereOccluded
+        << " wall=" << wallOccluded
+        << " otherObject=" << otherObjectOccluded
         << " stair=" << stairOccluded
         << " proxy=" << proxyOccluded
         << "\n";
