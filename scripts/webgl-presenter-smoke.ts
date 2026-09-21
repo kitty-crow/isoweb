@@ -128,7 +128,7 @@ try {
   const webglPage = await browser.newPage({ viewport: { width: 960, height: 720 } });
 
   const canvas = await capture(canvasPage, '?webgl=0');
-  const webgl = await capture(webglPage, '');
+  const webgl = await capture(webglPage, '?gpuStatic=1');
 
   if (canvas.backend !== 'canvas2d') {
     throw new Error(`Expected Canvas2D fallback, got ${canvas.backend}`);
