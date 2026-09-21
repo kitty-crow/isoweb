@@ -92,6 +92,14 @@ class World : public IWorld {
 public:
   World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defaultLevelIndex);
 
+  // Replace the authored level projection without replacing the World object.
+  // Runtime systems retain references to World, so package-driven rebuilds
+  // can atomically swap level data while preserving those system bindings.
+  bool replaceLevels(
+    std::vector<std::unique_ptr<IWorldLevel>> levels,
+    std::size_t defaultLevelIndex
+  );
+
   const WorldBounds& bounds() const override;
   const WorldBounds& cameraBounds() const override;
   Vec3 sample(const Ray& ray, float backgroundY) const override;

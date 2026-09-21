@@ -140,27 +140,46 @@ Object renderProxy(const Object& object, const Vec3& position, const std::string
 
 } // namespace
 
-World::World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defaultLevelIndex)
-    : levels_(std::move(levels)),
-      defaultLevelIndex_(defaultLevelIndex) {
-  if (levels_.empty() || defaultLevelIndex_ >= levels_.size()) std::abort();
+World::World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defaultLevelIndex) {
+  if (!replaceLevels(std::move(levels), defaultLevelIndex)) std::abort();
+}
+
+bool World::replaceLevels(
+  std::vector<std::unique_ptr<IWorldLevel>> levels,
+  std::size_t defaultLevelIndex
+) {
+  if (levels.empty() || defaultLevelIndex >= levels.size()) return false;
+
+  entities_.clear();
+  liminalObjects_.clear();
+  levels_ = std::move(levels);
+  levelIds_.clear();
+  levelLookup_.clear();
+  levelXYBounds_.clear();
+  levelLights_.clear();
+  levelViewOrigins_.clear();
+  lowerLevelPreviewDepth_ = 0;
+  lowerPreviewResolutionScale_ = 0.25f;
+  defaultLevelIndex_ = defaultLevelIndex;
   activeLevelIndex_ = defaultLevelIndex_;
+
   levelIds_.reserve(levels_.size());
   levelXYBounds_.resize(levels_.size());
   levelViewOrigins_.resize(levels_.size());
+  levelLights_.resize(levels_.size());
 
   for (std::size_t index = 0; index < levels_.size(); ++index) {
     levelIds_.push_back(std::to_string(index));
     levelLookup_[levelIds_.back()] = index;
     levels_[index]->setResident(index == defaultLevelIndex_);
 
-    const WorldBounds& bounds = levels_[index]->bounds();
+    const WorldBounds& levelBounds = levels_[index]->bounds();
     LevelXYBounds& cached = levelXYBounds_[index];
-    if (!bounds.points.empty()) {
+    if (!levelBounds.points.empty()) {
       cached.unrestricted = false;
       cached.minimumX = cached.minimumY = std::numeric_limits<float>::max();
       cached.maximumX = cached.maximumY = -std::numeric_limits<float>::max();
-      for (const Vec3& point : bounds.points) {
+      for (const Vec3& point : levelBounds.points) {
         cached.minimumX = std::min(cached.minimumX, point.x);
         cached.minimumY = std::min(cached.minimumY, point.y);
         cached.maximumX = std::max(cached.maximumX, point.x);
@@ -168,9 +187,12 @@ World::World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defau
       }
     }
   }
-  levelLights_.resize(levels_.size());
+
+  ++lowDetailPreviewRevision_;
+  runtimeRenderCachePrepared_ = false;
   updateLevelResidency();
   updateVisibleBounds();
+  return true;
 }
 
 const IWorldLevel& World::activeLevel() const {
