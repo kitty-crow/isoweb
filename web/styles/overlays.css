@@ -43,6 +43,7 @@
   z-index: 5;
   top: max(0.75rem, env(safe-area-inset-top));
   left: max(0.75rem, env(safe-area-inset-left));
+  box-sizing: border-box;
   width: min(32rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)));
   padding: 0.62rem 0.72rem;
   border: 1px solid rgb(255 255 255 / 14%);
@@ -51,7 +52,12 @@
   color: rgb(255 255 255 / 86%);
   font: 500 0.7rem/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   backdrop-filter: blur(8px);
-  pointer-events: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+  pointer-events: auto;
 }
 
 .stats-title {
@@ -63,7 +69,9 @@
 
 .stats-row {
   display: grid;
-  grid-template-columns: 4.75rem minmax(0, 1fr);
+  grid-template-columns: 4.75rem max-content;
+  width: max-content;
+  min-width: 100%;
   gap: 0.55rem;
   align-items: baseline;
 }
@@ -74,7 +82,7 @@
 
 .stats-value {
   min-width: 0;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
   color: rgb(255 255 255 / 90%);
 }
 
