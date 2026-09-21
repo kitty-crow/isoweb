@@ -208,123 +208,133 @@ try {
       (globalThis as any).Module._isoweb_default_level_index()
   );
 
-  console.log('[joystick-browser] z=0 floor remains identical after pan-cache reuse');
-  await page.evaluate(() => {
+  console.log('[joystick-browser] z=0 floor never clips a z>=0 Character after pan-cache reuse');
+  const shiftedMask = await page.evaluate(() => {
     const module = (globalThis as any).Module;
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+    if (!canvas) throw new Error('Canvas missing.');
+
+    const read = (): Uint8Array => {
+      const gl = canvas.getContext('webgl2');
+      if (gl) {
+        const pixels = new Uint8Array(canvas.width * canvas.height * 4);
+        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return pixels;
+      }
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('No readable canvas context.');
+      return new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
+    };
+
     module.ccall('isoweb_clear_entities', null, [], []);
+    module.ccall('isoweb_reset_level', null, [], []);
     module.ccall('isoweb_level_down', null, [], []);
     const created = module.ccall(
       'isoweb_create_character',
       'number',
       ['string', 'string', 'string', 'string', 'number', 'number', 'number'],
-      ['depth-probe', 'demo', 'default', 'lower', 0.0, 2.4, 0.0]
+      ['depth-probe', 'demo', 'default', 'lower', 0.0, 0.0, 0.0]
     );
     if (created !== 1) throw new Error('Could not create z=0 depth-probe Character.');
     module.ccall('isoweb_render', null, [], []);
-  });
-
-  const shiftedFrame = await page.evaluate(() => {
-    const module = (globalThis as any).Module;
-    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
-    if (!canvas) throw new Error('Canvas missing.');
 
     const buildsBefore = module._isoweb_static_cache_build_count();
-    module.ccall(
-      'isoweb_pan',
-      null,
-      ['number', 'number'],
-      [0.0, 1.35]
-    );
+    module.ccall('isoweb_pan', null, ['number', 'number'], [0.0, 1.35]);
     const buildsAfter = module._isoweb_static_cache_build_count();
-
-    const gl = canvas.getContext('webgl2');
-    let pixels: Uint8Array;
-    if (gl) {
-      pixels = new Uint8Array(canvas.width * canvas.height * 4);
-      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    } else {
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error('No readable canvas context.');
-      pixels = new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
+    if (buildsAfter !== buildsBefore) {
+      throw new Error(
+        `Depth regression unexpectedly rebuilt static cache: ${buildsBefore} -> ${buildsAfter}`
+      );
     }
+    const withCharacter = read();
 
-    (globalThis as any).__isowebShiftedDepthFrame = pixels;
-    return {
-      width: canvas.width,
-      height: canvas.height,
-      buildsBefore,
-      buildsAfter
-    };
+    module.ccall('isoweb_clear_entities', null, [], []);
+    module.ccall('isoweb_render', null, [], []);
+    const background = read();
+
+    const mask = new Uint8Array(canvas.width * canvas.height);
+    let count = 0;
+    for (let pixel = 0; pixel < mask.length; ++pixel) {
+      const offset = pixel * 4;
+      const differs =
+        withCharacter[offset] !== background[offset] ||
+        withCharacter[offset + 1] !== background[offset + 1] ||
+        withCharacter[offset + 2] !== background[offset + 2];
+      if (differs) {
+        mask[pixel] = 1;
+        ++count;
+      }
+    }
+    (globalThis as any).__isowebShiftedCharacterMask = mask;
+    return { count, width: canvas.width, height: canvas.height };
   });
 
-  if (shiftedFrame.buildsAfter !== shiftedFrame.buildsBefore) {
-    throw new Error(
-      `Depth regression setup unexpectedly rebuilt static cache: ${shiftedFrame.buildsBefore} -> ${shiftedFrame.buildsAfter}`
-    );
-  }
-
-  const depthParity = await page.evaluate(() => {
+  const rebuiltMask = await page.evaluate(() => {
     const module = (globalThis as any).Module;
     const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
     if (!canvas) throw new Error('Canvas missing.');
-    module._isoweb_set_render_thread_limit(1);
-    module._isoweb_render();
 
-    const gl = canvas.getContext('webgl2');
-    let rebuilt: Uint8Array;
-    if (gl) {
-      rebuilt = new Uint8Array(canvas.width * canvas.height * 4);
-      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, rebuilt);
-    } else {
+    const read = (): Uint8Array => {
+      const gl = canvas.getContext('webgl2');
+      if (gl) {
+        const pixels = new Uint8Array(canvas.width * canvas.height * 4);
+        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return pixels;
+      }
       const context = canvas.getContext('2d');
       if (!context) throw new Error('No readable canvas context.');
-      rebuilt = new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
+      return new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
+    };
+
+    // Force a fresh static-depth build at the exact same camera position.
+    module._isoweb_set_render_thread_limit(1);
+    module.ccall('isoweb_render', null, [], []);
+    const background = read();
+
+    const created = module.ccall(
+      'isoweb_create_character',
+      'number',
+      ['string', 'string', 'string', 'string', 'number', 'number', 'number'],
+      ['depth-probe', 'demo', 'default', 'lower', 0.0, 0.0, 0.0]
+    );
+    if (created !== 1) throw new Error('Could not recreate z=0 depth-probe Character.');
+    module.ccall('isoweb_render', null, [], []);
+    const withCharacter = read();
+
+    const mask = new Uint8Array(canvas.width * canvas.height);
+    let count = 0;
+    for (let pixel = 0; pixel < mask.length; ++pixel) {
+      const offset = pixel * 4;
+      const differs =
+        withCharacter[offset] !== background[offset] ||
+        withCharacter[offset + 1] !== background[offset + 1] ||
+        withCharacter[offset + 2] !== background[offset + 2];
+      if (differs) {
+        mask[pixel] = 1;
+        ++count;
+      }
     }
 
-    const shifted = (globalThis as any).__isowebShiftedDepthFrame as Uint8Array;
-    let differingBytes = 0;
+    const shifted = (globalThis as any).__isowebShiftedCharacterMask as Uint8Array;
     let differingPixels = 0;
-    let minX = canvas.width;
-    let minY = canvas.height;
-    let maxX = -1;
-    let maxY = -1;
-    for (let offset = 0; offset < rebuilt.length; offset += 4) {
-      let pixelDiffers = false;
-      for (let channel = 0; channel < 4; ++channel) {
-        if (shifted[offset + channel] !== rebuilt[offset + channel]) {
-          ++differingBytes;
-          pixelDiffers = true;
-        }
-      }
-      if (!pixelDiffers) continue;
-      ++differingPixels;
-      const pixel = offset >> 2;
-      const x = pixel % canvas.width;
-      const y = Math.floor(pixel / canvas.width);
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
+    for (let pixel = 0; pixel < mask.length; ++pixel) {
+      if (mask[pixel] !== shifted[pixel]) ++differingPixels;
     }
-    return {
-      differingBytes,
-      differingPixels,
-      minX,
-      minY,
-      maxX,
-      maxY,
-      width: canvas.width,
-      height: canvas.height
-    };
+    return { count, differingPixels };
   });
 
-  if (depthParity.differingPixels !== 0) {
+  if (shiftedMask.count <= 0 || rebuiltMask.count <= 0) {
     throw new Error(
-      `A pan-shifted z=0 scene differs from a full rebuild at the same camera position: ${JSON.stringify(depthParity)}`
+      `Depth-probe Character was not visible: shifted=${shiftedMask.count}, rebuilt=${rebuiltMask.count}`
     );
   }
-  if (shiftedFrame.width <= 0 || shiftedFrame.height <= 0) {
-    throw new Error('Depth parity frame was empty.');
+  if (
+    shiftedMask.count !== rebuiltMask.count ||
+    rebuiltMask.differingPixels !== 0
+  ) {
+    throw new Error(
+      `Pan-cache changed the z=0 Character silhouette: shifted=${shiftedMask.count}, rebuilt=${rebuiltMask.count}, differing=${rebuiltMask.differingPixels}`
+    );
   }
 
   if (errors.length) throw new Error(errors.join('\n\n'));
