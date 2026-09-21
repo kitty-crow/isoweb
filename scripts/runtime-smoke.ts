@@ -322,7 +322,7 @@ try {
   const silhouettePage = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const silhouetteScan = await (async () => {
     try {
-      await silhouettePage.goto(`http://127.0.0.1:${server.port}/?webgl=0`, {
+      await silhouettePage.goto(`http://127.0.0.1:${server.port}/`, {
         waitUntil: 'domcontentloaded'
       });
       await silhouettePage.waitForFunction(
@@ -340,15 +340,23 @@ try {
         const module = (globalThis as any).Module;
         const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
         if (!canvas) return { ok: false, reason: 'canvas missing' };
-        const context = canvas.getContext('2d');
-        if (!context) return { ok: false, reason: '2d context missing' };
+        const gl = canvas.getContext('webgl2');
+        if (!gl) return { ok: false, reason: 'WebGL2 context missing' };
+        const readFrame = () => {
+          const pixels = new Uint8Array(canvas.width * canvas.height * 4);
+          gl.readPixels(
+            0, 0, canvas.width, canvas.height,
+            gl.RGBA, gl.UNSIGNED_BYTE, pixels
+          );
+          return pixels;
+        };
 
         module._isoweb_reset_camera();
         module._isoweb_reset_yaw();
         module._isoweb_reset_zoom();
         module._isoweb_clear_entities();
         module._isoweb_render();
-        const baseline = context.getImageData(0, 0, canvas.width, canvas.height).data.slice();
+        const baseline = readFrame();
 
         const createCharacter = (x: number, y: number, z: number, fx: number, fy: number) => {
           module._isoweb_clear_entities();
@@ -372,7 +380,7 @@ try {
             ['diagnostic-character', fx, fy]
           );
           module._isoweb_render();
-          return context.getImageData(0, 0, canvas.width, canvas.height).data.slice();
+          return readFrame();
         };
 
         const silhouette = (frame: Uint8ClampedArray) => {
@@ -465,6 +473,7 @@ try {
 
         return {
           ok: true,
+          display: 'webgl2',
           width: canvas.width,
           height: canvas.height,
           tested: samples.length,
