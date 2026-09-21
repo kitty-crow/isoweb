@@ -41,6 +41,20 @@ struct Hit {
   bool walkable = false;
 };
 
+unsigned int roomSideBit(RoomSide side) {
+  return 1u << static_cast<unsigned int>(side);
+}
+
+Vec3 roomSideNormal(RoomSide side) {
+  switch (side) {
+    case RoomSide::North: return {0.0f, 1.0f, 0.0f};
+    case RoomSide::South: return {0.0f, -1.0f, 0.0f};
+    case RoomSide::East: return {1.0f, 0.0f, 0.0f};
+    case RoomSide::West: return {-1.0f, 0.0f, 0.0f};
+  }
+  return {0.0f, 0.0f, 0.0f};
+}
+
 float triangleIntersection(
   const Ray& ray,
   const Vec3& a,
@@ -543,7 +557,7 @@ public:
     }
 
     for (const RuntimeFloorHole& hole : definition_.floorHoles) {
-      engine::GpuRuntimeFloorHole gpuHole;
+      engine::GpuFloorHole gpuHole;
       gpuHole.minimumX = hole.minimumX;
       gpuHole.maximumX = hole.maximumX;
       gpuHole.minimumY = hole.minimumY;
@@ -1336,7 +1350,7 @@ private:
       ) {
         continue;
       }
-      if (insideFloorHole(point)) continue;
+      if (insideRuntimeFloorHole(point)) continue;
 
       found = true;
       closest = t;
