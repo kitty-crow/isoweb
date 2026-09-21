@@ -22,7 +22,12 @@ using isoweb::engine::EntityLocation;
 using isoweb::engine::HitBox;
 using isoweb::engine::NavigationLink;
 using isoweb::engine::Object;
+using isoweb::engine::ObjectRayHit;
+using isoweb::engine::Ray;
+using isoweb::engine::SceneSurfaceHit;
+using isoweb::engine::SceneSurfaceKind;
 using isoweb::engine::SelectionMode;
+using isoweb::engine::Vec3;
 using isoweb::engine::SpriteAnimation;
 using isoweb::engine::SpriteAtlasRegistry;
 using isoweb::engine::WorldObject;
@@ -289,6 +294,95 @@ int main() {
   const auto beforeOffscreenTick = runner->location.position;
   system.tick(0.10f, camera);
   if (samePosition(beforeOffscreenTick, runner->location.position)) return 52;
+
+  // Diagnostic: classify exactly what can sit in front of an ordinary grounded
+  // Character for the default isometric view. This samples the Character's
+  // complete projected box without involving browser presentation or caches.
+  {
+    const Vec3 rayDirection = isoweb::engine::normalise({1.0f, 1.0f, -1.0f});
+    const Vec3 screenRight = isoweb::engine::normalise(
+      isoweb::engine::cross(rayDirection, {0.0f, 0.0f, 1.0f})
+    );
+    const Vec3 screenUp = isoweb::engine::normalise(
+      isoweb::engine::cross(screenRight, rayDirection)
+    );
+
+    const auto classify = [&](float px, float py) {
+      Object proxy;
+      proxy.location.worldId = "demo";
+      proxy.location.timelineId = "default";
+      proxy.location.levelId = "middle";
+      proxy.location.position = {px, py, 0.0f};
+      proxy.forward = {0.0f, 1.0f, 0.0f};
+      proxy.hitBox = box(-0.28f, -0.20f, 0.0f, 0.28f, 0.20f, 1.65f);
+
+      float minX = 1.0e9f;
+      float minY = 1.0e9f;
+      float maxX = -1.0e9f;
+      float maxY = -1.0e9f;
+      for (float x : {proxy.hitBox.minimum.x, proxy.hitBox.maximum.x}) {
+        for (float y : {proxy.hitBox.minimum.y, proxy.hitBox.maximum.y}) {
+          for (float z : {proxy.hitBox.minimum.z, proxy.hitBox.maximum.z}) {
+            const Vec3 point = proxy.localToWorld({x, y, z});
+            const float sx = isoweb::engine::dot(point, screenRight);
+            const float sy = isoweb::engine::dot(point, screenUp);
+            minX = std::min(minX, sx);
+            minY = std::min(minY, sy);
+            maxX = std::max(maxX, sx);
+            maxY = std::max(maxY, sy);
+          }
+        }
+      }
+
+      int characterRays = 0;
+      int groundOccluded = 0;
+      int objectOccluded = 0;
+      int stairOccluded = 0;
+      int proxyOccluded = 0;
+      constexpr int sxCount = 56;
+      constexpr int syCount = 112;
+      for (int iy = 0; iy < syCount; ++iy) {
+        const float sy = minY + (maxY - minY) * (static_cast<float>(iy) + 0.5f) / syCount;
+        for (int ix = 0; ix < sxCount; ++ix) {
+          const float sx = minX + (maxX - minX) * (static_cast<float>(ix) + 0.5f) / sxCount;
+          const Ray ray{
+            screenRight * sx + screenUp * sy - rayDirection * 50.0f,
+            rayDirection
+          };
+          ObjectRayHit characterHit;
+          if (!proxy.intersectRay(ray, 0.001f, 1000.0f, characterHit)) continue;
+          ++characterRays;
+
+          SceneSurfaceHit environment;
+          if (!world.traceEnvironment("middle", ray, environment)) continue;
+          if (environment.distance >= characterHit.distance - 1.0e-4f) continue;
+
+          switch (environment.kind) {
+            case SceneSurfaceKind::Ground: ++groundOccluded; break;
+            case SceneSurfaceKind::Stair: ++stairOccluded; break;
+            case SceneSurfaceKind::Proxy: ++proxyOccluded; break;
+            case SceneSurfaceKind::Object: ++objectOccluded; break;
+          }
+        }
+      }
+
+      std::cout
+        << "[character-depth] x=" << px
+        << " y=" << py
+        << " rays=" << characterRays
+        << " ground=" << groundOccluded
+        << " object=" << objectOccluded
+        << " stair=" << stairOccluded
+        << " proxy=" << proxyOccluded
+        << "\n";
+    };
+
+    for (float y : {-3.0f, -2.0f, -1.0f, 0.0f, 1.0f, 2.0f, 2.4f, 3.0f}) {
+      for (float x : {-3.0f, -2.0f, -1.0f, 0.0f, 1.0f, 2.0f, 3.0f}) {
+        classify(x, y);
+      }
+    }
+  }
 
   std::cout << "Generic object and full character-system smoke test passed.\n";
   return 0;
