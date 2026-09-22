@@ -151,7 +151,8 @@ RuntimeStaircase ascendingStaircase(const StairConnection& connection) {
 
 RuntimeStaircase descendingStaircase(const StairConnection& connection) {
   return {
-    connection.centreX, connection.highY, connection.lowY,
+    connection.centreX, connection.highY,
+    connection.centreX, connection.lowY,
     0.0f, -connection.rise, connection.width
   };
 }
@@ -171,14 +172,17 @@ std::vector<Vec3> staircaseTraversal(const RuntimeStaircase& staircase) {
   const float lowerZ = std::min(staircase.startZ, staircase.endZ);
   const bool ascending = staircase.endZ > staircase.startZ;
   const float inverseStepCount = 1.0f / static_cast<float>(STAIR_STEP_COUNT);
+  const float xStep = (staircase.endX - staircase.startX) * inverseStepCount;
   const float yStep = (staircase.endY - staircase.startY) * inverseStepCount;
   for (int index = 0; index < STAIR_STEP_COUNT; ++index) {
+    const float x0 = staircase.startX + xStep * index;
+    const float x1 = x0 + xStep;
     const float y0 = staircase.startY + yStep * index;
     const float y1 = y0 + yStep;
     const float fraction = (ascending ? index + 1 : index) * inverseStepCount;
     const float topZ = staircase.startZ + (staircase.endZ - staircase.startZ) * fraction;
     result.push_back({
-      staircase.centreX,
+      (x0 + x1) * 0.5f,
       (y0 + y1) * 0.5f,
       std::max(topZ, lowerZ + 0.025f)
     });
