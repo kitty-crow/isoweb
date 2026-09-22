@@ -208,6 +208,12 @@ select {
   cursor: grabbing;
 }
 
+.editor-palette-group button[data-placement-active="true"] {
+  outline: 2px solid #d9e7f4;
+  outline-offset: 1px;
+  background: #30465a;
+}
+
 .editor-stage-toolbar {
   display: flex;
   align-items: center;
@@ -258,6 +264,25 @@ select {
   user-select: none;
   background: #0c141c;
   isolation: isolate;
+}
+
+.editor-layout[data-placement-kind]:not([data-placement-kind=""]) {
+  cursor: crosshair;
+}
+
+.editor-layout[data-placement-kind]:not([data-placement-kind=""])::after {
+  content: "Tap or click to place";
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 20;
+  padding: 5px 8px;
+  border: 1px solid #52687c;
+  border-radius: 6px;
+  color: #dce8f2;
+  background: rgba(15, 23, 32, 0.9);
+  font-size: 11px;
+  pointer-events: none;
 }
 
 .editor-layout-grid {
