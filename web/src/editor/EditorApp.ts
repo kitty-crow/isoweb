@@ -4,6 +4,7 @@ import {
   selectedLevel, type LocalAddKind
 } from './AuthoringCommands';
 import { EditorCore } from './EditorCore';
+import { EditorLayoutViewport } from './EditorLayoutViewport';
 import type { EditorSelection, EditorSelectionKind } from './Selection';
 import type { EditableSourceProject } from './SourceProjectIO';
 import type { LevelDocument, Vec3Tuple } from '../world/documents';
@@ -12,6 +13,7 @@ type IndexedRecord = Record<string, unknown>;
 
 export class EditorApp {
   private transientProblem = '';
+  private layoutViewport: EditorLayoutViewport | null = null;
 
   constructor(
     private readonly core: EditorCore,
@@ -21,6 +23,10 @@ export class EditorApp {
   start(): void {
     this.bindToolbar();
     this.bindHierarchyControls();
+    this.layoutViewport = new EditorLayoutViewport(
+      this.core,
+      this.element<HTMLElement>('editor-layout')
+    );
     this.core.store.subscribe(() => this.render());
     this.core.selection.subscribe(() => this.render());
     window.addEventListener('beforeunload', event => {
@@ -174,6 +180,7 @@ export class EditorApp {
     this.renderHierarchy();
     this.renderInspector();
     this.renderOverview();
+    this.layoutViewport?.render();
     this.renderProblems();
   }
 
@@ -269,6 +276,92 @@ export class EditorApp {
       }
     }
 
+    const record = target as IndexedRecord;
+    if (selection.kind === 'ground' && Array.isArray(record.size)) {
+      this.addNumberProperty(root, 'Width', record.size[0] as number, value => {
+        const size = record.size as [number, number];
+        const before = size[0];
+        this.core.execute(new FunctionalCommand(
+          'resize ground width',
+          () => { size[0] = Math.max(0.25, value); },
+          () => { size[0] = before; }
+        ));
+      });
+      this.addNumberProperty(root, 'Depth', record.size[1] as number, value => {
+        const size = record.size as [number, number];
+        const before = size[1];
+        this.core.execute(new FunctionalCommand(
+          'resize ground depth',
+          () => { size[1] = Math.max(0.25, value); },
+          () => { size[1] = before; }
+        ));
+      });
+    }
+
+    if (selection.kind === 'geometry') {
+      this.addNumberProperty(root, 'Size', Number(record.size), value => {
+        const before = Number(record.size);
+        this.core.execute(new FunctionalCommand(
+          'resize geometry',
+          () => { record.size = Math.max(0.25, value); },
+          () => { record.size = before; }
+        ));
+      });
+      if (record.height !== undefined) {
+        this.addNumberProperty(root, 'Height', Number(record.height), value => {
+          const before = Number(record.height);
+          this.core.execute(new FunctionalCommand(
+            'set geometry height',
+            () => { record.height = Math.max(0, value); },
+            () => { record.height = before; }
+          ));
+        });
+      }
+    }
+
+    if (selection.kind === 'room') {
+      for (const [key, label, minimum] of [
+        ['width', 'Width', 0.25],
+        ['depth', 'Depth', 0.25],
+        ['floorZ', 'Floor Z', -Infinity],
+        ['wallHeight', 'Wall height', 0],
+        ['wallThickness', 'Wall thickness', 0.01]
+      ] as const) {
+        this.addNumberProperty(root, label, Number(record[key]), value => {
+          const before = Number(record[key]);
+          this.core.execute(new FunctionalCommand(
+            `set room ${label.toLowerCase()}`,
+            () => { record[key] = Math.max(minimum, value); },
+            () => { record[key] = before; }
+          ));
+        });
+      }
+    }
+
+    if (selection.kind === 'connector') {
+      if (Array.isArray(record.fromPosition)) {
+        this.addTupleProperty(root, 'From', record.fromPosition as Vec3Tuple);
+      }
+      if (Array.isArray(record.toPosition)) {
+        this.addTupleProperty(root, 'To', record.toPosition as Vec3Tuple);
+      }
+    }
+
+    if (selection.kind === 'entity') {
+      const components = record.components as IndexedRecord | undefined;
+      const transform = components?.transform as IndexedRecord | undefined;
+      if (Array.isArray(transform?.forward)) {
+        this.addTupleProperty(root, 'Facing', transform.forward as Vec3Tuple);
+      }
+    }
+
+    if (selection.kind === 'spawn') {
+      const transform = record.transform as IndexedRecord | undefined;
+      if (Array.isArray(transform?.forward)) {
+        this.addTupleProperty(root, 'Facing', transform.forward as Vec3Tuple);
+      }
+    }
+
     const id = (target as { id?: unknown }).id;
     if (typeof id === 'string') {
       const field = document.createElement('div');
@@ -298,6 +391,32 @@ export class EditorApp {
     input.addEventListener('change', () => {
       if (input.value === value) return;
       commit(input.value);
+    });
+    label.append(title, input);
+    root.appendChild(label);
+  }
+
+  private addNumberProperty(
+    root: HTMLElement,
+    labelText: string,
+    value: number,
+    commit: (value: number) => void
+  ): void {
+    const label = document.createElement('label');
+    label.className = 'editor-field';
+    const title = document.createElement('span');
+    title.textContent = labelText;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.step = 'any';
+    input.value = String(value);
+    input.addEventListener('change', () => {
+      const next = Number(input.value);
+      if (!Number.isFinite(next) || next === value) {
+        input.value = String(value);
+        return;
+      }
+      commit(next);
     });
     label.append(title, input);
     root.appendChild(label);
