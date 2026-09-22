@@ -51,6 +51,9 @@ jobs:
       - name: Test compiled world package pipeline
         run: bun run test:compiled-package
 
+      - name: Prove world and level packages are self-contained
+        run: bun run test:self-contained-packages
+
       - name: Build static site
         run: bun run build:site && bun run build:web
 
