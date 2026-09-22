@@ -73,6 +73,7 @@ export class CompiledPackageWriter {
     }
 
     const inputs = normaliseAssetInputs(worldAssets);
+    requireAssetInputs(world.assets, inputs, `Compiled world ${world.id}`);
     const manifestAssets = addAssetsToArchive(files, inputs);
     const manifest: PackageManifest = {
       format: 'isoworld',
