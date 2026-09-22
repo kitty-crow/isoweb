@@ -1,0 +1,406 @@
+{
+  "schemaVersion": 1,
+  "id": "middle",
+  "name": "Demo Middle Level",
+  "coordinateSystem": {
+    "units": "metres",
+    "upAxis": "z",
+    "handedness": "right"
+  },
+  "viewOrigin": [
+    0,
+    0,
+    2.0625
+  ],
+  "ground": [
+    {
+      "id": "ground-centre",
+      "type": "rectangle",
+      "centre": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        8.8,
+        8.8
+      ],
+      "walkable": true,
+      "material": "floor-dark",
+      "alternateMaterial": "floor-light"
+    },
+    {
+      "id": "ground-north",
+      "type": "rectangle",
+      "centre": [
+        0,
+        8.8,
+        0
+      ],
+      "size": [
+        8.8,
+        8.8
+      ],
+      "walkable": true,
+      "material": "floor-dark",
+      "alternateMaterial": "floor-light"
+    },
+    {
+      "id": "ground-south",
+      "type": "rectangle",
+      "centre": [
+        0,
+        -8.8,
+        0
+      ],
+      "size": [
+        8.8,
+        8.8
+      ],
+      "walkable": true,
+      "material": "floor-dark",
+      "alternateMaterial": "floor-light"
+    },
+    {
+      "id": "ground-north-west",
+      "type": "rectangle",
+      "centre": [
+        -8.8,
+        8.8,
+        0
+      ],
+      "size": [
+        8.8,
+        8.8
+      ],
+      "walkable": true,
+      "material": "floor-dark",
+      "alternateMaterial": "floor-light"
+    },
+    {
+      "id": "ground-south-east",
+      "type": "rectangle",
+      "centre": [
+        8.8,
+        -8.8,
+        0
+      ],
+      "size": [
+        8.8,
+        8.8
+      ],
+      "walkable": true,
+      "material": "floor-dark",
+      "alternateMaterial": "floor-light"
+    }
+  ],
+  "geometry": [
+    {
+      "id": "blue-cube",
+      "type": "cube",
+      "position": [
+        -1.05,
+        0.65,
+        0.775
+      ],
+      "size": 0.8,
+      "height": 1.55,
+      "material": "cube",
+      "solid": true
+    },
+    {
+      "id": "orange-sphere",
+      "type": "sphere",
+      "position": [
+        1.05,
+        -0.25,
+        0.9
+      ],
+      "size": 0.9,
+      "height": 1.8,
+      "material": "sphere",
+      "solid": true
+    }
+  ],
+  "rooms": [
+    {
+      "id": "centre",
+      "centre": [
+        0,
+        0,
+        0
+      ],
+      "width": 8.8,
+      "depth": 8.8,
+      "floorZ": 0,
+      "wallHeight": 1.8,
+      "wallThickness": 0.12,
+      "wallMaterial": "wall"
+    },
+    {
+      "id": "north",
+      "centre": [
+        0,
+        8.8,
+        0
+      ],
+      "width": 8.8,
+      "depth": 8.8,
+      "floorZ": 0,
+      "wallHeight": 1.8,
+      "wallThickness": 0.12,
+      "wallMaterial": "wall"
+    },
+    {
+      "id": "south",
+      "centre": [
+        0,
+        -8.8,
+        0
+      ],
+      "width": 8.8,
+      "depth": 8.8,
+      "floorZ": 0,
+      "wallHeight": 1.8,
+      "wallThickness": 0.12,
+      "wallMaterial": "wall"
+    },
+    {
+      "id": "north-west",
+      "centre": [
+        -8.8,
+        8.8,
+        0
+      ],
+      "width": 8.8,
+      "depth": 8.8,
+      "floorZ": 0,
+      "wallHeight": 1.8,
+      "wallThickness": 0.12,
+      "wallMaterial": "wall"
+    },
+    {
+      "id": "south-east",
+      "centre": [
+        8.8,
+        -8.8,
+        0
+      ],
+      "width": 8.8,
+      "depth": 8.8,
+      "floorZ": 0,
+      "wallHeight": 1.8,
+      "wallThickness": 0.12,
+      "wallMaterial": "wall"
+    }
+  ],
+  "roomConnections": [
+    {
+      "id": "centre-north",
+      "a": {
+        "roomId": "centre",
+        "side": "north",
+        "offset": 0,
+        "width": 1.45
+      },
+      "b": {
+        "roomId": "north",
+        "side": "south",
+        "offset": 0,
+        "width": 1.45
+      },
+      "openPassage": true
+    },
+    {
+      "id": "centre-south",
+      "a": {
+        "roomId": "centre",
+        "side": "south",
+        "offset": 0,
+        "width": 1.45
+      },
+      "b": {
+        "roomId": "south",
+        "side": "north",
+        "offset": 0,
+        "width": 1.45
+      },
+      "openPassage": true
+    },
+    {
+      "id": "north-west",
+      "a": {
+        "roomId": "north",
+        "side": "west",
+        "offset": 0,
+        "width": 1.45
+      },
+      "b": {
+        "roomId": "north-west",
+        "side": "east",
+        "offset": 0,
+        "width": 1.45
+      },
+      "openPassage": true
+    },
+    {
+      "id": "south-east",
+      "a": {
+        "roomId": "south",
+        "side": "east",
+        "offset": 0,
+        "width": 1.45
+      },
+      "b": {
+        "roomId": "south-east",
+        "side": "west",
+        "offset": 0,
+        "width": 1.45
+      },
+      "openPassage": true
+    }
+  ],
+  "floorHoles": [
+    {
+      "id": "lower-middle-hole",
+      "type": "rectangle",
+      "minimum": [
+        1.7749999999999997,
+        -3.2849999999999997
+      ],
+      "maximum": [
+        2.525,
+        -1.2149999999999999
+      ]
+    }
+  ],
+  "staircases": [
+    {
+      "id": "lower-middle-down",
+      "centreX": 2.15,
+      "startY": -1.2,
+      "endY": -3.3,
+      "startZ": 0,
+      "endZ": -2.0625,
+      "width": 0.78
+    },
+    {
+      "id": "middle-upper-up",
+      "centreX": 3.2,
+      "startY": -3.3,
+      "endY": -1.2,
+      "startZ": 0,
+      "endZ": 2.0625,
+      "width": 0.78
+    }
+  ],
+  "entities": [
+    {
+      "id": "demo-character",
+      "components": {
+        "transform": {
+          "position": [
+            0,
+            2.4,
+            0
+          ],
+          "forward": [
+            0,
+            1,
+            0
+          ]
+        },
+        "collider": {
+          "type": "box",
+          "minimum": [
+            -0.28,
+            -0.2,
+            0
+          ],
+          "maximum": [
+            0.28,
+            0.2,
+            1.65
+          ],
+          "solid": true,
+          "collisionTags": [
+            "character"
+          ],
+          "mustCollideWith": []
+        },
+        "character": {
+          "npc": false,
+          "controllable": true,
+          "movementSpeedMultiplier": 1,
+          "crouchedHeight": 1.05
+        }
+      }
+    }
+  ],
+  "lights": [
+    {
+      "id": "middle-light",
+      "type": "point",
+      "position": [
+        -3.6,
+        -4.2,
+        6.5
+      ],
+      "enabled": true
+    }
+  ],
+  "spawns": [],
+  "connectors": [],
+  "localMaterials": {
+    "floor-dark": {
+      "id": "floor-dark",
+      "baseColour": [
+        0.567,
+        0.6048,
+        0.63
+      ]
+    },
+    "floor-light": {
+      "id": "floor-light",
+      "baseColour": [
+        0.621,
+        0.6624,
+        0.69
+      ]
+    },
+    "wall": {
+      "id": "wall",
+      "baseColour": [
+        0.38556,
+        0.411264,
+        0.4284
+      ]
+    },
+    "cube": {
+      "id": "cube",
+      "baseColour": [
+        0.18,
+        0.48,
+        0.88
+      ]
+    },
+    "sphere": {
+      "id": "sphere",
+      "baseColour": [
+        0.95,
+        0.43,
+        0.12
+      ]
+    }
+  },
+  "settings": {
+    "boundsFocus": [
+      0,
+      0.15,
+      0.55
+    ],
+    "floorDarkMaterial": "floor-dark",
+    "floorLightMaterial": "floor-light",
+    "wallMaterial": "wall"
+  }
+}

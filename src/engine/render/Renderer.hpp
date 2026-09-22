@@ -27,6 +27,11 @@ public:
   void setRenderThreadLimit(int limit);
   bool refinePreview(std::size_t maxTiles);
   bool previewNeedsRefinement() const;
+  void invalidateWorldCache() {
+    staticCacheValid_ = false;
+    previewCacheValid_ = false;
+    previewIdleFrames_ = 0;
+  }
 
   int width() const { return frameWidth_; }
   int height() const { return frameHeight_; }

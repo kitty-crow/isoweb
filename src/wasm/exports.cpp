@@ -32,7 +32,221 @@ float missingFloat() {
   return std::numeric_limits<float>::quiet_NaN();
 }
 
+isoweb::engine::RoomSide roomSideFromInt(int value) {
+  switch (value) {
+    case 1: return isoweb::engine::RoomSide::South;
+    case 2: return isoweb::engine::RoomSide::East;
+    case 3: return isoweb::engine::RoomSide::West;
+    default: return isoweb::engine::RoomSide::North;
+  }
+}
+
+isoweb::engine::RuntimePrimitiveKind primitiveKindFromInt(int value) {
+  using Kind = isoweb::engine::RuntimePrimitiveKind;
+  switch (value) {
+    case 1: return Kind::Sphere;
+    case 2: return Kind::Cone;
+    case 3: return Kind::Pyramid;
+    case 4: return Kind::Dodecahedron;
+    case 5: return Kind::Icosahedron;
+    default: return Kind::Cube;
+  }
+}
+
 } // namespace
+
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_world_build_begin(
+  int defaultLevelIndex,
+  int lowerPreviewDepth,
+  float lowerPreviewResolutionScale
+) {
+  application().worldBuilder().begin(
+    static_cast<std::size_t>(std::max(0, defaultLevelIndex)),
+    static_cast<std::size_t>(std::max(0, lowerPreviewDepth)),
+    lowerPreviewResolutionScale
+  );
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_world_build_cancel() {
+  application().worldBuilder().cancel();
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_world_build_add_level(
+  const char* id,
+  float viewX, float viewY, float viewZ,
+  float lightX, float lightY, float lightZ,
+  float floorDarkR, float floorDarkG, float floorDarkB,
+  float floorLightR, float floorLightG, float floorLightB,
+  float wallR, float wallG, float wallB,
+  float focusX, float focusY, float focusZ
+) {
+  const std::size_t index = application().worldBuilder().addLevel(
+    text(id),
+    {viewX, viewY, viewZ},
+    {lightX, lightY, lightZ},
+    {floorDarkR, floorDarkG, floorDarkB},
+    {floorLightR, floorLightG, floorLightB},
+    {wallR, wallG, wallB},
+    {focusX, focusY, focusZ}
+  );
+  return index == std::numeric_limits<std::size_t>::max() ? -1 : static_cast<int>(index);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_world_build_add_ground(
+  int levelIndex,
+  float x, float y, float z,
+  float width, float depth,
+  int walkable
+) {
+  isoweb::engine::RuntimeGroundRegion ground;
+  ground.centre = {x, y, z};
+  ground.width = width;
+  ground.depth = depth;
+  ground.walkable = walkable != 0;
+  return application().worldBuilder().addGround(
+    static_cast<std::size_t>(std::max(0, levelIndex)), ground
+  ) ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_world_build_add_room(
+  int levelIndex,
+  const char* id,
+  float x, float y, float z,
+  float width, float depth,
+  float wallHeight, float wallThickness
+) {
+  isoweb::engine::Room room;
+  room.id = text(id);
+  room.centre = {x, y, z};
+  room.width = width;
+  room.depth = depth;
+  room.floorZ = z;
+  room.wallHeight = wallHeight;
+  room.wallThickness = wallThickness;
+  return application().worldBuilder().addRoom(
+    static_cast<std::size_t>(std::max(0, levelIndex)), room
+  ) ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_world_build_add_room_connection(
+  int levelIndex,
+  const char* id,
+  const char* aRoom, int aSide, float aOffset, float aWidth,
+  const char* bRoom, int bSide, float bOffset, float bWidth,
+  int openPassage
+) {
+  isoweb::engine::RoomConnection connection;
+  connection.id = text(id);
+  connection.a.roomId = text(aRoom);
+  connection.a.side = roomSideFromInt(aSide);
+  connection.a.offset = aOffset;
+  connection.a.width = aWidth;
+  connection.b.roomId = text(bRoom);
+  connection.b.side = roomSideFromInt(bSide);
+  connection.b.offset = bOffset;
+  connection.b.width = bWidth;
+  connection.openPassage = openPassage != 0;
+  return application().worldBuilder().addRoomConnection(
+    static_cast<std::size_t>(std::max(0, levelIndex)), connection
+  ) ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_world_build_add_primitive(
+  int levelIndex,
+  int kind,
+  float x, float y, float z,
+  float size, float height,
+  float red, float green, float blue,
+  int solid
+) {
+  isoweb::engine::RuntimePrimitive primitive;
+  primitive.kind = primitiveKindFromInt(kind);
+  primitive.position = {x, y, z};
+  primitive.size = size;
+  primitive.height = height;
+  primitive.colour = {red, green, blue};
+  primitive.solid = solid != 0;
+  return application().worldBuilder().addPrimitive(
+    static_cast<std::size_t>(std::max(0, levelIndex)), primitive
+  ) ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_world_build_add_floor_hole(
+  int levelIndex,
+  float minimumX, float maximumX,
+  float minimumY, float maximumY
+) {
+  isoweb::engine::RuntimeFloorHole hole;
+  hole.minimumX = minimumX;
+  hole.maximumX = maximumX;
+  hole.minimumY = minimumY;
+  hole.maximumY = maximumY;
+  return application().worldBuilder().addFloorHole(
+    static_cast<std::size_t>(std::max(0, levelIndex)), hole
+  ) ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_world_build_add_staircase(
+  int levelIndex,
+  float centreX,
+  float startY, float endY,
+  float startZ, float endZ,
+  float width
+) {
+  isoweb::engine::RuntimeStaircase staircase;
+  staircase.centreX = centreX;
+  staircase.startY = startY;
+  staircase.endY = endY;
+  staircase.startZ = startZ;
+  staircase.endZ = endZ;
+  staircase.width = width;
+  return application().worldBuilder().addStaircase(
+    static_cast<std::size_t>(std::max(0, levelIndex)), staircase
+  ) ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_world_build_add_connector(
+  const char* id,
+  const char* type,
+  const char* fromLevel,
+  const char* toLevel,
+  float fromX, float fromY, float fromZ,
+  float toX, float toY, float toZ,
+  int bidirectional
+) {
+  isoweb::engine::NavigationLink connector;
+  connector.id = text(id);
+  connector.type = text(type);
+  connector.fromLevelId = text(fromLevel);
+  connector.toLevelId = text(toLevel);
+  connector.fromPosition = {fromX, fromY, fromZ};
+  connector.toPosition = {toX, toY, toZ};
+  connector.bidirectional = bidirectional != 0;
+  const std::size_t index = application().worldBuilder().addConnector(connector);
+  return index == std::numeric_limits<std::size_t>::max() ? -1 : static_cast<int>(index);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_world_build_add_connector_forward_sample(
+  int connectorIndex,
+  float x, float y, float z
+) {
+  return application().worldBuilder().addConnectorForwardSample(
+    static_cast<std::size_t>(std::max(0, connectorIndex)), {x, y, z}
+  ) ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_world_build_add_connector_reverse_sample(
+  int connectorIndex,
+  float x, float y, float z
+) {
+  return application().worldBuilder().addConnectorReverseSample(
+    static_cast<std::size_t>(std::max(0, connectorIndex)), {x, y, z}
+  ) ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_world_build_commit() {
+  return application().commitWorldBuild() ? 1 : 0;
+}
 
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_render() {
   application().render();

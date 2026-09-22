@@ -33,7 +33,9 @@ export class App {
 
     this.module._isoweb_set_detailed_mode(detailedZoomMode ? 1 : 0);
     this.module._isoweb_set_detailed_yaw_mode(detailedYawMode ? 1 : 0);
-    this.module._isoweb_set_obstacles_enabled(obstaclesEnabled ? 1 : 0);
+    // Package loading replaces the runtime world projection. Build optional
+    // demo obstacles only after that transaction has completed.
+    this.module._isoweb_set_obstacles_enabled(0);
     viewport.syncRendererSize();
     controls.enableInitialState();
     const stats = statsEnabled ? new StatsOverlay(this.module) : null;
@@ -43,7 +45,13 @@ export class App {
     });
 
     const stateLoader = new WorldStateLoader(this.module);
-    void stateLoader.load().catch(error => console.error('[IsoWeb world state]', error));
+    void stateLoader.load()
+      .then(() => {
+        this.module._isoweb_set_obstacles_enabled(obstaclesEnabled ? 1 : 0);
+        document.documentElement.classList.add('world-ready');
+        this.module._isoweb_render();
+      })
+      .catch(error => console.error('[IsoWeb world package]', error));
 
     let previousTime = performance.now();
     const animate = (now: number): void => {

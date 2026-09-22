@@ -1,0 +1,1469 @@
+#include "engine/world/RuntimeWorld.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <memory>
+#include <utility>
+#include <vector>
+
+namespace isoweb {
+namespace engine {
+namespace {
+
+constexpr float EPSILON = 0.0015f;
+constexpr float FAR_DISTANCE = 1000.0f;
+constexpr float GROUND_LIMIT = 4.40f;
+constexpr float ROOM_CUTAWAY_HEIGHT = 0.34f;
+constexpr float ROOM_CUTAWAY_END_CAP_WIDTH = 0.42f;
+constexpr float ROOM_CUTAWAY_FACING_THRESHOLD = 0.15f;
+constexpr int STAIR_STEP_COUNT = 10;
+
+struct StairStep {
+  Vec3 centre;
+  Vec3 halfExtent;
+};
+
+struct RoomWallBox {
+  Vec3 centre;
+  Vec3 halfExtent;
+  Vec3 colour;
+  unsigned int outwardSides = 0;
+};
+
+struct Hit {
+  bool found = false;
+  float t = FAR_DISTANCE;
+  Vec3 point;
+  Vec3 normal;
+  Vec3 colour;
+  SceneSurfaceKind kind = SceneSurfaceKind::Object;
+  bool walkable = false;
+};
+
+unsigned int roomSideBit(RoomSide side) {
+  return 1u << static_cast<unsigned int>(side);
+}
+
+Vec3 roomSideNormal(RoomSide side) {
+  switch (side) {
+    case RoomSide::North: return {0.0f, 1.0f, 0.0f};
+    case RoomSide::South: return {0.0f, -1.0f, 0.0f};
+    case RoomSide::East: return {1.0f, 0.0f, 0.0f};
+    case RoomSide::West: return {-1.0f, 0.0f, 0.0f};
+  }
+  return {0.0f, 0.0f, 0.0f};
+}
+
+float triangleIntersection(
+  const Ray& ray,
+  const Vec3& a,
+  const Vec3& b,
+  const Vec3& c,
+  float minimum,
+  float maximum,
+  Vec3& normal
+) {
+  const Vec3 edge1 = b - a;
+  const Vec3 edge2 = c - a;
+  const Vec3 p = engine::cross(ray.direction, edge2);
+  const float determinant = engine::dot(edge1, p);
+  if (std::fabs(determinant) < 1e-7f) return FAR_DISTANCE;
+
+  const float inverse = 1.0f / determinant;
+  const Vec3 s = ray.origin - a;
+  const float u = engine::dot(s, p) * inverse;
+  if (u < 0.0f || u > 1.0f) return FAR_DISTANCE;
+
+  const Vec3 q = engine::cross(s, edge1);
+  const float v = engine::dot(ray.direction, q) * inverse;
+  if (v < 0.0f || u + v > 1.0f) return FAR_DISTANCE;
+
+  const float t = engine::dot(edge2, q) * inverse;
+  if (t < minimum || t > maximum) return FAR_DISTANCE;
+
+  normal = engine::normalise(engine::cross(edge1, edge2));
+  if (engine::dot(normal, ray.direction) > 0.0f) normal = normal * -1.0f;
+  return t;
+}
+
+const std::vector<Vec3>& dodecahedronNormals() {
+  static std::vector<Vec3> normals;
+  if (!normals.empty()) return normals;
+
+  const float phi = (1.0f + std::sqrt(5.0f)) * 0.5f;
+  for (int a : {-1, 1}) {
+    for (int b : {-1, 1}) {
+      normals.push_back(engine::normalise({0.0f, static_cast<float>(a), static_cast<float>(b) * phi}));
+      normals.push_back(engine::normalise({static_cast<float>(a), static_cast<float>(b) * phi, 0.0f}));
+      normals.push_back(engine::normalise({static_cast<float>(a) * phi, 0.0f, static_cast<float>(b)}));
+    }
+  }
+  return normals;
+}
+
+const std::vector<Vec3>& icosahedronNormals() {
+  static std::vector<Vec3> normals;
+  if (!normals.empty()) return normals;
+
+  const float phi = (1.0f + std::sqrt(5.0f)) * 0.5f;
+  const float inversePhi = 1.0f / phi;
+
+  for (int x : {-1, 1}) {
+    for (int y : {-1, 1}) {
+      for (int z : {-1, 1}) {
+        normals.push_back(engine::normalise({static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)}));
+      }
+    }
+  }
+
+  for (int a : {-1, 1}) {
+    for (int b : {-1, 1}) {
+      normals.push_back(engine::normalise({0.0f, static_cast<float>(a) * inversePhi, static_cast<float>(b) * phi}));
+      normals.push_back(engine::normalise({static_cast<float>(a) * inversePhi, static_cast<float>(b) * phi, 0.0f}));
+      normals.push_back(engine::normalise({static_cast<float>(a) * phi, 0.0f, static_cast<float>(b) * inversePhi}));
+    }
+  }
+  return normals;
+}
+
+Vec3 negated(const Vec3& value) {
+  return {-value.x, -value.y, -value.z};
+}
+
+float lengthSquared(const Vec3& value) {
+  return engine::dot(value, value);
+}
+
+std::vector<Vec3> convexVertices(const std::vector<Vec3>& normals) {
+  std::vector<Vec3> vertices;
+  for (std::size_t a = 0; a < normals.size(); ++a) {
+    for (std::size_t b = a + 1; b < normals.size(); ++b) {
+      for (std::size_t c = b + 1; c < normals.size(); ++c) {
+        const Vec3 bc = engine::cross(normals[b], normals[c]);
+        const float determinant = engine::dot(normals[a], bc);
+        if (std::fabs(determinant) < 1e-6f) continue;
+        const Vec3 point = (
+          bc +
+          engine::cross(normals[c], normals[a]) +
+          engine::cross(normals[a], normals[b])
+        ) / determinant;
+
+        bool inside = true;
+        for (const Vec3& normal : normals) {
+          if (engine::dot(point, normal) > 1.0005f) {
+            inside = false;
+            break;
+          }
+        }
+        if (!inside) continue;
+
+        bool duplicate = false;
+        for (const Vec3& existing : vertices) {
+          if (lengthSquared(existing - point) < 1e-6f) {
+            duplicate = true;
+            break;
+          }
+        }
+        if (!duplicate) vertices.push_back(point);
+      }
+    }
+  }
+  return vertices;
+}
+
+const std::vector<Vec3>& dodecahedronVertices() {
+  static const std::vector<Vec3> vertices = convexVertices(dodecahedronNormals());
+  return vertices;
+}
+
+const std::vector<Vec3>& icosahedronVertices() {
+  static const std::vector<Vec3> vertices = convexVertices(icosahedronNormals());
+  return vertices;
+}
+
+Vec3 supportObjectBox(const Object& object, const Vec3& direction) {
+  const Vec3 half = object.hitBox.halfExtent();
+  const Vec3 centre = object.localToWorld(object.hitBox.centre());
+  const Vec3 right = object.horizontalRight();
+  const Vec3 forward = object.horizontalForward();
+  return centre +
+    right * (engine::dot(direction, right) >= 0.0f ? std::fabs(half.x) : -std::fabs(half.x)) +
+    forward * (engine::dot(direction, forward) >= 0.0f ? std::fabs(half.y) : -std::fabs(half.y)) +
+    Vec3(0.0f, 0.0f, direction.z >= 0.0f ? std::fabs(half.z) : -std::fabs(half.z));
+}
+
+Vec3 supportVertices(const RuntimePrimitive& object, const std::vector<Vec3>& vertices, const Vec3& direction) {
+  Vec3 best = object.position;
+  float bestProjection = -FAR_DISTANCE;
+  for (const Vec3& vertex : vertices) {
+    const Vec3 point = object.position + vertex * object.size;
+    const float projection = engine::dot(point, direction);
+    if (projection > bestProjection) {
+      bestProjection = projection;
+      best = point;
+    }
+  }
+  return best;
+}
+
+Vec3 supportRuntimePrimitive(const RuntimePrimitive& object, const Vec3& direction) {
+  switch (object.kind) {
+    case RuntimePrimitiveKind::Cube:
+      return object.position + Vec3(
+        direction.x >= 0.0f ? object.size : -object.size,
+        direction.y >= 0.0f ? object.size : -object.size,
+        direction.z >= 0.0f ? object.height * 0.5f : -object.height * 0.5f
+      );
+    case RuntimePrimitiveKind::Sphere: {
+      const float magnitudeSquared = lengthSquared(direction);
+      if (magnitudeSquared <= 1e-14f) return object.position;
+      return object.position + direction * (object.size / std::sqrt(magnitudeSquared));
+    }
+    case RuntimePrimitiveKind::Cone: {
+      const float horizontalSquared = direction.x * direction.x + direction.y * direction.y;
+      const Vec3 apex = object.position + Vec3(0.0f, 0.0f, object.height * 0.5f);
+      Vec3 base = object.position + Vec3(0.0f, 0.0f, -object.height * 0.5f);
+      if (horizontalSquared > 1e-14f) {
+        const float inverseHorizontal = 1.0f / std::sqrt(horizontalSquared);
+        base.x += object.size * direction.x * inverseHorizontal;
+        base.y += object.size * direction.y * inverseHorizontal;
+      }
+      return engine::dot(apex, direction) >= engine::dot(base, direction) ? apex : base;
+    }
+    case RuntimePrimitiveKind::Pyramid: {
+      const float z0 = object.position.z - object.height * 0.5f;
+      const Vec3 vertices[5] = {
+        {object.position.x - object.size, object.position.y - object.size, z0},
+        {object.position.x + object.size, object.position.y - object.size, z0},
+        {object.position.x + object.size, object.position.y + object.size, z0},
+        {object.position.x - object.size, object.position.y + object.size, z0},
+        {object.position.x, object.position.y, object.position.z + object.height * 0.5f}
+      };
+      Vec3 best = vertices[0];
+      float bestProjection = engine::dot(best, direction);
+      for (int index = 1; index < 5; ++index) {
+        const float projection = engine::dot(vertices[index], direction);
+        if (projection > bestProjection) {
+          bestProjection = projection;
+          best = vertices[index];
+        }
+      }
+      return best;
+    }
+    case RuntimePrimitiveKind::Dodecahedron:
+      return supportVertices(object, dodecahedronVertices(), direction);
+    case RuntimePrimitiveKind::Icosahedron:
+      return supportVertices(object, icosahedronVertices(), direction);
+  }
+  return object.position;
+}
+
+Vec3 minkowskiSupport(const Object& candidate, const RuntimePrimitive& object, const Vec3& direction) {
+  return supportObjectBox(candidate, direction) - supportRuntimePrimitive(object, negated(direction));
+}
+
+bool sameDirection(const Vec3& direction, const Vec3& toward) {
+  return engine::dot(direction, toward) > 1e-7f;
+}
+
+Vec3 perpendicularToward(const Vec3& edge, const Vec3& toward) {
+  Vec3 result = engine::cross(engine::cross(edge, toward), edge);
+  if (lengthSquared(result) > 1e-10f) return result;
+  result = engine::cross(edge, Vec3(0.0f, 0.0f, 1.0f));
+  if (lengthSquared(result) > 1e-10f) return result;
+  return engine::cross(edge, Vec3(0.0f, 1.0f, 0.0f));
+}
+
+bool handleLine(std::vector<Vec3>& simplex, Vec3& direction) {
+  const Vec3 a = simplex.back();
+  const Vec3 b = simplex[simplex.size() - 2];
+  const Vec3 ab = b - a;
+  const Vec3 ao = negated(a);
+  if (sameDirection(ab, ao)) {
+    simplex = {b, a};
+    direction = perpendicularToward(ab, ao);
+  } else {
+    simplex = {a};
+    direction = ao;
+  }
+  return lengthSquared(direction) < 1e-12f;
+}
+
+bool handleTriangle(std::vector<Vec3>& simplex, Vec3& direction) {
+  const Vec3 a = simplex[2];
+  const Vec3 b = simplex[1];
+  const Vec3 c = simplex[0];
+  const Vec3 ab = b - a;
+  const Vec3 ac = c - a;
+  const Vec3 ao = negated(a);
+  Vec3 abc = engine::cross(ab, ac);
+
+  if (sameDirection(engine::cross(abc, ac), ao)) {
+    if (sameDirection(ac, ao)) {
+      simplex = {c, a};
+      direction = perpendicularToward(ac, ao);
+      return lengthSquared(direction) < 1e-12f;
+    }
+    simplex = {b, a};
+    return handleLine(simplex, direction);
+  }
+
+  if (sameDirection(engine::cross(ab, abc), ao)) {
+    simplex = {b, a};
+    return handleLine(simplex, direction);
+  }
+
+  if (sameDirection(abc, ao)) {
+    direction = abc;
+    simplex = {c, b, a};
+  } else {
+    direction = negated(abc);
+    simplex = {b, c, a};
+  }
+  return lengthSquared(direction) < 1e-12f;
+}
+
+bool handleTetrahedron(std::vector<Vec3>& simplex, Vec3& direction) {
+  const Vec3 a = simplex[3];
+  const Vec3 b = simplex[2];
+  const Vec3 c = simplex[1];
+  const Vec3 d = simplex[0];
+  const Vec3 ao = negated(a);
+
+  Vec3 abc = engine::cross(b - a, c - a);
+  if (engine::dot(abc, d - a) > 0.0f) abc = negated(abc);
+  if (sameDirection(abc, ao)) {
+    simplex = {c, b, a};
+    return handleTriangle(simplex, direction);
+  }
+
+  Vec3 acd = engine::cross(c - a, d - a);
+  if (engine::dot(acd, b - a) > 0.0f) acd = negated(acd);
+  if (sameDirection(acd, ao)) {
+    simplex = {d, c, a};
+    return handleTriangle(simplex, direction);
+  }
+
+  Vec3 adb = engine::cross(d - a, b - a);
+  if (engine::dot(adb, c - a) > 0.0f) adb = negated(adb);
+  if (sameDirection(adb, ao)) {
+    simplex = {b, d, a};
+    return handleTriangle(simplex, direction);
+  }
+
+  return true;
+}
+
+bool handleSimplex(std::vector<Vec3>& simplex, Vec3& direction) {
+  if (simplex.size() == 2) return handleLine(simplex, direction);
+  if (simplex.size() == 3) return handleTriangle(simplex, direction);
+  if (simplex.size() == 4) return handleTetrahedron(simplex, direction);
+  return false;
+}
+
+bool overlapsConvexObject(const Object& candidate, const RuntimePrimitive& object) {
+  Vec3 direction = candidate.localToWorld(candidate.hitBox.centre()) - object.position;
+  if (lengthSquared(direction) < 1e-10f) direction = {1.0f, 0.0f, 0.0f};
+
+  std::vector<Vec3> simplex;
+  simplex.reserve(4);
+  simplex.push_back(minkowskiSupport(candidate, object, direction));
+  direction = negated(simplex.back());
+  if (lengthSquared(direction) < 1e-12f) return true;
+
+  for (int iteration = 0; iteration < 40; ++iteration) {
+    const Vec3 point = minkowskiSupport(candidate, object, direction);
+    if (engine::dot(point, direction) <= 1e-6f) return false;
+    simplex.push_back(point);
+    if (handleSimplex(simplex, direction)) return true;
+  }
+  return false;
+}
+
+void copySurface(const Hit& source, SceneSurfaceHit& destination) {
+  destination.found = source.found;
+  destination.distance = source.t;
+  destination.point = source.point;
+  destination.normal = source.normal;
+  destination.colour = source.colour;
+  destination.kind = source.kind;
+  destination.walkable = source.walkable;
+}
+
+class RuntimeWorldLevel final : public engine::IWorldLevel {
+public:
+  explicit RuntimeWorldLevel(RuntimeLevelDefinition definition)
+      : definition_(std::move(definition)) {
+    buildRoomWalls();
+    buildCollisionObjects();
+    buildStairSteps();
+    buildBounds();
+  }
+
+  const WorldBounds& bounds() const override {
+    return bounds_;
+  }
+
+  Vec3 sample(const Ray& ray, float backgroundY) const override {
+    const Hit hit = traceClosest(ray, EPSILON, FAR_DISTANCE);
+    return hit.found ? shade(hit) : background(backgroundY);
+  }
+
+  Vec3 sampleWithHit(const Ray& ray, float backgroundY, SceneSurfaceHit& surface) const override {
+    const Hit hit = traceClosest(ray, EPSILON, FAR_DISTANCE);
+    if (!hit.found) {
+      surface = SceneSurfaceHit();
+      return background(backgroundY);
+    }
+    copySurface(hit, surface);
+    return shade(hit);
+  }
+
+  bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const override {
+    const Hit traced = traceClosest(ray, EPSILON, FAR_DISTANCE);
+    if (!traced.found) return false;
+    copySurface(traced, hit);
+    return true;
+  }
+
+  bool rayOccluded(const Ray& ray, float maximumDistance) const override {
+    // Lighting and physical occlusion keep the authored full wall. The camera
+    // cutaway is a presentation aid, not a hole in the world.
+    return maximumDistance > EPSILON && traceAny(ray, EPSILON, maximumDistance);
+  }
+
+  void prepareRenderFrame(const Vec3& viewDirection) const override {
+    renderViewDirection_ = viewDirection;
+  }
+
+  bool buildGpuStaticScene(engine::GpuStaticScene& scene) const override {
+    // Stage one deliberately supports the default middle level exactly. Cone,
+    // pyramid and polyhedron intersections remain on the software fallback
+    // until their GLSL equivalents are validated.
+    if (!definition_.floorProxies.empty()) return false;
+    for (const RuntimePrimitive& object : definition_.objects) {
+      if (object.kind != RuntimePrimitiveKind::Cube && object.kind != RuntimePrimitiveKind::Sphere) {
+        return false;
+      }
+    }
+
+    scene.clear();
+    scene.lightPosition = definition_.lightPosition;
+    scene.floorDark = definition_.floorDark;
+    scene.floorLight = definition_.floorLight;
+
+    const auto appendBox = [](
+      std::vector<engine::GpuStaticBox>& destination,
+      const Vec3& centre,
+      const Vec3& halfExtent,
+      const Vec3& colour,
+      bool floorPattern
+    ) {
+      engine::GpuStaticBox box;
+      box.centre = centre;
+      box.halfExtent = halfExtent;
+      box.colour = colour;
+      box.floorPattern = floorPattern;
+      destination.push_back(box);
+    };
+
+    for (const RuntimePrimitive& object : definition_.objects) {
+      if (object.kind == RuntimePrimitiveKind::Sphere) {
+        engine::GpuStaticSphere sphere;
+        sphere.centre = object.position;
+        sphere.radius = object.size;
+        sphere.colour = object.colour;
+        scene.spheres.push_back(sphere);
+        continue;
+      }
+
+      const Vec3 halfExtent(object.size, object.size, object.height * 0.5f);
+      appendBox(scene.visualBoxes, object.position, halfExtent, object.colour, false);
+      appendBox(scene.shadowBoxes, object.position, halfExtent, object.colour, false);
+    }
+
+    for (const RoomWallBox& wall : roomWalls_) {
+      // Shadows always see the authored full wall.
+      appendBox(scene.shadowBoxes, wall.centre, wall.halfExtent, wall.colour, false);
+
+      if (!roomWallFacesViewer(wall)) {
+        appendBox(scene.visualBoxes, wall.centre, wall.halfExtent, wall.colour, false);
+        continue;
+      }
+
+      // Match intersectRoomWallVisual(): the camera-facing wall becomes a low
+      // sill plus two narrow full-height end caps.
+      const float fullHeight = wall.halfExtent.z * 2.0f;
+      const float floorZ = wall.centre.z - wall.halfExtent.z;
+      const float sillHeight = std::min(fullHeight, ROOM_CUTAWAY_HEIGHT);
+      if (sillHeight > 0.01f) {
+        Vec3 sillCentre = wall.centre;
+        Vec3 sillHalf = wall.halfExtent;
+        sillCentre.z = floorZ + sillHeight * 0.5f;
+        sillHalf.z = sillHeight * 0.5f;
+        appendBox(scene.visualBoxes, sillCentre, sillHalf, wall.colour, false);
+      }
+
+      const bool horizontal = wall.halfExtent.x >= wall.halfExtent.y;
+      const float halfSpan = horizontal ? wall.halfExtent.x : wall.halfExtent.y;
+      const float capWidth = std::max(
+        0.0f,
+        std::min(ROOM_CUTAWAY_END_CAP_WIDTH, halfSpan - 0.18f)
+      );
+      if (capWidth > 0.02f) {
+        const float capHalf = capWidth * 0.5f;
+        const float offset = halfSpan - capHalf;
+        for (float sign : {-1.0f, 1.0f}) {
+          Vec3 capCentre = wall.centre;
+          Vec3 capHalfExtent = wall.halfExtent;
+          if (horizontal) {
+            capCentre.x += sign * offset;
+            capHalfExtent.x = capHalf;
+          } else {
+            capCentre.y += sign * offset;
+            capHalfExtent.y = capHalf;
+          }
+          appendBox(scene.visualBoxes, capCentre, capHalfExtent, wall.colour, false);
+        }
+      }
+    }
+
+    for (const auto& staircase : stairSteps_) {
+      for (const StairStep& step : staircase) {
+        appendBox(
+          scene.visualBoxes,
+          step.centre,
+          step.halfExtent,
+          definition_.floorDark,
+          true
+        );
+        appendBox(
+          scene.shadowBoxes,
+          step.centre,
+          step.halfExtent,
+          definition_.floorDark,
+          true
+        );
+      }
+    }
+
+    for (const RuntimeGroundRegion& ground : definition_.ground) {
+      engine::GpuGroundRoom gpuRoom;
+      gpuRoom.centre = ground.centre;
+      gpuRoom.halfWidth = ground.width * 0.5f;
+      gpuRoom.halfDepth = ground.depth * 0.5f;
+      scene.rooms.push_back(gpuRoom);
+    }
+
+    for (const RuntimeFloorHole& hole : definition_.floorHoles) {
+      engine::GpuFloorHole gpuHole;
+      gpuHole.minimumX = hole.minimumX;
+      gpuHole.maximumX = hole.maximumX;
+      gpuHole.minimumY = hole.minimumY;
+      gpuHole.maximumY = hole.maximumY;
+      scene.floorHoles.push_back(gpuHole);
+    }
+
+    return true;
+  }
+
+  bool walkableSurfaceAt(float x, float y, SceneSurfaceHit& hit) const override {
+    const Ray ray{{x, y, 100.0f}, {0.0f, 0.0f, -1.0f}};
+    Hit closest;
+    float maximum = FAR_DISTANCE;
+
+    for (std::size_t index = 0; index < stairSteps_.size(); ++index) {
+      Hit candidate;
+      if (intersectRuntimeStaircase(ray, index, EPSILON, maximum, candidate) && candidate.walkable) {
+        closest = candidate;
+        maximum = candidate.t;
+      }
+    }
+
+    Hit ground;
+    if (intersectGround(ray, EPSILON, maximum, ground)) {
+      closest = ground;
+      maximum = ground.t;
+    }
+
+    if (!closest.found) return false;
+    copySurface(closest, hit);
+    return true;
+  }
+
+  const std::vector<WorldObject>& objects() const override {
+    return worldObjects_;
+  }
+
+  const RoomLayout* roomLayout() const override {
+    return definition_.roomLayout.rooms.empty() ? nullptr : &definition_.roomLayout;
+  }
+
+  bool overlapsStatic(std::size_t objectIndex, const Object& candidate) const override {
+    if (objectIndex >= definition_.objects.size()) return false;
+    const RuntimePrimitive& object = definition_.objects[objectIndex];
+    return object.solid && overlapsConvexObject(candidate, object);
+  }
+
+  bool overlapsAdditionalStatic(const Object& candidate) const override {
+    // Demo obstacle parts intentionally mount into or span past room boundary
+    // geometry. Their own authored motion defines their legal placement; room
+    // walls still collide normally with players and every other solid entity.
+    if (candidate.hasCollisionTag("demo-obstacle")) return false;
+
+    // Room boundaries are axis-aligned. Reject distant walls against the
+    // candidate's conservative world AABB before paying for exact OBB SAT.
+    // Navigation probes collision many times, so this keeps extra rooms from
+    // multiplying collision cost for Characters nowhere near their walls.
+    Vec3 facing;
+    Vec3 right;
+    candidate.horizontalBasis(facing, right);
+    const Vec3 localCentre = candidate.hitBox.centre();
+    const Vec3 localHalf = candidate.hitBox.halfExtent();
+    const Vec3 candidateCentre = candidate.location.position +
+      right * localCentre.x + facing * localCentre.y + Vec3(0.0f, 0.0f, localCentre.z);
+    const Vec3 candidateHalf(
+      std::fabs(right.x) * localHalf.x + std::fabs(facing.x) * localHalf.y,
+      std::fabs(right.y) * localHalf.x + std::fabs(facing.y) * localHalf.y,
+      localHalf.z
+    );
+
+    for (const RoomWallBox& box : roomWalls_) {
+      if (
+        std::fabs(candidateCentre.x - box.centre.x) >= candidateHalf.x + box.halfExtent.x ||
+        std::fabs(candidateCentre.y - box.centre.y) >= candidateHalf.y + box.halfExtent.y ||
+        std::fabs(candidateCentre.z - box.centre.z) >= candidateHalf.z + box.halfExtent.z
+      ) {
+        continue;
+      }
+
+      Object wall;
+      wall.location = candidate.location;
+      wall.location.position = {0.0f, 0.0f, 0.0f};
+      wall.hitBox.minimum = box.centre - box.halfExtent;
+      wall.hitBox.maximum = box.centre + box.halfExtent;
+      wall.solid = true;
+      if (wall.overlaps(candidate)) return true;
+    }
+    return false;
+  }
+
+  bool intersectsSolid(const HitBox& hitBox) const override {
+    Object candidate;
+    candidate.hitBox = hitBox;
+    for (std::size_t index = 0; index < definition_.objects.size(); ++index) {
+      if (overlapsStatic(index, candidate)) return true;
+    }
+    return overlapsAdditionalStatic(candidate);
+  }
+
+private:
+  Vec3 objectExtent(const RuntimePrimitive& object) const {
+    if (object.kind == RuntimePrimitiveKind::Sphere) return {object.size, object.size, object.size};
+    if (object.kind == RuntimePrimitiveKind::Dodecahedron || object.kind == RuntimePrimitiveKind::Icosahedron) {
+      const float radius = object.size * 1.55f;
+      return {radius, radius, radius};
+    }
+    return {object.size, object.size, object.height * 0.5f};
+  }
+
+  void buildRoomWalls() {
+    roomWalls_.clear();
+    const RoomSide sides[4] = {
+      RoomSide::North,
+      RoomSide::South,
+      RoomSide::East,
+      RoomSide::West
+    };
+
+    struct Gap {
+      float minimum;
+      float maximum;
+    };
+
+    for (const Room& room : definition_.roomLayout.rooms) {
+      for (RoomSide side : sides) {
+        std::vector<Gap> gaps;
+        for (const RoomConnection& connection : definition_.roomLayout.connections) {
+          if (!connection.openPassage) continue;
+          const RoomPortal* portal = nullptr;
+          if (connection.a.roomId == room.id && connection.a.side == side) portal = &connection.a;
+          if (connection.b.roomId == room.id && connection.b.side == side) portal = &connection.b;
+          if (!portal) continue;
+          const float halfOpening = std::max(0.0f, portal->width) * 0.5f;
+          gaps.push_back({portal->offset - halfOpening, portal->offset + halfOpening});
+        }
+
+        const bool horizontal = side == RoomSide::North || side == RoomSide::South;
+        const float halfSpan = horizontal ? room.width * 0.5f : room.depth * 0.5f;
+        std::sort(gaps.begin(), gaps.end(), [](const Gap& a, const Gap& b) {
+          return a.minimum < b.minimum;
+        });
+
+        auto emit = [&](float minimum, float maximum) {
+          minimum = std::max(minimum, -halfSpan);
+          maximum = std::min(maximum, halfSpan);
+          if (maximum - minimum <= 0.02f) return;
+
+          RoomWallBox wall;
+          wall.colour = definition_.wallColour;
+          wall.outwardSides = roomSideBit(side);
+          const float centreAlong = (minimum + maximum) * 0.5f;
+          const float halfAlong = (maximum - minimum) * 0.5f;
+          const float z = room.floorZ + room.wallHeight * 0.5f;
+          if (horizontal) {
+            const float y = room.centre.y +
+              (side == RoomSide::North ? room.depth * 0.5f : -room.depth * 0.5f);
+            wall.centre = {room.centre.x + centreAlong, y, z};
+            wall.halfExtent = {halfAlong, room.wallThickness * 0.5f, room.wallHeight * 0.5f};
+          } else {
+            const float x = room.centre.x +
+              (side == RoomSide::East ? room.width * 0.5f : -room.width * 0.5f);
+            wall.centre = {x, room.centre.y + centreAlong, z};
+            wall.halfExtent = {room.wallThickness * 0.5f, halfAlong, room.wallHeight * 0.5f};
+          }
+          roomWalls_.push_back(wall);
+        };
+
+        float cursor = -halfSpan;
+        for (const Gap& gap : gaps) {
+          const float gapMinimum = std::max(-halfSpan, gap.minimum);
+          const float gapMaximum = std::min(halfSpan, gap.maximum);
+          if (gapMaximum <= cursor) continue;
+          emit(cursor, gapMinimum);
+          cursor = std::max(cursor, gapMaximum);
+        }
+        emit(cursor, halfSpan);
+      }
+    }
+
+    // Adjacent Rooms author the same shared wall from opposite sides. Merge
+    // coincident boxes so one full-height duplicate cannot visually cover the
+    // cutaway generated for its camera-facing twin. Collision also gets less
+    // duplicate work as a side effect.
+    std::vector<RoomWallBox> merged;
+    merged.reserve(roomWalls_.size());
+    for (const RoomWallBox& wall : roomWalls_) {
+      RoomWallBox* existing = nullptr;
+      for (RoomWallBox& candidate : merged) {
+        const bool same =
+          std::fabs(candidate.centre.x - wall.centre.x) <= EPSILON &&
+          std::fabs(candidate.centre.y - wall.centre.y) <= EPSILON &&
+          std::fabs(candidate.centre.z - wall.centre.z) <= EPSILON &&
+          std::fabs(candidate.halfExtent.x - wall.halfExtent.x) <= EPSILON &&
+          std::fabs(candidate.halfExtent.y - wall.halfExtent.y) <= EPSILON &&
+          std::fabs(candidate.halfExtent.z - wall.halfExtent.z) <= EPSILON;
+        if (same) {
+          existing = &candidate;
+          break;
+        }
+      }
+      if (existing) {
+        existing->outwardSides |= wall.outwardSides;
+      } else {
+        merged.push_back(wall);
+      }
+    }
+    roomWalls_ = std::move(merged);
+  }
+
+  void buildCollisionObjects() {
+    worldObjects_.clear();
+    worldObjects_.reserve(definition_.objects.size());
+    for (const RuntimePrimitive& object : definition_.objects) {
+      const Vec3 extent = objectExtent(object);
+      WorldObject worldObject;
+      worldObject.solid = object.solid;
+      worldObject.hitBox.minimum = object.position - extent;
+      worldObject.hitBox.maximum = object.position + extent;
+      worldObjects_.push_back(worldObject);
+    }
+  }
+
+  void buildStairSteps() {
+    stairSteps_.clear();
+    stairSteps_.reserve(definition_.staircases.size());
+    const float inverseStepCount = 1.0f / static_cast<float>(STAIR_STEP_COUNT);
+
+    for (const RuntimeStaircase& staircase : definition_.staircases) {
+      std::array<StairStep, STAIR_STEP_COUNT> steps;
+      const float lowerZ = std::min(staircase.startZ, staircase.endZ);
+      const bool ascending = staircase.endZ > staircase.startZ;
+      const float yStep = (staircase.endY - staircase.startY) * inverseStepCount;
+      const float halfY = std::fabs(yStep) * 0.5f;
+      const float halfX = staircase.width * 0.5f;
+
+      for (int index = 0; index < STAIR_STEP_COUNT; ++index) {
+        const float y0 = staircase.startY + yStep * index;
+        const float y1 = y0 + yStep;
+        const float fraction = (ascending ? index + 1 : index) * inverseStepCount;
+        const float topZ = staircase.startZ +
+          (staircase.endZ - staircase.startZ) * fraction;
+        const float boxMaximumZ = std::max(topZ, lowerZ + 0.025f);
+        steps[index].centre = {
+          staircase.centreX,
+          (y0 + y1) * 0.5f,
+          (lowerZ + boxMaximumZ) * 0.5f
+        };
+        steps[index].halfExtent = {
+          halfX,
+          halfY,
+          (boxMaximumZ - lowerZ) * 0.5f
+        };
+      }
+      stairSteps_.push_back(steps);
+    }
+  }
+
+  void buildBounds() {
+    bounds_.focus = definition_.boundsFocus;
+    bounds_.points.clear();
+    bounds_.points.reserve(
+      definition_.ground.size() * 8 + definition_.roomLayout.rooms.size() * 8 +
+      definition_.objects.size() * 8 + definition_.staircases.size() * 8
+    );
+
+    for (const RuntimeGroundRegion& ground : definition_.ground) {
+      const float halfWidth = ground.width * 0.5f;
+      const float halfDepth = ground.depth * 0.5f;
+      for (float x : {ground.centre.x - halfWidth, ground.centre.x + halfWidth}) {
+        for (float y : {ground.centre.y - halfDepth, ground.centre.y + halfDepth}) {
+          bounds_.points.push_back({x, y, ground.centre.z});
+        }
+      }
+    }
+
+    for (const Room& room : definition_.roomLayout.rooms) {
+      const float halfWidth = room.width * 0.5f;
+      const float halfDepth = room.depth * 0.5f;
+      for (float x : {room.centre.x - halfWidth, room.centre.x + halfWidth}) {
+        for (float y : {room.centre.y - halfDepth, room.centre.y + halfDepth}) {
+          bounds_.points.push_back({x, y, room.floorZ});
+          bounds_.points.push_back({x, y, room.floorZ + room.wallHeight});
+        }
+      }
+    }
+
+    for (const RuntimePrimitive& object : definition_.objects) {
+      const Vec3 extent = objectExtent(object);
+      for (int x : {-1, 1}) {
+        for (int y : {-1, 1}) {
+          for (int z : {-1, 1}) {
+            bounds_.points.push_back(
+              object.position + Vec3(extent.x * x, extent.y * y, extent.z * z)
+            );
+          }
+        }
+      }
+    }
+
+    for (const RuntimeStaircase& staircase : definition_.staircases) {
+      const float minimumY = std::min(staircase.startY, staircase.endY);
+      const float maximumY = std::max(staircase.startY, staircase.endY);
+      const float minimumZ = std::min(staircase.startZ, staircase.endZ);
+      const float maximumZ = std::max(staircase.startZ, staircase.endZ);
+      for (float x : {
+        staircase.centreX - staircase.width * 0.5f,
+        staircase.centreX + staircase.width * 0.5f
+      }) {
+        for (float y : {minimumY, maximumY}) {
+          for (float z : {minimumZ, maximumZ}) {
+            bounds_.points.push_back({x, y, z});
+          }
+        }
+      }
+    }
+  }
+
+  bool intersectSphere(const Ray& ray, const RuntimePrimitive& object, float minimum, float maximum, Hit& hit) const {
+    const Vec3 offset = ray.origin - object.position;
+    const float a = engine::dot(ray.direction, ray.direction);
+    const float halfB = engine::dot(offset, ray.direction);
+    const float c = engine::dot(offset, offset) - object.size * object.size;
+    const float discriminant = halfB * halfB - a * c;
+    if (discriminant < 0.0f) return false;
+
+    const float root = std::sqrt(discriminant);
+    float t = (-halfB - root) / a;
+    if (t < minimum || t > maximum) {
+      t = (-halfB + root) / a;
+      if (t < minimum || t > maximum) return false;
+    }
+
+    hit.found = true;
+    hit.t = t;
+    hit.point = ray.origin + ray.direction * t;
+    hit.normal = engine::normalise(hit.point - object.position);
+    hit.colour = object.colour;
+    return true;
+  }
+
+  bool intersectCube(const Ray& ray, const RuntimePrimitive& object, float minimum, float maximum, Hit& hit) const {
+    const Vec3 localOrigin = ray.origin - object.position;
+    const float half[3] = {object.size, object.size, object.height * 0.5f};
+    const float origin[3] = {localOrigin.x, localOrigin.y, localOrigin.z};
+    const float direction[3] = {ray.direction.x, ray.direction.y, ray.direction.z};
+    float nearT = minimum;
+    float farT = maximum;
+    int normalAxis = -1;
+    float normalSign = 0.0f;
+
+    for (int axis = 0; axis < 3; ++axis) {
+      if (std::fabs(direction[axis]) < 1e-7f) {
+        if (origin[axis] < -half[axis] || origin[axis] > half[axis]) return false;
+        continue;
+      }
+
+      const float inverse = 1.0f / direction[axis];
+      float t0 = (-half[axis] - origin[axis]) * inverse;
+      float t1 = (half[axis] - origin[axis]) * inverse;
+      float sign = -1.0f;
+      if (t0 > t1) {
+        std::swap(t0, t1);
+        sign = 1.0f;
+      }
+      if (t0 > nearT) {
+        nearT = t0;
+        normalAxis = axis;
+        normalSign = sign;
+      }
+      farT = std::min(farT, t1);
+      if (farT < nearT) return false;
+    }
+
+    if (normalAxis < 0) return false;
+    hit.found = true;
+    hit.t = nearT;
+    hit.point = ray.origin + ray.direction * nearT;
+    hit.normal = normalAxis == 0
+      ? Vec3(normalSign, 0.0f, 0.0f)
+      : normalAxis == 1
+        ? Vec3(0.0f, normalSign, 0.0f)
+        : Vec3(0.0f, 0.0f, normalSign);
+    hit.colour = object.colour;
+    return true;
+  }
+
+  bool intersectCone(const Ray& ray, const RuntimePrimitive& object, float minimum, float maximum, Hit& hit) const {
+    const float radius = object.size;
+    const float height = object.height;
+    const float halfHeight = height * 0.5f;
+    const float slope = radius / height;
+    const float slopeSquared = slope * slope;
+    const Vec3 origin = ray.origin - object.position;
+    const Vec3 direction = ray.direction;
+    const float apex = halfHeight;
+
+    const float a = direction.x * direction.x + direction.y * direction.y - slopeSquared * direction.z * direction.z;
+    const float b = 2.0f * (
+      origin.x * direction.x + origin.y * direction.y +
+      slopeSquared * (apex - origin.z) * direction.z
+    );
+    const float c = origin.x * origin.x + origin.y * origin.y -
+      slopeSquared * (apex - origin.z) * (apex - origin.z);
+
+    bool found = false;
+    float closest = maximum;
+    Vec3 normal;
+    const float discriminant = b * b - 4.0f * a * c;
+
+    if (std::fabs(a) > 1e-7f && discriminant >= 0.0f) {
+      const float root = std::sqrt(discriminant);
+      const float inverse2A = 0.5f / a;
+      const float roots[2] = {(-b - root) * inverse2A, (-b + root) * inverse2A};
+      for (float t : roots) {
+        if (t < minimum || t > closest) continue;
+        const Vec3 point = origin + direction * t;
+        if (point.z < -halfHeight || point.z > halfHeight) continue;
+        found = true;
+        closest = t;
+        normal = engine::normalise({point.x, point.y, slopeSquared * (apex - point.z)});
+      }
+    }
+
+    if (std::fabs(direction.z) > 1e-7f) {
+      const float t = (-halfHeight - origin.z) / direction.z;
+      if (t >= minimum && t <= closest) {
+        const Vec3 point = origin + direction * t;
+        if (point.x * point.x + point.y * point.y <= radius * radius) {
+          found = true;
+          closest = t;
+          normal = {0.0f, 0.0f, -1.0f};
+        }
+      }
+    }
+
+    if (!found) return false;
+    if (engine::dot(normal, ray.direction) > 0.0f) normal = normal * -1.0f;
+    hit.found = true;
+    hit.t = closest;
+    hit.point = ray.origin + ray.direction * closest;
+    hit.normal = normal;
+    hit.colour = object.colour;
+    return true;
+  }
+
+  bool intersectPyramid(const Ray& ray, const RuntimePrimitive& object, float minimum, float maximum, Hit& hit) const {
+    const float size = object.size;
+    const float baseZ = object.position.z - object.height * 0.5f;
+    const float apexZ = object.position.z + object.height * 0.5f;
+    const Vec3 p0(object.position.x - size, object.position.y - size, baseZ);
+    const Vec3 p1(object.position.x + size, object.position.y - size, baseZ);
+    const Vec3 p2(object.position.x + size, object.position.y + size, baseZ);
+    const Vec3 p3(object.position.x - size, object.position.y + size, baseZ);
+    const Vec3 apex(object.position.x, object.position.y, apexZ);
+    const Vec3 triangles[6][3] = {
+      {p0, p2, p1}, {p0, p3, p2},
+      {p0, p1, apex}, {p1, p2, apex},
+      {p2, p3, apex}, {p3, p0, apex}
+    };
+
+    bool found = false;
+    float closest = maximum;
+    Vec3 closestNormal;
+    for (int index = 0; index < 6; ++index) {
+      Vec3 normal;
+      const float t = triangleIntersection(
+        ray,
+        triangles[index][0],
+        triangles[index][1],
+        triangles[index][2],
+        minimum,
+        closest,
+        normal
+      );
+      if (t < closest) {
+        found = true;
+        closest = t;
+        closestNormal = normal;
+      }
+    }
+
+    if (!found) return false;
+    hit.found = true;
+    hit.t = closest;
+    hit.point = ray.origin + ray.direction * closest;
+    hit.normal = closestNormal;
+    hit.colour = object.colour;
+    return true;
+  }
+
+  bool intersectPolyhedron(
+    const Ray& ray,
+    const RuntimePrimitive& object,
+    const std::vector<Vec3>& normals,
+    float minimum,
+    float maximum,
+    Hit& hit
+  ) const {
+    const Vec3 localOrigin = ray.origin - object.position;
+    float enter = minimum;
+    float exit = maximum;
+    Vec3 enterNormal;
+    bool hasEnterNormal = false;
+
+    for (const Vec3& normal : normals) {
+      const float denominator = engine::dot(ray.direction, normal);
+      const float distance = object.size - engine::dot(localOrigin, normal);
+      if (std::fabs(denominator) < 1e-7f) {
+        if (distance < 0.0f) return false;
+        continue;
+      }
+
+      const float t = distance / denominator;
+      if (denominator < 0.0f) {
+        if (t > enter) {
+          enter = t;
+          enterNormal = normal;
+          hasEnterNormal = true;
+        }
+      } else {
+        exit = std::min(exit, t);
+      }
+      if (enter > exit) return false;
+    }
+
+    if (!hasEnterNormal || enter < minimum || enter > maximum) return false;
+    hit.found = true;
+    hit.t = enter;
+    hit.point = ray.origin + ray.direction * enter;
+    hit.normal = enterNormal;
+    hit.colour = object.colour;
+    return true;
+  }
+
+  bool intersectObject(const Ray& ray, const RuntimePrimitive& object, float minimum, float maximum, Hit& hit) const {
+    bool found = false;
+    switch (object.kind) {
+      case RuntimePrimitiveKind::Cube:
+        found = intersectCube(ray, object, minimum, maximum, hit);
+        break;
+      case RuntimePrimitiveKind::Sphere:
+        found = intersectSphere(ray, object, minimum, maximum, hit);
+        break;
+      case RuntimePrimitiveKind::Cone:
+        found = intersectCone(ray, object, minimum, maximum, hit);
+        break;
+      case RuntimePrimitiveKind::Pyramid:
+        found = intersectPyramid(ray, object, minimum, maximum, hit);
+        break;
+      case RuntimePrimitiveKind::Dodecahedron:
+        found = intersectPolyhedron(ray, object, dodecahedronNormals(), minimum, maximum, hit);
+        break;
+      case RuntimePrimitiveKind::Icosahedron:
+        found = intersectPolyhedron(ray, object, icosahedronNormals(), minimum, maximum, hit);
+        break;
+    }
+    if (found) {
+      hit.kind = SceneSurfaceKind::Object;
+      hit.walkable = false;
+    }
+    return found;
+  }
+
+  Vec3 floorColour(
+    const Vec3& point,
+    const Vec3& dark,
+    const Vec3& light
+  ) const {
+    const int x = static_cast<int>(std::floor(point.x + 20.0f));
+    const int y = static_cast<int>(std::floor(point.y + 20.0f));
+    Vec3 colour = ((x + y) & 1) ? dark : light;
+    const float edgeX = std::fabs(point.x - std::round(point.x));
+    const float edgeY = std::fabs(point.y - std::round(point.y));
+    if (std::min(edgeX, edgeY) < 0.022f) colour = colour * 0.78f;
+    return colour;
+  }
+
+  Vec3 floorColour(const Vec3& point) const {
+    return floorColour(point, definition_.floorDark, definition_.floorLight);
+  }
+
+  bool insideRuntimeFloorHole(const Vec3& point) const {
+    for (const RuntimeFloorHole& hole : definition_.floorHoles) {
+      if (
+        point.x >= hole.minimumX && point.x <= hole.maximumX &&
+        point.y >= hole.minimumY && point.y <= hole.maximumY
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool intersectAxisAlignedBox(
+    const Ray& ray,
+    const Vec3& centre,
+    const Vec3& halfExtent,
+    float minimum,
+    float maximum,
+    Hit& hit
+  ) const {
+    const Vec3 localOrigin = ray.origin - centre;
+    const float origin[3] = {localOrigin.x, localOrigin.y, localOrigin.z};
+    const float direction[3] = {ray.direction.x, ray.direction.y, ray.direction.z};
+    const float half[3] = {halfExtent.x, halfExtent.y, halfExtent.z};
+    float nearT = minimum;
+    float farT = maximum;
+    int normalAxis = -1;
+    float normalSign = 0.0f;
+
+    for (int axis = 0; axis < 3; ++axis) {
+      if (std::fabs(direction[axis]) < 1e-7f) {
+        if (origin[axis] < -half[axis] || origin[axis] > half[axis]) return false;
+        continue;
+      }
+
+      const float inverse = 1.0f / direction[axis];
+      float t0 = (-half[axis] - origin[axis]) * inverse;
+      float t1 = (half[axis] - origin[axis]) * inverse;
+      float sign = -1.0f;
+      if (t0 > t1) {
+        std::swap(t0, t1);
+        sign = 1.0f;
+      }
+      if (t0 > nearT) {
+        nearT = t0;
+        normalAxis = axis;
+        normalSign = sign;
+      }
+      farT = std::min(farT, t1);
+      if (farT < nearT) return false;
+    }
+
+    if (normalAxis < 0) return false;
+    hit.found = true;
+    hit.t = nearT;
+    hit.point = ray.origin + ray.direction * nearT;
+    hit.normal = normalAxis == 0
+      ? Vec3(normalSign, 0.0f, 0.0f)
+      : normalAxis == 1
+        ? Vec3(0.0f, normalSign, 0.0f)
+        : Vec3(0.0f, 0.0f, normalSign);
+    return true;
+  }
+
+  bool roomWallFacesViewer(const RoomWallBox& wall) const {
+    Vec3 toCamera{-renderViewDirection_.x, -renderViewDirection_.y, 0.0f};
+    const float horizontalLengthSquared =
+      toCamera.x * toCamera.x + toCamera.y * toCamera.y;
+    if (horizontalLengthSquared <= 1e-10f) return false;
+    toCamera = toCamera / std::sqrt(horizontalLengthSquared);
+
+    const RoomSide sides[4] = {
+      RoomSide::North, RoomSide::South, RoomSide::East, RoomSide::West
+    };
+    for (RoomSide side : sides) {
+      if ((wall.outwardSides & roomSideBit(side)) == 0) continue;
+      if (engine::dot(roomSideNormal(side), toCamera) > ROOM_CUTAWAY_FACING_THRESHOLD) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool intersectRoomWallVisual(
+    const Ray& ray,
+    const RoomWallBox& wall,
+    float minimum,
+    float maximum,
+    Hit& hit
+  ) const {
+    if (!roomWallFacesViewer(wall)) {
+      return intersectAxisAlignedBox(ray, wall.centre, wall.halfExtent, minimum, maximum, hit);
+    }
+
+    bool found = false;
+    float closest = maximum;
+    const auto testBox = [&](const Vec3& centre, const Vec3& halfExtent) {
+      Hit candidate;
+      if (!intersectAxisAlignedBox(ray, centre, halfExtent, minimum, closest, candidate)) return;
+      found = true;
+      closest = candidate.t;
+      hit = candidate;
+    };
+
+    const float fullHeight = wall.halfExtent.z * 2.0f;
+    const float floorZ = wall.centre.z - wall.halfExtent.z;
+    const float sillHeight = std::min(fullHeight, ROOM_CUTAWAY_HEIGHT);
+    if (sillHeight > 0.01f) {
+      Vec3 sillCentre = wall.centre;
+      Vec3 sillHalf = wall.halfExtent;
+      sillCentre.z = floorZ + sillHeight * 0.5f;
+      sillHalf.z = sillHeight * 0.5f;
+      testBox(sillCentre, sillHalf);
+    }
+
+    // Keep narrow full-height ends so the wall remains visually legible as a
+    // wall rather than vanishing. The central/top region becomes the notch.
+    const bool horizontal = wall.halfExtent.x >= wall.halfExtent.y;
+    const float halfSpan = horizontal ? wall.halfExtent.x : wall.halfExtent.y;
+    const float capWidth = std::max(
+      0.0f,
+      std::min(ROOM_CUTAWAY_END_CAP_WIDTH, halfSpan - 0.18f)
+    );
+    if (capWidth > 0.02f) {
+      const float capHalf = capWidth * 0.5f;
+      const float offset = halfSpan - capHalf;
+      for (float sign : {-1.0f, 1.0f}) {
+        Vec3 capCentre = wall.centre;
+        Vec3 capHalfExtent = wall.halfExtent;
+        if (horizontal) {
+          capCentre.x += sign * offset;
+          capHalfExtent.x = capHalf;
+        } else {
+          capCentre.y += sign * offset;
+          capHalfExtent.y = capHalf;
+        }
+        testBox(capCentre, capHalfExtent);
+      }
+    }
+    return found;
+  }
+
+  bool intersectRuntimeStaircase(
+    const Ray& ray,
+    std::size_t staircaseIndex,
+    float minimum,
+    float maximum,
+    Hit& hit
+  ) const {
+    if (staircaseIndex >= stairSteps_.size()) return false;
+    bool found = false;
+    float closest = maximum;
+
+    for (const StairStep& step : stairSteps_[staircaseIndex]) {
+      Hit candidate;
+      if (intersectAxisAlignedBox(ray, step.centre, step.halfExtent, minimum, closest, candidate)) {
+        found = true;
+        closest = candidate.t;
+        hit = candidate;
+        hit.colour = floorColour(hit.point);
+        hit.kind = SceneSurfaceKind::Stair;
+        hit.walkable = hit.normal.z > 0.5f;
+      }
+    }
+    return found;
+  }
+
+  bool intersectRuntimeFloorProxy(
+    const Ray& ray,
+    const RuntimeFloorProxy& floor,
+    float minimum,
+    float maximum,
+    Hit& hit
+  ) const {
+    if (std::fabs(ray.direction.z) < 1e-7f) return false;
+    const float t = (floor.z - ray.origin.z) / ray.direction.z;
+    if (t < minimum || t > maximum) return false;
+
+    const Vec3 point = ray.origin + ray.direction * t;
+    if (std::fabs(point.x) > GROUND_LIMIT || std::fabs(point.y) > GROUND_LIMIT) return false;
+
+    hit.found = true;
+    hit.t = t;
+    hit.point = point;
+    hit.normal = {0.0f, 0.0f, 1.0f};
+    hit.colour = floorColour(point, floor.dark, floor.light);
+    hit.kind = SceneSurfaceKind::Proxy;
+    hit.walkable = false;
+    return true;
+  }
+
+  bool intersectGround(const Ray& ray, float minimum, float maximum, Hit& hit) const {
+    if (std::fabs(ray.direction.z) < 1e-7f) return false;
+    bool found = false;
+    float closest = maximum;
+
+    for (const RuntimeGroundRegion& ground : definition_.ground) {
+      const float t = (ground.centre.z - ray.origin.z) / ray.direction.z;
+      if (t < minimum || t > closest) continue;
+      const Vec3 point = ray.origin + ray.direction * t;
+      const float halfWidth = ground.width * 0.5f;
+      const float halfDepth = ground.depth * 0.5f;
+      if (
+        point.x < ground.centre.x - halfWidth - EPSILON ||
+        point.x > ground.centre.x + halfWidth + EPSILON ||
+        point.y < ground.centre.y - halfDepth - EPSILON ||
+        point.y > ground.centre.y + halfDepth + EPSILON
+      ) {
+        continue;
+      }
+      if (insideRuntimeFloorHole(point)) continue;
+
+      found = true;
+      closest = t;
+      hit.found = true;
+      hit.t = t;
+      hit.point = point;
+      hit.normal = {0.0f, 0.0f, 1.0f};
+      hit.colour = floorColour(point);
+      hit.kind = SceneSurfaceKind::Ground;
+      hit.walkable = ground.walkable;
+    }
+    return found;
+  }
+
+  Hit traceClosest(const Ray& ray, float minimum, float maximum) const {
+    Hit result;
+    for (const RuntimePrimitive& object : definition_.objects) {
+      Hit hit;
+      if (intersectObject(ray, object, minimum, maximum, hit)) {
+        result = hit;
+        maximum = hit.t;
+      }
+    }
+
+    for (const RoomWallBox& wall : roomWalls_) {
+      Hit hit;
+      if (intersectRoomWallVisual(ray, wall, minimum, maximum, hit)) {
+        hit.colour = wall.colour;
+        hit.kind = SceneSurfaceKind::Object;
+        hit.walkable = false;
+        result = hit;
+        maximum = hit.t;
+      }
+    }
+
+    for (std::size_t index = 0; index < stairSteps_.size(); ++index) {
+      Hit hit;
+      if (intersectRuntimeStaircase(ray, index, minimum, maximum, hit)) {
+        result = hit;
+        maximum = hit.t;
+      }
+    }
+
+    for (const RuntimeFloorProxy& floor : definition_.floorProxies) {
+      Hit hit;
+      if (intersectRuntimeFloorProxy(ray, floor, minimum, maximum, hit)) {
+        result = hit;
+        maximum = hit.t;
+      }
+    }
+
+    Hit ground;
+    if (intersectGround(ray, minimum, maximum, ground)) result = ground;
+    return result;
+  }
+
+  bool traceAny(const Ray& ray, float minimum, float maximum) const {
+    Hit hit;
+    for (const RuntimePrimitive& object : definition_.objects) {
+      if (intersectObject(ray, object, minimum, maximum, hit)) return true;
+    }
+    for (const RoomWallBox& wall : roomWalls_) {
+      if (intersectAxisAlignedBox(ray, wall.centre, wall.halfExtent, minimum, maximum, hit)) return true;
+    }
+    for (std::size_t index = 0; index < stairSteps_.size(); ++index) {
+      if (intersectRuntimeStaircase(ray, index, minimum, maximum, hit)) return true;
+    }
+    for (const RuntimeFloorProxy& floor : definition_.floorProxies) {
+      if (intersectRuntimeFloorProxy(ray, floor, minimum, maximum, hit)) return true;
+    }
+    return intersectGround(ray, minimum, maximum, hit);
+  }
+
+  Vec3 shade(const Hit& hit) const {
+    const Vec3 toLight = definition_.lightPosition - hit.point;
+    const float distanceSquaredValue = engine::dot(toLight, toLight);
+    if (distanceSquaredValue < 1e-12f) return hit.colour;
+    const float distance = std::sqrt(distanceSquaredValue);
+    const Vec3 lightDirection = toLight / distance;
+    const float diffuse = std::max(0.0f, engine::dot(hit.normal, lightDirection));
+    const float attenuation = 1.0f / (1.0f + 0.018f * distanceSquaredValue);
+    const float visibility = traceAny(
+      {hit.point + hit.normal * EPSILON, lightDirection},
+      EPSILON,
+      distance - EPSILON
+    ) ? 0.0f : 1.0f;
+    const Vec3 colour = hit.colour * (0.19f + visibility * diffuse * attenuation * 1.18f);
+    return {
+      std::min(colour.x, 1.0f),
+      std::min(colour.y, 1.0f),
+      std::min(colour.z, 1.0f)
+    };
+  }
+
+  Vec3 background(float y) const {
+    const float t = std::max(0.0f, std::min(1.0f, y));
+    return Vec3(0.075f, 0.12f, 0.18f) * (1.0f - t) + Vec3(0.20f, 0.28f, 0.34f) * t;
+  }
+
+  RuntimeLevelDefinition definition_;
+  WorldBounds bounds_;
+  std::vector<WorldObject> worldObjects_;
+  std::vector<RoomWallBox> roomWalls_;
+  std::vector<std::array<StairStep, STAIR_STEP_COUNT>> stairSteps_;
+  mutable Vec3 renderViewDirection_ = {0.57735027f, 0.57735027f, -0.57735027f};
+};
+
+
+} // namespace
+
+std::unique_ptr<IWorldLevel> makeRuntimeWorldLevel(RuntimeLevelDefinition definition) {
+  return std::unique_ptr<IWorldLevel>(new RuntimeWorldLevel(std::move(definition)));
+}
+
+} // namespace engine
+} // namespace isoweb

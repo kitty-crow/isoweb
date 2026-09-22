@@ -1,0 +1,355 @@
+{
+  "schemaVersion": 1,
+  "id": "upper",
+  "name": "Demo Upper Level",
+  "coordinateSystem": {
+    "units": "metres",
+    "upAxis": "z",
+    "handedness": "right"
+  },
+  "viewOrigin": [
+    0,
+    0,
+    4.125
+  ],
+  "ground": [
+    {
+      "id": "ground-centre",
+      "type": "rectangle",
+      "centre": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        8.8,
+        8.8
+      ],
+      "walkable": true,
+      "material": "floor-dark",
+      "alternateMaterial": "floor-light"
+    },
+    {
+      "id": "ground-west",
+      "type": "rectangle",
+      "centre": [
+        -8.8,
+        0,
+        0
+      ],
+      "size": [
+        8.8,
+        8.8
+      ],
+      "walkable": true,
+      "material": "floor-dark",
+      "alternateMaterial": "floor-light"
+    },
+    {
+      "id": "ground-east",
+      "type": "rectangle",
+      "centre": [
+        8.8,
+        0,
+        0
+      ],
+      "size": [
+        8.8,
+        8.8
+      ],
+      "walkable": true,
+      "material": "floor-dark",
+      "alternateMaterial": "floor-light"
+    },
+    {
+      "id": "ground-south",
+      "type": "rectangle",
+      "centre": [
+        0,
+        -8.8,
+        0
+      ],
+      "size": [
+        8.8,
+        8.8
+      ],
+      "walkable": true,
+      "material": "floor-dark",
+      "alternateMaterial": "floor-light"
+    },
+    {
+      "id": "ground-far-south",
+      "type": "rectangle",
+      "centre": [
+        0,
+        -17.6,
+        0
+      ],
+      "size": [
+        8.8,
+        8.8
+      ],
+      "walkable": true,
+      "material": "floor-dark",
+      "alternateMaterial": "floor-light"
+    }
+  ],
+  "geometry": [
+    {
+      "id": "blue-dodecahedron",
+      "type": "dodecahedron",
+      "position": [
+        -1.35,
+        0.95,
+        1
+      ],
+      "size": 0.72,
+      "height": 0,
+      "material": "dodecahedron",
+      "solid": true
+    },
+    {
+      "id": "red-icosahedron",
+      "type": "icosahedron",
+      "position": [
+        1.3,
+        -0.95,
+        1.1
+      ],
+      "size": 0.78,
+      "height": 0,
+      "material": "icosahedron",
+      "solid": true
+    }
+  ],
+  "rooms": [
+    {
+      "id": "centre",
+      "centre": [
+        0,
+        0,
+        0
+      ],
+      "width": 8.8,
+      "depth": 8.8,
+      "floorZ": 0,
+      "wallHeight": 1.8,
+      "wallThickness": 0.12,
+      "wallMaterial": "wall"
+    },
+    {
+      "id": "west",
+      "centre": [
+        -8.8,
+        0,
+        0
+      ],
+      "width": 8.8,
+      "depth": 8.8,
+      "floorZ": 0,
+      "wallHeight": 1.8,
+      "wallThickness": 0.12,
+      "wallMaterial": "wall"
+    },
+    {
+      "id": "east",
+      "centre": [
+        8.8,
+        0,
+        0
+      ],
+      "width": 8.8,
+      "depth": 8.8,
+      "floorZ": 0,
+      "wallHeight": 1.8,
+      "wallThickness": 0.12,
+      "wallMaterial": "wall"
+    },
+    {
+      "id": "south",
+      "centre": [
+        0,
+        -8.8,
+        0
+      ],
+      "width": 8.8,
+      "depth": 8.8,
+      "floorZ": 0,
+      "wallHeight": 1.8,
+      "wallThickness": 0.12,
+      "wallMaterial": "wall"
+    },
+    {
+      "id": "far-south",
+      "centre": [
+        0,
+        -17.6,
+        0
+      ],
+      "width": 8.8,
+      "depth": 8.8,
+      "floorZ": 0,
+      "wallHeight": 1.8,
+      "wallThickness": 0.12,
+      "wallMaterial": "wall"
+    }
+  ],
+  "roomConnections": [
+    {
+      "id": "centre-west",
+      "a": {
+        "roomId": "centre",
+        "side": "west",
+        "offset": 0,
+        "width": 1.45
+      },
+      "b": {
+        "roomId": "west",
+        "side": "east",
+        "offset": 0,
+        "width": 1.45
+      },
+      "openPassage": true
+    },
+    {
+      "id": "centre-east",
+      "a": {
+        "roomId": "centre",
+        "side": "east",
+        "offset": 0,
+        "width": 1.45
+      },
+      "b": {
+        "roomId": "east",
+        "side": "west",
+        "offset": 0,
+        "width": 1.45
+      },
+      "openPassage": true
+    },
+    {
+      "id": "centre-south",
+      "a": {
+        "roomId": "centre",
+        "side": "south",
+        "offset": 0,
+        "width": 1.45
+      },
+      "b": {
+        "roomId": "south",
+        "side": "north",
+        "offset": 0,
+        "width": 1.45
+      },
+      "openPassage": true
+    },
+    {
+      "id": "south-far-south",
+      "a": {
+        "roomId": "south",
+        "side": "south",
+        "offset": 0,
+        "width": 1.45
+      },
+      "b": {
+        "roomId": "far-south",
+        "side": "north",
+        "offset": 0,
+        "width": 1.45
+      },
+      "openPassage": true
+    }
+  ],
+  "floorHoles": [
+    {
+      "id": "middle-upper-hole",
+      "type": "rectangle",
+      "minimum": [
+        2.825,
+        -3.2849999999999997
+      ],
+      "maximum": [
+        3.575,
+        -1.2149999999999999
+      ]
+    }
+  ],
+  "staircases": [
+    {
+      "id": "middle-upper-down",
+      "centreX": 3.2,
+      "startY": -1.2,
+      "endY": -3.3,
+      "startZ": 0,
+      "endZ": -2.0625,
+      "width": 0.78
+    }
+  ],
+  "entities": [],
+  "lights": [
+    {
+      "id": "upper-light",
+      "type": "point",
+      "position": [
+        3.8,
+        4.4,
+        7.2
+      ],
+      "enabled": true
+    }
+  ],
+  "spawns": [],
+  "connectors": [],
+  "localMaterials": {
+    "floor-dark": {
+      "id": "floor-dark",
+      "baseColour": [
+        0.74,
+        0.74,
+        0.76
+      ]
+    },
+    "floor-light": {
+      "id": "floor-light",
+      "baseColour": [
+        0.82,
+        0.82,
+        0.84
+      ]
+    },
+    "wall": {
+      "id": "wall",
+      "baseColour": [
+        0.5032,
+        0.5032,
+        0.5168
+      ]
+    },
+    "dodecahedron": {
+      "id": "dodecahedron",
+      "baseColour": [
+        0.18,
+        0.5,
+        0.94
+      ]
+    },
+    "icosahedron": {
+      "id": "icosahedron",
+      "baseColour": [
+        0.9,
+        0.16,
+        0.14
+      ]
+    }
+  },
+  "settings": {
+    "boundsFocus": [
+      0,
+      0.15,
+      0.55
+    ],
+    "floorDarkMaterial": "floor-dark",
+    "floorLightMaterial": "floor-light",
+    "wallMaterial": "wall"
+  }
+}
