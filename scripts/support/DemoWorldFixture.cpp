@@ -143,7 +143,8 @@ RoomLayout upperRoomLayout() {
 
 RuntimeStaircase ascendingStaircase(const StairConnection& connection) {
   return {
-    connection.centreX, connection.lowY, connection.highY,
+    connection.centreX, connection.lowY,
+    connection.centreX, connection.highY,
     0.0f, connection.rise, connection.width
   };
 }
