@@ -243,10 +243,17 @@ export class EditorLayoutViewport {
     if (selection.kind === 'entity') {
       const entity = target as EntityDefinition;
       const forward = entity.components.transform.forward;
+      const collider = entity.components.collider;
+      const width = collider
+        ? Math.max(MIN_SIZE, collider.maximum[0] - collider.minimum[0])
+        : 0.8;
+      const height = collider
+        ? Math.max(MIN_SIZE, collider.maximum[1] - collider.minimum[1])
+        : 0.8;
       return {
         position: entity.components.transform.position,
-        width: 0.8,
-        height: 0.8,
+        width,
+        height,
         rotation: forward ? Math.atan2(forward[0], forward[1]) : 0
       };
     }
@@ -495,6 +502,25 @@ export class EditorLayoutViewport {
         read: () => [geometry.size, geometry.size],
         write: (width, height) => {
           geometry.size = Math.max(MIN_SIZE, Math.max(width, height));
+        }
+      };
+    }
+    if (selection.kind === 'entity') {
+      const entity = target as EntityDefinition;
+      const collider = entity.components.collider;
+      if (!collider) return null;
+      return {
+        read: () => [
+          collider.maximum[0] - collider.minimum[0],
+          collider.maximum[1] - collider.minimum[1]
+        ],
+        write: (width, height) => {
+          const halfWidth = Math.max(MIN_SIZE, width) / 2;
+          const halfDepth = Math.max(MIN_SIZE, height) / 2;
+          collider.minimum[0] = -halfWidth;
+          collider.maximum[0] = halfWidth;
+          collider.minimum[1] = -halfDepth;
+          collider.maximum[1] = halfDepth;
         }
       };
     }
