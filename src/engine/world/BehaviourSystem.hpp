@@ -11,6 +11,7 @@ struct DynamicEntityDefinition {
   Vec3 position, forward = {0,1,0};
   HitBox hitBox;
   SurfaceTextureMode textureMode = SurfaceTextureMode::TileLocal;
+  bool solid = true;
   float textureWorldUnitsPerTile = 1.0f;
   std::vector<std::string> collisionTags;
 };
