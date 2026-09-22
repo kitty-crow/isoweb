@@ -113,6 +113,7 @@ export type CompiledLevelDocument = {
   floorHoles: CompiledFloorHole[];
   staircases: CompiledStaircase[];
   entities: CompiledEntity[];
+  assets: string[];
 };
 
 export type CompiledConnector = {
@@ -186,6 +187,7 @@ export type CompiledWorldDocument = {
   levels: Array<{ id: string; path: string }>;
   connectors: CompiledConnector[];
   behaviours: CompiledBehaviour[];
+  assets: string[];
 };
 
 export type LoadedSourceWorldPackage = {
@@ -371,7 +373,8 @@ export class WorldCompiler {
         endZ: stair.endZ,
         width: stair.width
       })),
-      entities
+      entities,
+      assets: Object.keys(level.assets ?? {}).sort()
     };
   }
 
@@ -408,7 +411,8 @@ export class WorldCompiler {
         reverseTraversal: connector.reverseTraversal ?? [],
         bidirectional: connector.bidirectional === false ? 0 : 1
       })),
-      behaviours: (world.behaviours ?? []).map(behaviour => this.compileBehaviour(behaviour))
+      behaviours: (world.behaviours ?? []).map(behaviour => this.compileBehaviour(behaviour)),
+      assets: Object.keys(world.assets ?? {}).sort()
     };
   }
 
