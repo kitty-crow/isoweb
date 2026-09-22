@@ -322,6 +322,15 @@ export function createDeleteCommand(
     if (spawn) throw new Error(`Entity ${selection.id} is referenced by spawn ${spawn.id}`);
   }
 
+  if (selection.kind === 'room') {
+    const connection = level.roomConnections?.find(candidate =>
+      candidate.a.roomId === selection.id || candidate.b.roomId === selection.id
+    );
+    if (connection) {
+      throw new Error(`Room ${selection.id} is referenced by room connection ${connection.id}`);
+    }
+  }
+
   const item = collection[index];
   return new FunctionalCommand(
     `delete ${selection.kind}`,
