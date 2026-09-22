@@ -302,7 +302,6 @@ export class EditorLayoutViewport {
     const ref = this.positionBinding(selection, target);
     if (!ref) return;
     element.setPointerCapture(event.pointerId);
-    this.core.selection.select(selection);
     this.dragState = {
       kind: 'move',
       selection,
@@ -406,6 +405,7 @@ export class EditorLayoutViewport {
         () => state.ref.splice(0, 3, ...after),
         () => state.ref.splice(0, 3, ...state.before)
       ));
+      this.core.selection.select(state.selection);
       return;
     }
 
@@ -423,6 +423,7 @@ export class EditorLayoutViewport {
         () => binding.write(after[0], after[1]),
         () => binding.write(state.before[0], state.before[1])
       ));
+      this.core.selection.select(state.selection);
       return;
     }
 
@@ -434,6 +435,7 @@ export class EditorLayoutViewport {
       () => state.ref.splice(0, 3, ...after),
       () => state.ref.splice(0, 3, ...state.before)
     ));
+    this.core.selection.select(state.selection);
   }
 
   private positionBinding(selection: EditorSelection, target: unknown): Vec3Tuple | null {
