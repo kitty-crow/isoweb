@@ -26,7 +26,7 @@ async function ensureThreadIsolation(): Promise<boolean> {
     return true;
   }
 
-  if (!('serviceWorker' in navigator)) {
+  if (!navigator.serviceWorker) {
     globalThis.isowebRuntimeFallbackReason =
       'Service workers are unavailable, so pthread isolation cannot be established.';
     return false;
