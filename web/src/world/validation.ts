@@ -284,72 +284,6 @@ function validateLocalConnectors(value: unknown[], levelId: string): void {
   }
 }
 
-function validateLevelBehaviours(
-  value: unknown,
-  label: string,
-  entityIds: Set<string>
-): void {
-  if (value === undefined) return;
-  if (!Array.isArray(value)) throw new Error(`${label} behaviours must be an array`);
-  const ids = new Set<string>();
-  const faces = new Set(['any', 'left', 'right', 'back', 'front', 'bottom', 'top']);
-
-  for (const raw of value) {
-    const behaviour = object(raw, `${label} behaviour`);
-    if (!nonEmpty(behaviour.id) || ids.has(behaviour.id)) {
-      throw new Error(`${label} has an invalid behaviour id`);
-    }
-    ids.add(behaviour.id);
-
-    const requireEntity = (id: unknown): string => {
-      if (!nonEmpty(id) || !entityIds.has(id)) {
-        throw new Error(`Behaviour ${behaviour.id} references missing entity ${String(id)}`);
-      }
-      return id;
-    };
-
-    switch (behaviour.type) {
-      case 'vertical-cycle':
-        requireEntity(behaviour.entity);
-        if (!vec3(behaviour.base) ||
-            !finite(behaviour.upZ) || !finite(behaviour.downZ) ||
-            !finite(behaviour.period) || (behaviour.period as number) <= 0) {
-          throw new Error(`Behaviour ${behaviour.id} is invalid`);
-        }
-        if (behaviour.lethalFace !== undefined && !faces.has(String(behaviour.lethalFace))) {
-          throw new Error(`Behaviour ${behaviour.id} face is invalid`);
-        }
-        break;
-      case 'rotation':
-        requireEntity(behaviour.entity);
-        if (!finite(behaviour.angularSpeed) ||
-            (behaviour.directionMultiplier !== undefined && !finite(behaviour.directionMultiplier))) {
-          throw new Error(`Behaviour ${behaviour.id} is invalid`);
-        }
-        break;
-      case 'hazard':
-        requireEntity(behaviour.entity);
-        if (behaviour.face !== undefined && !faces.has(String(behaviour.face))) {
-          throw new Error(`Behaviour ${behaviour.id} face is invalid`);
-        }
-        if (behaviour.action !== undefined && behaviour.action !== 'respawn') {
-          throw new Error(`Behaviour ${behaviour.id} action is unsupported`);
-        }
-        break;
-      case 'oscillating-gate':
-        requireEntity(behaviour.leftEntity);
-        requireEntity(behaviour.rightEntity);
-        if (!vec3(behaviour.base)) throw new Error(`Behaviour ${behaviour.id} is invalid`);
-        for (const key of ['halfSpan', 'gap', 'sweep', 'angularSpeed', 'halfThickness', 'height']) {
-          if (!finite(behaviour[key])) throw new Error(`Behaviour ${behaviour.id} is invalid`);
-        }
-        break;
-      default:
-        throw new Error(`Unsupported behaviour type ${String(behaviour.type)}`);
-    }
-  }
-}
-
 export function validateLevelDocument(value: unknown): LevelDocument {
   const level = object(value, 'level');
   if (level.schemaVersion !== CURRENT_SCHEMA_VERSION || !nonEmpty(level.id) || !vec3(level.viewOrigin)) {
@@ -497,7 +431,6 @@ export function validateLevelDocument(value: unknown): LevelDocument {
   }
 
   validateLocalConnectors(level.connectors as unknown[], level.id as string);
-  validateLevelBehaviours(level.behaviours, `Level ${level.id}`, entityIds);
   return level as LevelDocument;
 }
 
@@ -642,16 +575,7 @@ export function validateLoadedWorldPackage(data: LoadedWorldPackage): LoadedWorl
     data.assets,
     `World ${data.world.id}`
   );
-  const runtimeBehaviours = [
-    ...(data.world.behaviours ?? []),
-    ...data.levels.flatMap(level => level.behaviours ?? [])
-  ];
-  const runtimeBehaviourIds = new Set<string>();
-  for (const behaviour of runtimeBehaviours) {
-    if (runtimeBehaviourIds.has(behaviour.id)) {
-      throw new Error(`Duplicate world behaviour id ${behaviour.id}`);
-    }
-    runtimeBehaviourIds.add(behaviour.id);
+  for (const behaviour of data.world.behaviours ?? []) {
     const referenced = behaviour.type === 'oscillating-gate'
       ? [behaviour.leftEntity, behaviour.rightEntity]
       : [behaviour.entity];
