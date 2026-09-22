@@ -30,7 +30,7 @@ const server = Bun.serve({
 const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
-  await page.goto(`http://127.0.0.1:${server.port}/?webgl=0&obstacles=1`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${server.port}/?presentation=canvas2d&obstacles=1`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(
     () => document.documentElement.classList.contains('world-ready') &&
       (globalThis as any).Module?._isoweb_obstacles_enabled?.() === 1,
