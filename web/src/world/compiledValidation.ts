@@ -76,7 +76,7 @@ export function validateCompiledLevelDocument(value: unknown): CompiledLevelDocu
       !vec3(level.boundsFocus)) {
     throw new Error('Compiled level header is invalid');
   }
-  for (const key of ['ground','rooms','roomConnections','primitives','floorHoles','staircases','entities']) {
+  for (const key of ['ground','rooms','roomConnections','primitives','floorHoles','staircases','entities','assets']) {
     if (!Array.isArray(level[key])) throw new Error(`Compiled level ${level.id} ${key} must be an array`);
   }
 
@@ -126,6 +126,11 @@ export function validateCompiledLevelDocument(value: unknown): CompiledLevelDocu
     if (Number(stair.width) <= 0 || stair.startY === stair.endY) throw new Error('Compiled staircase dimensions are invalid');
   }
 
+  if (!(level.assets as unknown[]).every(nonEmpty) ||
+      new Set(level.assets as string[]).size !== (level.assets as string[]).length) {
+    throw new Error(`Compiled level ${level.id} assets are invalid`);
+  }
+
   const entityIds = new Set<string>();
   for (const raw of level.entities as unknown[]) {
     const entity = validateCompiledEntity(raw, String(level.id));
@@ -167,7 +172,9 @@ export function validateCompiledWorldDocument(value: unknown): CompiledWorldDocu
       !nonEmpty(world.id) || !Number.isInteger(world.defaultLevelIndex) ||
       !finite(world.lowerLevelPreviewDepth) || !finite(world.lowerPreviewResolutionScale) ||
       !Array.isArray(world.levels) || world.levels.length === 0 ||
-      !Array.isArray(world.connectors) || !Array.isArray(world.behaviours)) {
+      !Array.isArray(world.connectors) || !Array.isArray(world.behaviours) ||
+      !Array.isArray(world.assets) || !(world.assets as unknown[]).every(nonEmpty) ||
+      new Set(world.assets as string[]).size !== (world.assets as string[]).length) {
     throw new Error('Compiled world header is invalid');
   }
   if (Number(world.defaultLevelIndex) < 0 || Number(world.defaultLevelIndex) >= world.levels.length) {
