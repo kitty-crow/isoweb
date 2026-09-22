@@ -20,12 +20,38 @@ export type PackageManifest = {
   assets?: PackageAssetManifestEntry[];
 };
 
+export type AssetProvenanceDefinition = {
+  sourceUrl?: string;
+  author?: string;
+  licence?: string;
+  licenceUrl?: string;
+  attribution?: string;
+  redistributable?: 'yes' | 'no' | 'unknown';
+};
+
 export type AssetSourceDefinition = {
   source: string;
   mediaType?: string;
+  provenance?: AssetProvenanceDefinition;
 };
 
-export type MaterialDefinition = { id: string; baseColour: Vec3Tuple };
+export type MaterialDefinition = {
+  id: string;
+  baseColour: Vec3Tuple;
+  opacity?: number;
+  alphaMode?: 'opaque' | 'mask' | 'blend';
+  baseColourTexture?: string;
+  textureMode?: 'stretch' | 'tile-local' | 'tile-world';
+  worldUnitsPerTile?: number;
+  emissive?: Vec3Tuple;
+};
+
+export type EditorMetadataEnvelope = {
+  hiddenIds?: string[];
+  lockedIds?: string[];
+  metadata?: Record<string, unknown>;
+};
+
 export type RoomSide = 'north' | 'south' | 'east' | 'west';
 
 export type GroundRectangle = {
@@ -118,7 +144,14 @@ export type DirectionalSprites = {
   right?: SpriteAnimationDefinition;
 };
 
-export type TransformComponentDefinition = { position: Vec3Tuple; forward?: Vec3Tuple };
+export type TransformDefinition = {
+  position: Vec3Tuple;
+  rotation?: Vec3Tuple;
+  scale?: Vec3Tuple;
+  forward?: Vec3Tuple;
+};
+
+export type TransformComponentDefinition = TransformDefinition;
 
 export type BoxColliderDefinition = {
   type: 'box';
@@ -161,6 +194,30 @@ export type DynamicBodyEntityDefinition = {
 };
 
 export type EntityDefinition = CharacterEntityDefinition | DynamicBodyEntityDefinition;
+
+export type SpawnDefinition = {
+  id: string;
+  transform: TransformDefinition;
+  entityId?: string;
+  tags?: string[];
+};
+
+export type ConnectorDefinition = {
+  id: string;
+  type: string;
+  fromPosition: Vec3Tuple;
+  toPosition: Vec3Tuple;
+  forwardTraversal?: Vec3Tuple[];
+  reverseTraversal?: Vec3Tuple[];
+  bidirectional?: boolean;
+};
+
+export type PrefabDefinition = {
+  id: string;
+  name?: string;
+  entities: EntityDefinition[];
+  metadata?: Record<string, unknown>;
+};
 
 export type HazardFaceDefinition =
   | 'any' | 'left' | 'right' | 'back' | 'front' | 'bottom' | 'top';
@@ -221,9 +278,10 @@ export type LevelDocument = {
   staircases?: StaircaseDefinition[];
   entities: EntityDefinition[];
   lights: PointLightDefinition[];
-  spawns: unknown[];
-  connectors: unknown[];
+  spawns: SpawnDefinition[];
+  connectors: ConnectorDefinition[];
   localMaterials: Record<string, MaterialDefinition>;
+  localPrefabs?: Record<string, PrefabDefinition>;
   assets?: Record<string, AssetSourceDefinition>;
   settings: {
     boundsFocus: Vec3Tuple;
@@ -231,6 +289,7 @@ export type LevelDocument = {
     floorLightMaterial: string;
     wallMaterial: string;
   };
+  editor?: EditorMetadataEnvelope;
 };
 
 export type WorldConnectorDefinition = {
@@ -265,10 +324,11 @@ export type WorldDocument = {
   levels: Array<{ id: string; path: string }>;
   assets: Record<string, AssetSourceDefinition>;
   materials: Record<string, MaterialDefinition>;
-  prefabs: Record<string, unknown>;
+  prefabs: Record<string, PrefabDefinition>;
   connectors?: WorldConnectorDefinition[];
   behaviours?: WorldBehaviourDefinition[];
   metadata?: Record<string, unknown>;
+  editor?: EditorMetadataEnvelope;
 };
 
 export type LoadedWorldPackage = {

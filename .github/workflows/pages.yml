@@ -45,6 +45,9 @@ jobs:
       - name: Test source world package round-trip and safety
         run: bun run test:world-package
 
+      - name: Test editor source contract and project I/O
+        run: bun run test:editor-source-contract
+
       - name: Compile demo deployment world
         run: bun run compile:demo-world
 
