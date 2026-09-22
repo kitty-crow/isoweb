@@ -83,9 +83,6 @@ const upperId = duplicate.levelId;
 const upper = project.levels.find(level => level.id === upperId)!;
 upper.name = 'Upper';
 upper.settings.boundsFocus = [-1, 2, 0];
-// Runtime entity IDs are world-global; this probe only exists to verify the
-// transformed lower-level entity contract.
-upper.entities = upper.entities.filter(entity => entity.id !== 'probe');
 
 core.execute(createSetLevelPlacementCommand(project, lower.id, [10, 20, 3]));
 core.execute(createRotateLevelCommand(project, lower.id, 1));
