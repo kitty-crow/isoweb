@@ -10,7 +10,13 @@ self.addEventListener('fetch', event => {
 
   event.respondWith((async () => {
     const response = await fetch(request);
-    if (response.type === 'opaque') return response;
+    if (
+      response.type === 'opaque' ||
+      request.mode !== 'navigate' ||
+      !new URL(request.url).searchParams.has('threaded')
+    ) {
+      return response;
+    }
 
     const headers = new Headers(response.headers);
     headers.set('Cross-Origin-Opener-Policy', 'same-origin');
