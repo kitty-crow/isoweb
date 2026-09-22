@@ -244,7 +244,7 @@ function compileSprites(
 }
 
 export class WorldCompiler {
-  compileLevel(level: LevelDocument): CompiledLevelDocument {
+  compileLevel(level: LevelDocument, worldOffset?: Vec3Tuple): CompiledLevelDocument {
     const floorDark = level.localMaterials[level.settings.floorDarkMaterial];
     const floorLight = level.localMaterials[level.settings.floorLightMaterial];
     const wall = level.localMaterials[level.settings.wallMaterial];
@@ -309,7 +309,13 @@ export class WorldCompiler {
       compiledFormatVersion: COMPILED_FORMAT_VERSION,
       id: level.id,
       name: level.name,
-      viewOrigin: level.viewOrigin,
+      viewOrigin: worldOffset
+        ? [
+            level.viewOrigin[0] + worldOffset[0],
+            level.viewOrigin[1] + worldOffset[1],
+            level.viewOrigin[2] + worldOffset[2]
+          ]
+        : level.viewOrigin,
       lightPosition: light.position,
       floorDark: floorDark.baseColour,
       floorLight: floorLight.baseColour,
@@ -430,7 +436,10 @@ export class WorldCompiler {
         entry: 'runtime/world.json'
       },
       world: this.compileWorld(source.world, levelPaths),
-      levels: source.levels.map(level => this.compileLevel(level)),
+      levels: source.levels.map(level => {
+        const reference = source.world.levels.find(candidate => candidate.id === level.id);
+        return this.compileLevel(level, reference?.placement?.position);
+      }),
       assets: source.assets
     };
   }
