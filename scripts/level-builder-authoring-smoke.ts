@@ -19,6 +19,8 @@ const addKinds = [
   'dodecahedron',
   'icosahedron',
   'room',
+  'floor-hole',
+  'staircase',
   'character',
   'dynamic-body',
   'spawn',
@@ -35,6 +37,8 @@ for (const kind of addKinds) {
 if (project.document.ground.length !== 2) throw new Error('Ground authoring did not add a region');
 if (project.document.geometry.length !== 6) throw new Error('Primitive authoring did not expose every current primitive');
 if ((project.document.rooms ?? []).length !== 1) throw new Error('Room authoring failed');
+if ((project.document.floorHoles ?? []).length !== 1) throw new Error('Floor-hole authoring failed');
+if ((project.document.staircases ?? []).length !== 1) throw new Error('Staircase authoring failed');
 if (project.document.entities.length !== 2) throw new Error('Entity authoring failed');
 if (project.document.spawns.length !== 1) throw new Error('Spawn authoring failed');
 if (project.document.connectors.length !== 1) throw new Error('Local connector authoring failed');
@@ -79,7 +83,9 @@ if (!core.store.dirty) {
 const preview = await new PackageReader().loadWorld(previewBytes);
 if (preview.world.settings.defaultLevel !== project.document.id ||
     preview.levels.length !== 1 ||
-    preview.levels[0].id !== project.document.id) {
+    preview.levels[0].id !== project.document.id ||
+    (preview.levels[0].floorHoles ?? []).length !== 1 ||
+    (preview.levels[0].staircases ?? []).length !== 1) {
   throw new Error('Level Builder runtime preview did not wrap the current source level correctly');
 }
 
@@ -89,6 +95,8 @@ const reopenedProject = await reopened.open(bytes);
 if (reopenedProject.kind !== 'level' ||
     reopenedProject.document.geometry.length !== 6 ||
     (reopenedProject.document.rooms ?? []).length !== 2 ||
+    (reopenedProject.document.floorHoles ?? []).length !== 1 ||
+    (reopenedProject.document.staircases ?? []).length !== 1 ||
     reopenedProject.document.entities.length !== 2 ||
     reopenedProject.document.connectors.length !== 1) {
   throw new Error('Authored level did not survive source package save/reopen');
@@ -108,4 +116,4 @@ if (worldPreview.world.id !== world.document.id ||
   throw new Error('World Editor runtime preview did not preserve the current in-memory source world');
 }
 
-console.log('Level authoring smoke passed: drag-ready local content is undoable, persists in source packages, and builds a real-runtime preview world.');
+console.log('Level authoring smoke passed: drag-ready rooms, floor holes, stairs, geometry and gameplay objects are undoable, persist in source packages, and build a real-runtime preview world.');
