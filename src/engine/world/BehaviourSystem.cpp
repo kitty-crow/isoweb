@@ -26,7 +26,7 @@ void BehaviourSystem::addHazard(const HazardDefinition& d){hazards_.push_back(d)
 void BehaviourSystem::setEnabled(bool e){if(e==enabled_)return;remove();enabled_=e;for(auto&g:gates_)g.phase=0;for(auto&v:verticals_)v.phase=0;for(auto&r:rotations_)r.phase=0;if(enabled_)spawn();}
 void BehaviourSystem::spawn(){
  for(const auto& d:entities_){
-  std::unique_ptr<Character> p(new Character());p->id=d.id;p->location.worldId=d.worldId;p->location.timelineId=d.timelineId;p->location.levelId=d.levelId;p->location.position=d.position;p->forward=d.forward;p->hitBox=d.hitBox;p->solid=true;p->npc=true;p->controllable=false;p->movementSpeedMultiplier=0;p->surfaceTextureMode=d.textureMode;p->textureWorldUnitsPerTile=d.textureWorldUnitsPerTile;p->collisionTags=d.collisionTags;
+  std::unique_ptr<Character> p(new Character());p->id=d.id;p->location.worldId=d.worldId;p->location.timelineId=d.timelineId;p->location.levelId=d.levelId;p->location.position=d.position;p->forward=d.forward;p->hitBox=d.hitBox;p->solid=d.solid;p->npc=true;p->controllable=false;p->movementSpeedMultiplier=0;p->surfaceTextureMode=d.textureMode;p->textureWorldUnitsPerTile=d.textureWorldUnitsPerTile;p->collisionTags=d.collisionTags;
   world_.entities().add(std::move(p));spawnedIds_.push_back(d.id);
  }
  tick(0);
