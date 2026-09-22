@@ -118,8 +118,9 @@ export function createLocalAddOperation(
     const item: PrimitiveGeometryDefinition = {
       id,
       type,
-      position: [px, py, pz + 0.5],
+      position: [px, py, pz + (type === 'sphere' || type === 'dodecahedron' || type === 'icosahedron' ? 1 : 0.5)],
       size: 1,
+      height: 1,
       material: firstMaterial,
       solid: true
     };
@@ -320,6 +321,16 @@ export function createDeleteCommand(
   if (selection.kind === 'entity') {
     const spawn = level.spawns.find(candidate => candidate.entityId === selection.id);
     if (spawn) throw new Error(`Entity ${selection.id} is referenced by spawn ${spawn.id}`);
+  }
+  if (selection.kind === 'entity') {
+    const behaviour = level.behaviours?.find(candidate =>
+      candidate.type === 'oscillating-gate'
+        ? candidate.leftEntity === selection.id || candidate.rightEntity === selection.id
+        : candidate.entity === selection.id
+    );
+    if (behaviour) {
+      throw new Error(`Entity ${selection.id} is referenced by behaviour ${behaviour.id}`);
+    }
   }
 
   if (selection.kind === 'room') {
