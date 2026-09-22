@@ -44,6 +44,7 @@
     "test:editor-source-contract": "bun scripts/editor-source-contract-smoke.ts",
     "test:editor-core": "bun scripts/editor-core-smoke.ts",
     "test:editor-routes": "bun scripts/editor-route-smoke.ts",
-    "test:level-builder-authoring": "bun scripts/level-builder-authoring-smoke.ts"
+    "test:level-builder-authoring": "bun scripts/level-builder-authoring-smoke.ts",
+    "test:editor-authoring-browser": "bun scripts/editor-authoring-browser-smoke.ts"
   }
 }
