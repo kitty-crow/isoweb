@@ -21,6 +21,24 @@
       <button id="editor-save" type="button">Save</button>
       <button id="editor-undo" type="button" disabled>Undo</button>
       <button id="editor-redo" type="button" disabled>Redo</button>
+      <select id="editor-add-kind" aria-label="Object type to add">
+        <option value="ground">Ground</option>
+        <option value="cube">Cube</option>
+        <option value="sphere">Sphere</option>
+        <option value="cone">Cone</option>
+        <option value="pyramid">Pyramid</option>
+        <option value="dodecahedron">Dodecahedron</option>
+        <option value="icosahedron">Icosahedron</option>
+        <option value="room">Room</option>
+        <option value="character">Character</option>
+        <option value="dynamic-body">Dynamic body</option>
+        <option value="spawn">Spawn</option>
+        <option value="connector">Connector</option>
+        <option value="light">Point light</option>
+      </select>
+      <button id="editor-add" type="button">Add</button>
+      <button id="editor-duplicate" type="button" disabled>Duplicate</button>
+      <button id="editor-delete" type="button" disabled>Delete</button>
       <input id="editor-open-file" class="visually-hidden-editor" type="file" accept=".isolevel">
     </header>
 
@@ -33,6 +51,7 @@
             <select id="editor-hierarchy-filter" aria-label="Filter hierarchy by type">
               <option value="all">All</option>
               <option value="level">Levels</option>
+              <option value="ground">Ground</option>
               <option value="entity">Entities</option>
               <option value="geometry">Geometry</option>
               <option value="room">Rooms</option>
