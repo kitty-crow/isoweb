@@ -451,7 +451,11 @@ export function validateWorldDocument(value: unknown): WorldDocument {
     }
     if (reference.placement !== undefined) {
       const placement = object(reference.placement, `World level ${reference.id} placement`);
-      if (!vec3(placement.position)) {
+      if (!vec3(placement.position) ||
+          (placement.quarterTurns !== undefined &&
+            (!Number.isInteger(placement.quarterTurns) ||
+             Number(placement.quarterTurns) < 0 ||
+             Number(placement.quarterTurns) > 3))) {
         throw new Error(`World level ${reference.id} placement is invalid`);
       }
     }
