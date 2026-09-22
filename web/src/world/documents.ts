@@ -304,6 +304,16 @@ export type WorldConnectorDefinition = {
   bidirectional?: boolean;
 };
 
+export type WorldLevelPlacement = {
+  position: Vec3Tuple;
+};
+
+export type WorldLevelReference = {
+  id: string;
+  path: string;
+  placement?: WorldLevelPlacement;
+};
+
 export type WorldDocument = {
   schemaVersion: number;
   id: string;
@@ -321,7 +331,7 @@ export type WorldDocument = {
       };
     };
   };
-  levels: Array<{ id: string; path: string }>;
+  levels: WorldLevelReference[];
   assets: Record<string, AssetSourceDefinition>;
   materials: Record<string, MaterialDefinition>;
   prefabs: Record<string, PrefabDefinition>;
