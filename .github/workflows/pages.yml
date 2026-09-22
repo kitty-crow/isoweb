@@ -115,6 +115,9 @@ jobs:
       - name: Prove package-authored dynamic behaviours
         run: bun run test:package-behaviours
 
+      - name: Prove package assets require no external files
+        run: bun run test:embedded-assets-browser
+
       - name: Prove packaged demo matches render goldens exactly
         run: bun run test:demo-package-parity
 
