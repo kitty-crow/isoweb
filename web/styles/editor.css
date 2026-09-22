@@ -152,15 +152,284 @@ select {
 
 .editor-stage {
   display: grid;
-  place-items: center;
+  grid-template-rows: auto minmax(360px, 1fr) auto;
+  align-items: stretch;
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 20px;
+  padding: 0;
   background:
     linear-gradient(45deg, rgba(255,255,255,0.025) 25%, transparent 25%) 0 0 / 24px 24px,
     linear-gradient(-45deg, rgba(255,255,255,0.025) 25%, transparent 25%) 0 12px / 24px 24px,
     #0f1720;
+}
+
+
+.editor-palette {
+  border-bottom: 1px solid #2d3946;
+}
+
+.editor-palette .editor-panel-header p {
+  margin: 0;
+  color: #9fb0c1;
+  font-size: 12px;
+}
+
+.editor-palette-groups {
+  display: grid;
+  gap: 10px;
+  padding: 8px;
+}
+
+.editor-palette-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.editor-palette-group strong {
+  grid-column: 1 / -1;
+  color: #9fb0c1;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.editor-palette-group button {
+  min-width: 0;
+  padding: 6px 8px;
+  text-align: left;
+  cursor: grab;
+}
+
+.editor-palette-group button:active {
+  cursor: grabbing;
+}
+
+.editor-stage-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid #2d3946;
+  background: #151f2a;
+}
+
+.editor-stage-toolbar > div {
+  min-width: 0;
+  margin-right: auto;
+}
+
+.editor-stage-toolbar strong,
+.editor-stage-toolbar span {
+  display: block;
+}
+
+.editor-stage-toolbar span {
+  color: #9fb0c1;
+  font-size: 11px;
+}
+
+.editor-stage-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.editor-stage-toolbar select {
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid #3a4856;
+  border-radius: 6px;
+  color: #e8eef5;
+  background: #1d2935;
+}
+
+.editor-layout {
+  position: relative;
+  min-width: 0;
+  min-height: 360px;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  background: #0c141c;
+  isolation: isolate;
+}
+
+.editor-layout-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(159, 176, 193, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(159, 176, 193, 0.08) 1px, transparent 1px),
+    linear-gradient(rgba(159, 176, 193, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(159, 176, 193, 0.16) 1px, transparent 1px);
+  background-size: 16px 16px, 16px 16px, 32px 32px, 32px 32px;
+  background-position: center center;
+}
+
+.editor-layout-origin {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 10px;
+  height: 10px;
+  border: 1px solid #8da2b5;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.editor-layout-origin::before,
+.editor-layout-origin::after {
+  content: "";
+  position: absolute;
+  background: #8da2b5;
+}
+
+.editor-layout-origin::before {
+  width: 24px;
+  height: 1px;
+  left: -8px;
+  top: 4px;
+}
+
+.editor-layout-origin::after {
+  width: 1px;
+  height: 24px;
+  left: 4px;
+  top: -8px;
+}
+
+.editor-layout-item {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  min-width: 16px;
+  min-height: 16px;
+  padding: 0;
+  border: 1px solid #7691a8;
+  border-radius: 5px;
+  color: #e8eef5;
+  background: rgba(47, 67, 85, 0.72);
+  cursor: move;
+  touch-action: none;
+}
+
+.editor-layout-item[data-kind="ground"] {
+  z-index: 0;
+  border-style: dashed;
+  background: rgba(67, 84, 98, 0.28);
+}
+
+.editor-layout-item[data-kind="room"] {
+  z-index: 1;
+  border: 2px solid #8298aa;
+  background: rgba(39, 55, 69, 0.34);
+}
+
+.editor-layout-item[data-kind="geometry"] {
+  background: rgba(88, 110, 128, 0.84);
+}
+
+.editor-layout-item[data-kind="entity"] {
+  border-radius: 50%;
+  background: rgba(89, 126, 117, 0.9);
+}
+
+.editor-layout-item[data-kind="spawn"] {
+  border-radius: 50%;
+  border-style: dashed;
+  background: rgba(101, 92, 129, 0.82);
+}
+
+.editor-layout-item[data-kind="light"] {
+  border-radius: 50%;
+  background: rgba(143, 128, 71, 0.88);
+}
+
+.editor-layout-item[data-kind="connector"] {
+  min-height: 8px;
+  border-radius: 999px;
+  background: rgba(91, 115, 141, 0.75);
+}
+
+.editor-layout-item[data-selected="true"] {
+  z-index: 5;
+  outline: 2px solid #d9e7f4;
+  outline-offset: 2px;
+}
+
+.editor-layout-label {
+  max-width: 100%;
+  padding: 2px 4px;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.editor-layout-handle {
+  position: absolute;
+  z-index: 8;
+  display: block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #0c141c;
+  background: #e8eef5;
+  box-shadow: 0 0 0 1px #7691a8;
+}
+
+.editor-layout-resize {
+  right: -10px;
+  bottom: -10px;
+  border-radius: 4px;
+  cursor: nwse-resize;
+}
+
+.editor-layout-rotate {
+  top: -30px;
+  left: 50%;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  cursor: grab;
+}
+
+.editor-layout-rotate::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 16px;
+  width: 2px;
+  height: 14px;
+  background: #e8eef5;
+}
+
+.editor-layout-empty {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  margin: 0;
+  color: #7f93a5;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.editor-stage-summary {
+  display: grid;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid #2d3946;
+  background: #111a23;
+}
+
+.editor-stage-summary > span {
+  color: #9fb0c1;
+  font-size: 11px;
 }
 
 .editor-stage-card {
@@ -358,8 +627,30 @@ select {
   }
 
   .editor-stage {
+    grid-template-rows: auto minmax(58dvh, 1fr) auto;
     min-height: 58dvh;
-    padding: 10px;
+    padding: 0;
+  }
+
+  .editor-stage-toolbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .editor-stage-toolbar > div {
+    flex-basis: 100%;
+  }
+
+  .editor-layout {
+    min-height: 58dvh;
+  }
+
+  .editor-palette-groups {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .editor-palette-group {
+    align-content: start;
   }
 
   .editor-overview {
