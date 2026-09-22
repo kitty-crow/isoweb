@@ -4,7 +4,7 @@
   "scripts": {
     "check": "bun vendor/pages/src/cli.ts check pages.config.ts",
     "build:site": "bun vendor/pages/src/cli.ts build pages.config.ts",
-    "build:web": "bun build web/src/bootstrap.ts web/src/modeLoader.ts --outdir site/assets --target browser --format iife && mkdir -p site/styles site/assets && cp web/styles.css site/styles.css && cp web/styles/*.css site/styles/ && cp web/coi-serviceworker.js site/coi-serviceworker.js && cp -R web/assets/. site/assets/",
+    "build:web": "bun build web/src/bootstrap.ts web/src/modeLoader.ts --outdir site/assets --target browser --format iife && bun build web/src/level-builder/bootstrap.ts --outfile site/assets/level-builder.js --target browser --format iife && bun build web/src/world-editor/bootstrap.ts --outfile site/assets/world-editor.js --target browser --format iife && mkdir -p site/styles site/assets && cp web/styles.css site/styles.css && cp web/styles/*.css site/styles/ && cp web/coi-serviceworker.js site/coi-serviceworker.js && cp -R web/assets/. site/assets/",
     "build": "bun run compile:demo-world && bun run build:site && bun run build:web",
     "build:wasm": "bash scripts/build-wasm.sh",
     "check:emscripten-bridge": "bun scripts/check-emscripten-bridge.ts",
@@ -41,6 +41,8 @@
     "package:query-compat": "bun scripts/package-query-compat.ts",
     "test:self-contained-packages": "bun scripts/self-contained-package-smoke.ts",
     "test:embedded-assets-browser": "bun scripts/embedded-asset-browser-smoke.ts",
-    "test:editor-source-contract": "bun scripts/editor-source-contract-smoke.ts"
+    "test:editor-source-contract": "bun scripts/editor-source-contract-smoke.ts",
+    "test:editor-core": "bun scripts/editor-core-smoke.ts",
+    "test:editor-routes": "bun scripts/editor-route-smoke.ts"
   }
 }
