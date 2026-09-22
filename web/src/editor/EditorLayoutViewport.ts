@@ -515,12 +515,14 @@ export class EditorLayoutViewport {
           collider.maximum[1] - collider.minimum[1]
         ],
         write: (width, height) => {
+          const centreX = (collider.minimum[0] + collider.maximum[0]) / 2;
+          const centreY = (collider.minimum[1] + collider.maximum[1]) / 2;
           const halfWidth = Math.max(MIN_SIZE, width) / 2;
           const halfDepth = Math.max(MIN_SIZE, height) / 2;
-          collider.minimum[0] = -halfWidth;
-          collider.maximum[0] = halfWidth;
-          collider.minimum[1] = -halfDepth;
-          collider.maximum[1] = halfDepth;
+          collider.minimum[0] = centreX - halfWidth;
+          collider.maximum[0] = centreX + halfWidth;
+          collider.minimum[1] = centreY - halfDepth;
+          collider.maximum[1] = centreY + halfDepth;
         }
       };
     }
