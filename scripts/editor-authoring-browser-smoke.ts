@@ -42,7 +42,15 @@ try {
   const paletteCount = await page.locator('[data-editor-add-kind]').count();
   if (paletteCount < 10) throw new Error(`Builder palette is incomplete: ${paletteCount} items`);
 
+  const layout = page.locator('#editor-layout');
+  const layoutBox = await layout.boundingBox();
+  if (!layoutBox) throw new Error('Builder layout has no bounds');
+
   await page.locator('[data-editor-add-kind="cube"]').click();
+  await page.mouse.click(
+    layoutBox.x + layoutBox.width / 2,
+    layoutBox.y + layoutBox.height / 2
+  );
   const cube = page.locator('.editor-layout-item[data-kind="geometry"][data-selected="true"]');
   await cube.waitFor();
   const cubeBefore = await cube.boundingBox();
@@ -89,9 +97,6 @@ try {
     throw new Error('Undo did not restore the pre-resize geometry size');
   }
 
-  const layout = page.locator('#editor-layout');
-  const layoutBox = await layout.boundingBox();
-  if (!layoutBox) throw new Error('Builder layout has no bounds');
   await page.dragAndDrop(
     '[data-editor-add-kind="room"]',
     '#editor-layout',
@@ -106,6 +111,10 @@ try {
   if (await rooms.count() < 1) throw new Error('Palette drag/drop did not create a room');
 
   await page.locator('[data-editor-add-kind="character"]').click();
+  await page.mouse.click(
+    layoutBox.x + layoutBox.width * 0.42,
+    layoutBox.y + layoutBox.height * 0.62
+  );
   const character = page.locator('.editor-layout-item[data-kind="entity"][data-selected="true"]');
   await character.waitFor();
   if (await character.locator('.editor-layout-rotate').count() !== 1) {
