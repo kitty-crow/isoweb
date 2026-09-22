@@ -48,6 +48,9 @@ jobs:
       - name: Test editor source contract and project I/O
         run: bun run test:editor-source-contract
 
+      - name: Test shared Editor Core
+        run: bun run test:editor-core
+
       - name: Compile demo deployment world
         run: bun run compile:demo-world
 
@@ -59,6 +62,9 @@ jobs:
 
       - name: Build static site
         run: bun run build:site && bun run build:web
+
+      - name: Test Level Builder and World Editor routes
+        run: bun run test:editor-routes
 
       - name: Test world-object and character systems
         run: bun run test:hitboxes
