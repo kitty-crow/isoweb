@@ -40,6 +40,7 @@
     "test:query-pages": "bun scripts/query-mode-pages-smoke.ts",
     "package:query-compat": "bun scripts/package-query-compat.ts",
     "test:self-contained-packages": "bun scripts/self-contained-package-smoke.ts",
-    "test:embedded-assets-browser": "bun scripts/embedded-asset-browser-smoke.ts"
+    "test:embedded-assets-browser": "bun scripts/embedded-asset-browser-smoke.ts",
+    "test:editor-source-contract": "bun scripts/editor-source-contract-smoke.ts"
   }
 }
