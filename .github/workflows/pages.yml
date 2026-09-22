@@ -57,6 +57,9 @@ jobs:
       - name: Test World Editor level management
         run: bun run test:world-editor-levels
 
+      - name: Test World Editor portals and start level
+        run: bun run test:world-editor-connectors
+
       - name: Compile demo deployment world
         run: bun run compile:demo-world
 
