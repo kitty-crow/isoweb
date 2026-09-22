@@ -72,6 +72,20 @@ export function worldPointForLevel(
   ];
 }
 
+export function localPointForWorld(
+  project: EditableWorldProject,
+  levelId: string,
+  worldPoint: Vec3Tuple
+): Vec3Tuple {
+  const origin = effectiveLevelOrigin(project, levelId);
+  const delta: Vec3Tuple = [
+    worldPoint[0] - origin[0],
+    worldPoint[1] - origin[1],
+    worldPoint[2] - origin[2]
+  ];
+  return rotateLocalPoint(delta, 4 - levelQuarterTurns(project, levelId));
+}
+
 function placementSnapshot(
   project: EditableWorldProject,
   levelId: string
