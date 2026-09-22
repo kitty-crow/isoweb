@@ -27,7 +27,7 @@ struct VerticalCycleDefinition {
   HazardFace lethalFace=HazardFace::Bottom;
   float contactTolerance=0.028f;
 };
-struct RotationDefinition { std::vector<std::string> entityIds; float angularSpeed=0, phase=0; };
+struct RotationDefinition { std::vector<std::string> entityIds; std::vector<float> directionMultipliers; float angularSpeed=0, phase=0; };
 struct HazardDefinition { std::string entityId; HazardFace face=HazardFace::Any; float tolerance=0.028f; };
 class BehaviourSystem {
 public:
@@ -36,6 +36,7 @@ public:
  void setEnabled(bool);
  void clearDefinitions();
  void addEntity(const DynamicEntityDefinition&);
+ bool addEntityCollisionTag(const std::string& id, const std::string& tag);
  void addGate(const OscillatingGateDefinition&);
  void addVerticalCycle(const VerticalCycleDefinition&);
  void addRotation(const RotationDefinition&);
