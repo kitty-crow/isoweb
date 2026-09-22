@@ -54,6 +54,9 @@ jobs:
       - name: Test Level Builder local authoring
         run: bun run test:level-builder-authoring
 
+      - name: Test World Editor level management
+        run: bun run test:world-editor-levels
+
       - name: Compile demo deployment world
         run: bun run compile:demo-world
 
