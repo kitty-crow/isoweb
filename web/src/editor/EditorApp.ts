@@ -406,24 +406,68 @@ export class EditorApp {
     }
 
     if (selection.kind === 'geometry') {
-      this.addNumberProperty(root, 'Size', Number(record.size), value => {
-        const before = Number(record.size);
-        this.core.execute(new FunctionalCommand(
-          'resize geometry',
-          () => { record.size = Math.max(0.25, value); },
-          () => { record.size = before; }
-        ));
-      });
-      if (record.height !== undefined) {
-        this.addNumberProperty(root, 'Height', Number(record.height), value => {
-          const before = Number(record.height);
+      const position = record.position as Vec3Tuple;
+      const type = String(record.type);
+      const radial = type === 'sphere' || type === 'dodecahedron' || type === 'icosahedron';
+      const polyScale = type === 'dodecahedron' || type === 'icosahedron' ? 1.55 : 1;
+      const halfHeight = (): number => radial
+        ? Number(record.size) * polyScale
+        : Math.max(0.25, Number(record.height ?? 1)) / 2;
+      const bottomZ = (): number => position[2] - halfHeight();
+
+      this.addNumberProperty(
+        root,
+        radial ? 'Radius / scale' : 'Half-width',
+        Number(record.size),
+        value => {
+          const beforeSize = Number(record.size);
+          const beforeZ = position[2];
+          const floor = bottomZ();
+          const nextSize = Math.max(0.25, value);
+          const nextHalfHeight = radial ? nextSize * polyScale : halfHeight();
+          this.core.execute(new FunctionalCommand(
+            'resize geometry',
+            () => {
+              record.size = nextSize;
+              if (radial) position[2] = floor + nextHalfHeight;
+            },
+            () => {
+              record.size = beforeSize;
+              position[2] = beforeZ;
+            }
+          ));
+        }
+      );
+
+      if (!radial) {
+        this.addNumberProperty(root, 'Height', Number(record.height ?? 1), value => {
+          const beforeHeight = Number(record.height ?? 1);
+          const beforeZ = position[2];
+          const floor = bottomZ();
+          const nextHeight = Math.max(0.25, value);
           this.core.execute(new FunctionalCommand(
             'set geometry height',
-            () => { record.height = Math.max(0, value); },
-            () => { record.height = before; }
+            () => {
+              record.height = nextHeight;
+              position[2] = floor + nextHeight / 2;
+            },
+            () => {
+              record.height = beforeHeight;
+              position[2] = beforeZ;
+            }
           ));
         });
       }
+
+      this.addNumberProperty(root, 'Bottom Z', bottomZ(), value => {
+        const before = position[2];
+        const next = value + halfHeight();
+        this.core.execute(new FunctionalCommand(
+          'set geometry bottom Z',
+          () => { position[2] = next; },
+          () => { position[2] = before; }
+        ));
+      });
     }
 
     if (selection.kind === 'room') {
@@ -555,13 +599,20 @@ export class EditorApp {
         const resizeCollider = (axis: 0 | 1 | 2, next: number, label: string): void => {
           const beforeMin = minimum[axis];
           const beforeMax = maximum[axis];
+          const size = Math.max(0.25, next);
           const centre = (beforeMin + beforeMax) / 2;
-          const half = Math.max(0.125, next / 2);
           this.core.execute(new FunctionalCommand(
             `resize collider ${label}`,
             () => {
-              minimum[axis] = centre - half;
-              maximum[axis] = centre + half;
+              if (axis === 2) {
+                // Height changes keep the authored bottom face fixed.
+                minimum[axis] = beforeMin;
+                maximum[axis] = beforeMin + size;
+              } else {
+                const half = size / 2;
+                minimum[axis] = centre - half;
+                maximum[axis] = centre + half;
+              }
             },
             () => {
               minimum[axis] = beforeMin;
