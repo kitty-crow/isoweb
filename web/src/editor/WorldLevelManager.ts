@@ -159,7 +159,8 @@ export function createNewWorldLevelOperation(project: EditableWorldProject): Wor
   const level = createLevelDocument(id, `Level ${project.levels.length + 1}`);
   const reference = {
     id,
-    path: levelPath(id, project.document.levels.map(candidate => candidate.path))
+    path: levelPath(id, project.document.levels.map(candidate => candidate.path)),
+    placement: { position: [0, 0, 0] as [number, number, number] }
   };
 
   return {
@@ -190,9 +191,13 @@ export function createDuplicateWorldLevelOperation(
   const level = clone(source);
   level.id = nextId(source.id, project.levels.map(candidate => candidate.id));
   level.name = `${source.name ?? source.id} copy`;
+  const sourceReference = project.document.levels.find(candidate => candidate.id === sourceLevelId);
   const reference = {
     id: level.id,
-    path: levelPath(level.id, project.document.levels.map(candidate => candidate.path))
+    path: levelPath(level.id, project.document.levels.map(candidate => candidate.path)),
+    placement: {
+      position: [...(sourceReference?.placement?.position ?? [0, 0, 0])] as [number, number, number]
+    }
   };
   const insertIndex = sourceIndex + 1;
 
@@ -297,7 +302,8 @@ export async function createImportWorldLevelOperation(
     path: levelPath(
       plan.level.id,
       project.document.levels.map(candidate => candidate.path)
-    )
+    ),
+    placement: { position: [0, 0, 0] as [number, number, number] }
   };
 
   return {
