@@ -1,6 +1,10 @@
-import type { Vec3Tuple, WorldLevelReference } from '../world/documents';
+import type {
+  Vec3Tuple, WorldLevelPlacement, WorldLevelReference
+} from '../world/documents';
 import { FunctionalCommand, type EditorCommand } from './CommandHistory';
 import type { EditableWorldProject } from './SourceProjectIO';
+
+export type QuarterTurn = 0 | 1 | 2 | 3;
 
 function reference(project: EditableWorldProject, levelId: string): WorldLevelReference {
   const value = project.document.levels.find(candidate => candidate.id === levelId);
@@ -8,11 +12,32 @@ function reference(project: EditableWorldProject, levelId: string): WorldLevelRe
   return value;
 }
 
+function normaliseQuarterTurns(value: number): QuarterTurn {
+  return (((Math.trunc(value) % 4) + 4) % 4) as QuarterTurn;
+}
+
 export function levelPlacement(
   project: EditableWorldProject,
   levelId: string
 ): Vec3Tuple {
   return [...(reference(project, levelId).placement?.position ?? [0, 0, 0])] as Vec3Tuple;
+}
+
+export function levelQuarterTurns(
+  project: EditableWorldProject,
+  levelId: string
+): QuarterTurn {
+  return normaliseQuarterTurns(reference(project, levelId).placement?.quarterTurns ?? 0);
+}
+
+export function rotateLocalPoint(point: Vec3Tuple, quarterTurns: number): Vec3Tuple {
+  const q = normaliseQuarterTurns(quarterTurns);
+  switch (q) {
+    case 1: return [-point[1], point[0], point[2]];
+    case 2: return [-point[0], -point[1], point[2]];
+    case 3: return [point[1], -point[0], point[2]];
+    default: return [...point] as Vec3Tuple;
+  }
 }
 
 export function effectiveLevelOrigin(
@@ -29,6 +54,40 @@ export function effectiveLevelOrigin(
   ];
 }
 
+export function worldPointForLevel(
+  project: EditableWorldProject,
+  levelId: string,
+  localPoint: Vec3Tuple
+): Vec3Tuple {
+  const origin = effectiveLevelOrigin(project, levelId);
+  const rotated = rotateLocalPoint(localPoint, levelQuarterTurns(project, levelId));
+  return [
+    origin[0] + rotated[0],
+    origin[1] + rotated[1],
+    origin[2] + rotated[2]
+  ];
+}
+
+function placementSnapshot(
+  project: EditableWorldProject,
+  levelId: string
+): Required<Pick<WorldLevelPlacement, 'position'>> & { quarterTurns: QuarterTurn } {
+  return {
+    position: levelPlacement(project, levelId),
+    quarterTurns: levelQuarterTurns(project, levelId)
+  };
+}
+
+function assignPlacement(
+  target: WorldLevelReference,
+  value: { position: Vec3Tuple; quarterTurns: QuarterTurn }
+): void {
+  target.placement = {
+    position: [...value.position] as Vec3Tuple,
+    quarterTurns: value.quarterTurns
+  };
+}
+
 export function createSetLevelPlacementCommand(
   project: EditableWorldProject,
   levelId: string,
@@ -36,12 +95,33 @@ export function createSetLevelPlacementCommand(
   label = 'place level'
 ): EditorCommand {
   const target = reference(project, levelId);
-  const before = levelPlacement(project, levelId);
-  const after = [...next] as Vec3Tuple;
+  const before = placementSnapshot(project, levelId);
+  const after = {
+    position: [...next] as Vec3Tuple,
+    quarterTurns: before.quarterTurns
+  };
   return new FunctionalCommand(
     label,
-    () => { target.placement = { position: [...after] as Vec3Tuple }; },
-    () => { target.placement = { position: [...before] as Vec3Tuple }; }
+    () => assignPlacement(target, after),
+    () => assignPlacement(target, before)
+  );
+}
+
+export function createRotateLevelCommand(
+  project: EditableWorldProject,
+  levelId: string,
+  direction: -1 | 1
+): EditorCommand {
+  const target = reference(project, levelId);
+  const before = placementSnapshot(project, levelId);
+  const after = {
+    position: [...before.position] as Vec3Tuple,
+    quarterTurns: normaliseQuarterTurns(before.quarterTurns + direction)
+  };
+  return new FunctionalCommand(
+    direction > 0 ? 'rotate level left' : 'rotate level right',
+    () => assignPlacement(target, after),
+    () => assignPlacement(target, before)
   );
 }
 
