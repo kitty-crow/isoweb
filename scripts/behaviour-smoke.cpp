@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "engine/world/BehaviourSystem.hpp"
-#include "demo/DemoWorld.hpp"
+#include "support/DemoWorldFixture.hpp"
 #include "engine/character/CharacterSystem.hpp"
 
 namespace {
@@ -139,7 +139,7 @@ void configureBehaviours(isoweb::engine::BehaviourSystem& behaviours) {
 int main() {
   using namespace isoweb;
 
-  demo::DemoWorld world;
+  test::DemoWorldFixture world;
   engine::CharacterSystem characters(world);
   engine::BehaviourSystem obstacles(world);
   configureBehaviours(obstacles);
