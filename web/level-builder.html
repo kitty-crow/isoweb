@@ -44,6 +44,39 @@
 
     <main class="editor-workspace">
       <aside class="editor-panel editor-hierarchy-panel" aria-label="Hierarchy">
+        <section class="editor-palette" aria-label="Build palette">
+          <div class="editor-panel-header">
+            <h2>Build</h2>
+            <p>Drag onto the layout, or tap to add at the centre.</p>
+          </div>
+          <div class="editor-palette-groups">
+            <div class="editor-palette-group">
+              <strong>Structure</strong>
+              <button type="button" data-editor-add-kind="ground">Ground</button>
+              <button type="button" data-editor-add-kind="room">Room</button>
+            </div>
+            <div class="editor-palette-group">
+              <strong>Geometry</strong>
+              <button type="button" data-editor-add-kind="cube">Cube</button>
+              <button type="button" data-editor-add-kind="sphere">Sphere</button>
+              <button type="button" data-editor-add-kind="cone">Cone</button>
+              <button type="button" data-editor-add-kind="pyramid">Pyramid</button>
+              <button type="button" data-editor-add-kind="dodecahedron">Dodecahedron</button>
+              <button type="button" data-editor-add-kind="icosahedron">Icosahedron</button>
+            </div>
+            <div class="editor-palette-group">
+              <strong>Actors</strong>
+              <button type="button" data-editor-add-kind="character">Character</button>
+              <button type="button" data-editor-add-kind="dynamic-body">Object</button>
+            </div>
+            <div class="editor-palette-group">
+              <strong>Gameplay</strong>
+              <button type="button" data-editor-add-kind="spawn">Spawn</button>
+              <button type="button" data-editor-add-kind="connector">Connector</button>
+              <button type="button" data-editor-add-kind="light">Point light</button>
+            </div>
+          </div>
+        </section>
         <div class="editor-panel-header">
           <h2>Hierarchy</h2>
           <div class="editor-hierarchy-tools">
@@ -66,10 +99,25 @@
         <div id="editor-hierarchy" class="editor-tree"></div>
       </aside>
 
-      <section class="editor-stage" aria-label="Editor viewport workspace">
-        <div class="editor-stage-card">
-          <h1>Level Builder</h1>
-          <p>The source document below is authoritative. Runtime preview will be attached to this shared core through the existing IsoWeb engine, not a second editor renderer.</p>
+      <section class="editor-stage" aria-label="Editor layout workspace">
+        <div class="editor-stage-toolbar">
+          <div>
+            <strong>Layout</strong>
+            <span>Drag to move. Selected rooms, ground and primitives expose resize handles. Characters and spawns expose facing handles.</span>
+          </div>
+          <label>
+            <span>Snap</span>
+            <select id="editor-grid-snap" aria-label="Grid snapping">
+              <option value="0">Off</option>
+              <option value="0.25">0.25 m</option>
+              <option value="0.5" selected>0.5 m</option>
+              <option value="1">1 m</option>
+            </select>
+          </label>
+        </div>
+        <div id="editor-layout" class="editor-layout" role="application" aria-label="Top-down authoring layout"></div>
+        <div class="editor-stage-summary">
+          <span>Authoring layout only. Play mode will use the real IsoWeb runtime.</span>
           <div id="editor-overview" class="editor-overview" aria-label="Project summary"></div>
         </div>
       </section>
