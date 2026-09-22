@@ -76,13 +76,19 @@ export function selectedLevel(
   return level;
 }
 
+export type LocalPlacement = { x: number; y: number; z?: number };
+
 export function createLocalAddOperation(
   project: EditableSourceProject,
   selection: EditorSelection | null,
-  kind: LocalAddKind
+  kind: LocalAddKind,
+  placement?: LocalPlacement
 ): AuthoringOperation {
   const level = selectedLevel(project, selection);
   const levelId = level.id;
+  const px = placement?.x ?? 0;
+  const py = placement?.y ?? 0;
+  const pz = placement?.z ?? 0;
   const firstMaterial = Object.keys(level.localMaterials)[0];
   if (!firstMaterial) throw new Error(`Level ${level.id} has no material available for new geometry`);
 
@@ -91,7 +97,7 @@ export function createLocalAddOperation(
     const item: GroundRectangle = {
       id,
       type: 'rectangle',
-      centre: [0, 0, 0],
+      centre: [px, py, pz],
       size: [8, 8],
       walkable: true,
       material: firstMaterial
@@ -108,7 +114,7 @@ export function createLocalAddOperation(
     const item: PrimitiveGeometryDefinition = {
       id,
       type,
-      position: [0, 0, 0.5],
+      position: [px, py, pz + 0.5],
       size: 1,
       material: firstMaterial,
       solid: true
@@ -120,7 +126,7 @@ export function createLocalAddOperation(
     const id = nextId('room', (level.rooms ?? []).map(value => value.id));
     const item: RoomDefinition = {
       id,
-      centre: [0, 0, 0],
+      centre: [px, py, pz],
       width: 4,
       depth: 4,
       floorZ: 0,
@@ -137,7 +143,7 @@ export function createLocalAddOperation(
     const item: CharacterEntityDefinition = {
       id,
       components: {
-        transform: { position: [0, 0, 0], forward: [0, 1, 0] },
+        transform: { position: [px, py, pz], forward: [0, 1, 0] },
         character: { controllable: true, npc: false }
       }
     };
@@ -149,7 +155,7 @@ export function createLocalAddOperation(
     const item: DynamicBodyEntityDefinition = {
       id,
       components: {
-        transform: { position: [0, 0, 0] },
+        transform: { position: [px, py, pz] },
         collider: {
           type: 'box',
           minimum: [-0.5, -0.5, 0],
@@ -166,7 +172,7 @@ export function createLocalAddOperation(
     const id = nextId('spawn', level.spawns.map(value => value.id));
     const item: SpawnDefinition = {
       id,
-      transform: { position: [0, 0, 0], forward: [0, 1, 0] },
+      transform: { position: [px, py, pz], forward: [0, 1, 0] },
       tags: []
     };
     return addArrayItem(level.spawns, item, 'add spawn', { kind: 'spawn', id, levelId });
@@ -177,8 +183,8 @@ export function createLocalAddOperation(
     const item: ConnectorDefinition = {
       id,
       type: 'path',
-      fromPosition: [0, 0, 0],
-      toPosition: [1, 0, 0],
+      fromPosition: [px, py, pz],
+      toPosition: [px + 1, py, pz],
       forwardTraversal: [],
       reverseTraversal: [],
       bidirectional: true
@@ -190,7 +196,7 @@ export function createLocalAddOperation(
   const item: PointLightDefinition = {
     id,
     type: 'point',
-    position: [4, -4, 6],
+    position: [px, py, placement ? pz + 4 : 6],
     enabled: true
   };
   return addArrayItem(level.lights, item, 'add light', { kind: 'light', id, levelId });
