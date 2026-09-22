@@ -26,7 +26,7 @@ const server = Bun.serve({
     const relative = normalize(pathname).replace(/^[/\\]+/, '');
     if (relative.startsWith('..')) return new Response('Forbidden', { status: 403 });
 
-    const file = Bun.file(\`site/\${relative}\`);
+    const file = Bun.file(`site/${relative}`);
     if (!(await file.exists())) return new Response('Not found', { status: 404 });
 
     return new Response(file, {
@@ -51,7 +51,7 @@ const expectedFrames = [
 ] as const;
 
 async function capture(page: any, suffix: string) {
-  await page.goto(\`http://127.0.0.1:\${server.port}/?webgl=0\${suffix}\`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${server.port}/?webgl=0${suffix}`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(
     () => document.documentElement.classList.contains('world-ready'),
     undefined,
@@ -76,7 +76,7 @@ async function capture(page: any, suffix: string) {
     const levelCount = module._isoweb_level_count();
 
     for (let level = 0; level < levelCount; ++level) {
-      if (module._isoweb_active_level_index() !== level) throw new Error(\`Could not select level \${level}\`);
+      if (module._isoweb_active_level_index() !== level) throw new Error(`Could not select level ${level}`);
       module._isoweb_reset_yaw();
       module._isoweb_reset_zoom();
       module._isoweb_reset_camera();
@@ -109,7 +109,7 @@ async function capture(page: any, suffix: string) {
 
 function assertGolden(label: string, frames: Array<{ level: number; yaw: number; width: number; height: number; sha256: string }>) {
   if (frames.length !== expectedFrames.length) {
-    throw new Error(\`\${label}: expected \${expectedFrames.length} frames, got \${frames.length}\`);
+    throw new Error(`${label}: expected ${expectedFrames.length} frames, got ${frames.length}`);
   }
   for (let index = 0; index < expectedFrames.length; ++index) {
     const expected = expectedFrames[index];
@@ -120,7 +120,7 @@ function assertGolden(label: string, frames: Array<{ level: number; yaw: number;
       actual.sha256 !== expected.sha256
     ) {
       throw new Error(
-        \`\${label}: golden mismatch at frame \${index}: expected \${JSON.stringify(expected)}, got \${JSON.stringify(actual)}\`
+        `${label}: golden mismatch at frame ${index}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
       );
     }
   }
