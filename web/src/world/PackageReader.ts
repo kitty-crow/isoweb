@@ -1,12 +1,22 @@
 import { strFromU8, unzipSync } from '../../../vendor/fflate/index';
-import type { LevelDocument, LoadedWorldPackage, PackageManifest, WorldDocument } from './documents';
 import type {
-  CompiledLevelDocument, CompiledWorldDocument, LoadedCompiledWorldPackage, LoadedRuntimeWorldPackage
+  LevelDocument, LoadedWorldPackage, PackageManifest, WorldDocument
+} from './documents';
+import type {
+  CompiledLevelDocument, CompiledWorldDocument,
+  LoadedCompiledWorldPackage, LoadedRuntimeWorldPackage
 } from './WorldCompiler';
+import {
+  collectCompiledLevelResourceIds, collectLevelResourceIds,
+  mergeEmbeddedAssets, readAssetsFromArchive, requireEmbeddedResources,
+  type EmbeddedPackageAssetMap
+} from './PackageAssets';
 import {
   validateCompiledLevelDocument, validateCompiledWorldDocument, validateCompiledWorldGraph
 } from './compiledValidation';
-import { validateLevelDocument, validateLoadedWorldPackage, validateManifest, validateWorldDocument } from './validation';
+import {
+  validateLevelDocument, validateLoadedWorldPackage, validateManifest, validateWorldDocument
+} from './validation';
 
 const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 128 * 1024 * 1024;
@@ -14,6 +24,12 @@ const MAX_FILE_BYTES = 32 * 1024 * 1024;
 const MAX_FILE_COUNT = 2048;
 const MAX_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_PATH_BYTES = 512;
+
+export type LoadedLevelPackage = {
+  manifest: PackageManifest;
+  level: LevelDocument | CompiledLevelDocument;
+  assets: EmbeddedPackageAssetMap;
+};
 
 function safePath(path: string): void {
   if (!path || path.includes('\\') || path.includes('\0') || path.startsWith('/') || /^[A-Za-z]:/.test(path) ||
@@ -90,21 +106,44 @@ export class PackageReader {
   }
 
   async loadLevel(source: string | Blob | Uint8Array): Promise<LevelDocument | CompiledLevelDocument> {
-    return this.loadLevelBytes(await this.bytes(source, 'level'));
+    return (await this.loadLevelPackage(source)).level;
+  }
+
+  async loadLevelPackage(source: string | Blob | Uint8Array): Promise<LoadedLevelPackage> {
+    return this.loadLevelPackageBytes(await this.bytes(source, 'level'));
   }
 
   loadLevelBytes(bytes: Uint8Array): LevelDocument | CompiledLevelDocument {
+    return this.loadLevelPackageBytes(bytes).level;
+  }
+
+  loadLevelPackageBytes(bytes: Uint8Array): LoadedLevelPackage {
     inspectZip(bytes);
     const archive = new Archive(unzipSync(bytes));
     const manifest = validateManifest(archive.json<PackageManifest>('manifest.json'), 'isolevel');
+    const assets = readAssetsFromArchive(manifest, path => archive.bytes(path));
+
     if (manifest.representation === 'compiled') {
-      const level = validateCompiledLevelDocument(archive.json<CompiledLevelDocument>(manifest.entry));
+      const level = validateCompiledLevelDocument(
+        archive.json<CompiledLevelDocument>(manifest.entry)
+      );
       if (level.id !== manifest.id) throw new Error('Manifest and compiled level ids disagree');
-      return level;
+      requireEmbeddedResources(
+        collectCompiledLevelResourceIds(level),
+        assets,
+        `Compiled level package ${level.id}`
+      );
+      return { manifest, level, assets };
     }
+
     const level = validateLevelDocument(archive.json<LevelDocument>(manifest.entry));
     if (level.id !== manifest.id) throw new Error('Manifest and level ids disagree');
-    return level;
+    requireEmbeddedResources(
+      collectLevelResourceIds(level),
+      assets,
+      `Level package ${level.id}`
+    );
+    return { manifest, level, assets };
   }
 
   async loadWorld(source: string | Blob | Uint8Array): Promise<LoadedRuntimeWorldPackage> {
@@ -115,20 +154,32 @@ export class PackageReader {
     inspectZip(bytes);
     const archive = new Archive(unzipSync(bytes));
     const manifest = validateManifest(archive.json<PackageManifest>('manifest.json'), 'isoworld');
+    const assets = readAssetsFromArchive(manifest, path => archive.bytes(path));
 
     if (manifest.representation === 'compiled') {
-      const world = validateCompiledWorldDocument(archive.json<CompiledWorldDocument>(manifest.entry));
-      const levels = world.levels.map(reference => {
-        const level = this.loadLevelBytes(archive.bytes(reference.path));
-        if (!('compiledFormatVersion' in level)) {
+      const world = validateCompiledWorldDocument(
+        archive.json<CompiledWorldDocument>(manifest.entry)
+      );
+      const levels: CompiledLevelDocument[] = [];
+      for (const reference of world.levels) {
+        const loaded = this.loadLevelPackageBytes(archive.bytes(reference.path));
+        if (!('compiledFormatVersion' in loaded.level)) {
           throw new Error(`Compiled world references source isolevel ${reference.path}`);
         }
-        if (level.id !== reference.id) throw new Error(`Compiled level id mismatch in ${reference.path}`);
-        return level;
-      });
+        if (loaded.level.id !== reference.id) {
+          throw new Error(`Compiled level id mismatch in ${reference.path}`);
+        }
+        levels.push(loaded.level);
+        mergeEmbeddedAssets(assets, loaded.assets, `compiled world ${world.id}`);
+      }
       validateCompiledWorldGraph(world, levels);
       if (world.id !== manifest.id) throw new Error('Manifest and compiled world ids disagree');
-      return { manifest: manifest as LoadedCompiledWorldPackage['manifest'], world, levels };
+      return {
+        manifest: manifest as LoadedCompiledWorldPackage['manifest'],
+        world,
+        levels,
+        assets
+      };
     }
 
     const world = validateWorldDocument(archive.json<WorldDocument>(manifest.entry));
@@ -140,7 +191,8 @@ export class PackageReader {
     return validateLoadedWorldPackage({
       manifest: manifest as LoadedWorldPackage['manifest'],
       world,
-      levels
+      levels,
+      assets
     });
   }
 }
