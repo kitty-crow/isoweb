@@ -38,6 +38,7 @@
     "test:compiled-package": "bun scripts/compiled-package-smoke.ts",
     "test:query-modes": "bun scripts/query-mode-smoke.ts",
     "test:query-pages": "bun scripts/query-mode-pages-smoke.ts",
-    "package:query-compat": "bun scripts/package-query-compat.ts"
+    "package:query-compat": "bun scripts/package-query-compat.ts",
+    "test:self-contained-packages": "bun scripts/self-contained-package-smoke.ts"
   }
 }
