@@ -96,7 +96,7 @@ export function createLocalAddOperation(
       walkable: true,
       material: firstMaterial
     };
-    return addArrayItem(level.ground, item, 'add ground', { kind: 'geometry', id, levelId });
+    return addArrayItem(level.ground, item, 'add ground', { kind: 'ground', id, levelId });
   }
 
   const primitiveKinds = new Set<PrimitiveType>([
@@ -203,6 +203,7 @@ function selectedCollection(
   selection: EditorSelection
 ): LocalCollectionItem[] | undefined {
   switch (selection.kind) {
+    case 'ground': return level.ground;
     case 'entity': return level.entities;
     case 'geometry': return level.geometry;
     case 'room': return level.rooms;
