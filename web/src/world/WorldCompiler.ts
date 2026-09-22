@@ -1,6 +1,7 @@
 import type {
-  DirectionalSprites, HazardFaceDefinition, LevelDocument, PackageManifest,
-  SpriteAnimationDefinition, Vec3Tuple, WorldBehaviourDefinition, WorldDocument
+  DirectionalSprites, HazardFaceDefinition, LevelDocument, PackageManifest, RoomSide,
+  SpriteAnimationDefinition, Vec3Tuple, WorldBehaviourDefinition, WorldDocument,
+  WorldLevelPlacement
 } from './documents';
 
 export const COMPILED_FORMAT_VERSION = 1;
@@ -47,8 +48,9 @@ export type CompiledFloorHole = {
 };
 
 export type CompiledStaircase = {
-  centreX: number;
+  startX: number;
   startY: number;
+  endX: number;
   endY: number;
   startZ: number;
   endZ: number;
@@ -229,6 +231,82 @@ function requiredAnimation(animation: SpriteAnimationDefinition): CompiledSprite
   };
 }
 
+type QuarterTurn = 0 | 1 | 2 | 3;
+
+function quarterTurns(placement?: WorldLevelPlacement): QuarterTurn {
+  return ((((placement?.quarterTurns ?? 0) % 4) + 4) % 4) as QuarterTurn;
+}
+
+function rotatePoint(point: Vec3Tuple, turns: number): Vec3Tuple {
+  switch ((((turns % 4) + 4) % 4) as QuarterTurn) {
+    case 1: return [-point[1], point[0], point[2]];
+    case 2: return [-point[0], -point[1], point[2]];
+    case 3: return [point[1], -point[0], point[2]];
+    default: return [...point] as Vec3Tuple;
+  }
+}
+
+function rotateForward(forward: [number, number], turns: number): [number, number] {
+  const rotated = rotatePoint([forward[0], forward[1], 0], turns);
+  return [rotated[0], rotated[1]];
+}
+
+function rotatedSide(side: RoomSide, turns: number): RoomSide {
+  const normals: Record<RoomSide, Vec3Tuple> = {
+    north: [0, 1, 0],
+    south: [0, -1, 0],
+    east: [1, 0, 0],
+    west: [-1, 0, 0]
+  };
+  const [x, y] = rotatePoint(normals[side], turns);
+  if (Math.abs(x) > Math.abs(y)) return x > 0 ? 'east' : 'west';
+  return y > 0 ? 'north' : 'south';
+}
+
+function rotatedPortal(
+  side: RoomSide,
+  offset: number,
+  room: NonNullable<LevelDocument['rooms']>[number],
+  turns: number
+): { side: RoomSide; offset: number } {
+  const halfWidth = room.width / 2;
+  const halfDepth = room.depth / 2;
+  const point: Vec3Tuple =
+    side === 'north' ? [offset, halfDepth, 0] :
+    side === 'south' ? [offset, -halfDepth, 0] :
+    side === 'east' ? [halfWidth, offset, 0] :
+    [-halfWidth, offset, 0];
+  const rotated = rotatePoint(point, turns);
+  const nextSide = rotatedSide(side, turns);
+  return {
+    side: nextSide,
+    offset: nextSide === 'north' || nextSide === 'south' ? rotated[0] : rotated[1]
+  };
+}
+
+function rotateRectangle(
+  minimum: [number, number],
+  maximum: [number, number],
+  turns: number
+): { minimumX: number; maximumX: number; minimumY: number; maximumY: number } {
+  const corners = [
+    rotatePoint([minimum[0], minimum[1], 0], turns),
+    rotatePoint([minimum[0], maximum[1], 0], turns),
+    rotatePoint([maximum[0], minimum[1], 0], turns),
+    rotatePoint([maximum[0], maximum[1], 0], turns)
+  ];
+  return {
+    minimumX: Math.min(...corners.map(value => value[0])),
+    maximumX: Math.max(...corners.map(value => value[0])),
+    minimumY: Math.min(...corners.map(value => value[1])),
+    maximumY: Math.max(...corners.map(value => value[1]))
+  };
+}
+
+function placementFor(world: WorldDocument, levelId: string): WorldLevelPlacement | undefined {
+  return world.levels.find(reference => reference.id === levelId)?.placement;
+}
+
 function compileSprites(
   state: number,
   action: string,
@@ -244,7 +322,12 @@ function compileSprites(
 }
 
 export class WorldCompiler {
-  compileLevel(level: LevelDocument, worldOffset?: Vec3Tuple): CompiledLevelDocument {
+  compileLevel(
+    level: LevelDocument,
+    placement?: WorldLevelPlacement
+  ): CompiledLevelDocument {
+    const turns = quarterTurns(placement);
+    const worldOffset = placement?.position ?? [0, 0, 0];
     const floorDark = level.localMaterials[level.settings.floorDarkMaterial];
     const floorLight = level.localMaterials[level.settings.floorLightMaterial];
     const wall = level.localMaterials[level.settings.wallMaterial];
@@ -254,7 +337,10 @@ export class WorldCompiler {
 
     const entities: CompiledEntity[] = level.entities.map(entity => {
       const transform = entity.components.transform;
-      const forward: [number, number] = [transform.forward?.[0] ?? 0, transform.forward?.[1] ?? 1];
+      const forward = rotateForward(
+        [transform.forward?.[0] ?? 0, transform.forward?.[1] ?? 1],
+        turns
+      );
       const collider = entity.components.collider ?? {
         type: 'box' as const,
         minimum: [-0.25, -0.15, 0] as Vec3Tuple,
@@ -273,7 +359,7 @@ export class WorldCompiler {
         return {
           kind: 'character' as const,
           id: entity.id,
-          position: transform.position,
+          position: rotatePoint(transform.position, turns),
           forward,
           hitBoxMinimum: collider.minimum,
           hitBoxMaximum: collider.maximum,
@@ -292,7 +378,7 @@ export class WorldCompiler {
       return {
         kind: 'dynamic' as const,
         id: entity.id,
-        position: transform.position,
+        position: rotatePoint(transform.position, turns),
         forward,
         hitBoxMinimum: collider.minimum,
         hitBoxMaximum: collider.maximum,
@@ -309,76 +395,101 @@ export class WorldCompiler {
       compiledFormatVersion: COMPILED_FORMAT_VERSION,
       id: level.id,
       name: level.name,
-      viewOrigin: worldOffset
-        ? [
-            level.viewOrigin[0] + worldOffset[0],
-            level.viewOrigin[1] + worldOffset[1],
-            level.viewOrigin[2] + worldOffset[2]
-          ]
-        : level.viewOrigin,
-      lightPosition: light.position,
+      viewOrigin: (() => {
+        const local = rotatePoint(level.viewOrigin, turns);
+        return [
+          local[0] + worldOffset[0],
+          local[1] + worldOffset[1],
+          local[2] + worldOffset[2]
+        ] as Vec3Tuple;
+      })(),
+      lightPosition: rotatePoint(light.position, turns),
       floorDark: floorDark.baseColour,
       floorLight: floorLight.baseColour,
       wallColour: wall.baseColour,
-      boundsFocus: level.settings.boundsFocus,
+      boundsFocus: rotatePoint(level.settings.boundsFocus, turns),
       ground: level.ground.map(ground => ({
-        centre: ground.centre,
-        width: ground.size[0],
-        depth: ground.size[1],
+        centre: rotatePoint(ground.centre, turns),
+        width: turns % 2 === 0 ? ground.size[0] : ground.size[1],
+        depth: turns % 2 === 0 ? ground.size[1] : ground.size[0],
         walkable: ground.walkable === false ? 0 : 1
       })),
-      rooms: (level.rooms ?? []).map(room => ({
-        id: room.id,
-        centreX: room.centre[0],
-        centreY: room.centre[1],
-        floorZ: room.floorZ,
-        width: room.width,
-        depth: room.depth,
-        wallHeight: room.wallHeight,
-        wallThickness: room.wallThickness
-      })),
-      roomConnections: (level.roomConnections ?? []).map(connection => ({
-        id: connection.id,
-        a: {
-          roomId: connection.a.roomId,
-          side: ROOM_SIDE[connection.a.side],
-          offset: connection.a.offset ?? 0,
-          width: connection.a.width
-        },
-        b: {
-          roomId: connection.b.roomId,
-          side: ROOM_SIDE[connection.b.side],
-          offset: connection.b.offset ?? 0,
-          width: connection.b.width
-        },
-        openPassage: connection.openPassage === false ? 0 : 1
-      })),
+      rooms: (level.rooms ?? []).map(room => {
+        const centre = rotatePoint(room.centre, turns);
+        return {
+          id: room.id,
+          centreX: centre[0],
+          centreY: centre[1],
+          floorZ: room.floorZ,
+          width: turns % 2 === 0 ? room.width : room.depth,
+          depth: turns % 2 === 0 ? room.depth : room.width,
+          wallHeight: room.wallHeight,
+          wallThickness: room.wallThickness
+        };
+      }),
+      roomConnections: (level.roomConnections ?? []).map(connection => {
+        const roomA = (level.rooms ?? []).find(room => room.id === connection.a.roomId);
+        const roomB = (level.rooms ?? []).find(room => room.id === connection.b.roomId);
+        if (!roomA || !roomB) {
+          throw new Error(`Level ${level.id} room connection ${connection.id} references a missing room`);
+        }
+        const a = rotatedPortal(
+          connection.a.side,
+          connection.a.offset ?? 0,
+          roomA,
+          turns
+        );
+        const b = rotatedPortal(
+          connection.b.side,
+          connection.b.offset ?? 0,
+          roomB,
+          turns
+        );
+        return {
+          id: connection.id,
+          a: {
+            roomId: connection.a.roomId,
+            side: ROOM_SIDE[a.side],
+            offset: a.offset,
+            width: connection.a.width
+          },
+          b: {
+            roomId: connection.b.roomId,
+            side: ROOM_SIDE[b.side],
+            offset: b.offset,
+            width: connection.b.width
+          },
+          openPassage: connection.openPassage === false ? 0 : 1
+        };
+      }),
       primitives: level.geometry.map(primitive => {
         const material = level.localMaterials[primitive.material];
         if (!material) throw new Error(`Level ${level.id} references missing material ${primitive.material}`);
         return {
           kind: PRIMITIVE_KIND[primitive.type],
-          position: primitive.position,
+          position: rotatePoint(primitive.position, turns),
           size: primitive.size,
           height: primitive.height ?? 0,
           colour: material.baseColour,
           solid: primitive.solid === false ? 0 : 1
         };
       }),
-      floorHoles: (level.floorHoles ?? []).map(hole => ({
-        minimumX: hole.minimum[0],
-        maximumX: hole.maximum[0],
-        minimumY: hole.minimum[1],
-        maximumY: hole.maximum[1]
-      })),
-      staircases: (level.staircases ?? []).map(stair => ({
-        centreX: stair.centreX,
-        startY: stair.startY,
-        endY: stair.endY,
-        startZ: stair.startZ,
-        endZ: stair.endZ,
-        width: stair.width
-      })),
+      floorHoles: (level.floorHoles ?? []).map(hole =>
+        rotateRectangle(hole.minimum, hole.maximum, turns)
+      ),
+      staircases: (level.staircases ?? []).map(stair => {
+        const start = rotatePoint([stair.centreX, stair.startY, stair.startZ], turns);
+        const end = rotatePoint([stair.centreX, stair.endY, stair.endZ], turns);
+        return {
+          startX: start[0],
+          startY: start[1],
+          endX: end[0],
+          endY: end[1],
+          startZ: start[2],
+          endZ: end[2],
+          width: stair.width
+        };
+      }),
       entities,
       assets: Object.keys(level.assets ?? {}).sort()
     };
@@ -406,17 +517,25 @@ export class WorldCompiler {
         id: reference.id,
         path: compiledLevelPaths?.get(reference.id) ?? `levels/${reference.id}.isolevel`
       })),
-      connectors: (world.connectors ?? []).map(connector => ({
-        id: connector.id,
-        type: connector.type,
-        fromLevel: connector.fromLevel,
-        toLevel: connector.toLevel,
-        fromPosition: connector.fromPosition,
-        toPosition: connector.toPosition,
-        forwardTraversal: connector.forwardTraversal ?? [],
-        reverseTraversal: connector.reverseTraversal ?? [],
-        bidirectional: connector.bidirectional === false ? 0 : 1
-      })),
+      connectors: (world.connectors ?? []).map(connector => {
+        const fromTurns = quarterTurns(placementFor(world, connector.fromLevel));
+        const toTurns = quarterTurns(placementFor(world, connector.toLevel));
+        return {
+          id: connector.id,
+          type: connector.type,
+          fromLevel: connector.fromLevel,
+          toLevel: connector.toLevel,
+          fromPosition: rotatePoint(connector.fromPosition, fromTurns),
+          toPosition: rotatePoint(connector.toPosition, toTurns),
+          forwardTraversal: (connector.forwardTraversal ?? []).map(point =>
+            rotatePoint(point, fromTurns)
+          ),
+          reverseTraversal: (connector.reverseTraversal ?? []).map(point =>
+            rotatePoint(point, toTurns)
+          ),
+          bidirectional: connector.bidirectional === false ? 0 : 1
+        };
+      }),
       behaviours: (world.behaviours ?? []).map(behaviour => this.compileBehaviour(behaviour)),
       assets: Object.keys(world.assets ?? {}).sort()
     };
@@ -438,7 +557,7 @@ export class WorldCompiler {
       world: this.compileWorld(source.world, levelPaths),
       levels: source.levels.map(level => {
         const reference = source.world.levels.find(candidate => candidate.id === level.id);
-        return this.compileLevel(level, reference?.placement?.position);
+        return this.compileLevel(level, reference?.placement);
       }),
       assets: source.assets
     };
