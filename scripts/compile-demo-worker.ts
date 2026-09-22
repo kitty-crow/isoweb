@@ -114,7 +114,10 @@ for (const level of levels) {
   );
 }
 
-const compiledLevels = levels.map(level => compiler.compileLevel(level));
+const compiledLevels = levels.map(level => {
+  const reference = world.levels.find(candidate => candidate.id === level.id);
+  return compiler.compileLevel(level, reference?.placement);
+});
 const compiledLevelPackages = new Map<string, Uint8Array>();
 for (const level of compiledLevels) {
   const assets = levelAssets.get(level.id);
