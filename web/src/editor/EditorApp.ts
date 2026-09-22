@@ -192,7 +192,7 @@ export class EditorApp {
 
     const selection = this.core.selection.value;
     const localEditable = new Set([
-      'ground', 'entity', 'geometry', 'room', 'spawn', 'connector', 'light'
+      'ground', 'entity', 'geometry', 'room', 'floor-hole', 'staircase', 'spawn', 'connector', 'light'
     ]);
     const canOperate = !!selection && localEditable.has(selection.kind);
     this.element<HTMLButtonElement>('editor-duplicate').disabled = !canOperate;
@@ -244,6 +244,8 @@ export class EditorApp {
       for (const entity of level.entities) add(entity.id, 'entity', entity.id, level.id, 2);
       for (const geometry of level.geometry) add(geometry.id, 'geometry', geometry.id, level.id, 2);
       for (const room of level.rooms ?? []) add(room.id, 'room', room.id, level.id, 2);
+      for (const hole of level.floorHoles ?? []) add(hole.id, 'floor-hole', hole.id, level.id, 2);
+      for (const stair of level.staircases ?? []) add(stair.id, 'staircase', stair.id, level.id, 2);
       for (const spawn of level.spawns) add(spawn.id, 'spawn', spawn.id, level.id, 2);
       for (const connector of level.connectors) add(connector.id, 'connector', connector.id, level.id, 2);
       for (const light of level.lights) add(light.id, 'light', light.id, level.id, 2);
@@ -352,6 +354,52 @@ export class EditorApp {
           const before = Number(record[key]);
           this.core.execute(new FunctionalCommand(
             `set room ${label.toLowerCase()}`,
+            () => { record[key] = Math.max(minimum, value); },
+            () => { record[key] = before; }
+          ));
+        });
+      }
+    }
+
+    if (selection.kind === 'floor-hole') {
+      const minimum = record.minimum as [number, number];
+      const maximum = record.maximum as [number, number];
+      if (Array.isArray(minimum) && Array.isArray(maximum)) {
+        for (const [axis, label] of [[0, 'Width'], [1, 'Depth']] as const) {
+          this.addNumberProperty(root, label, maximum[axis] - minimum[axis], value => {
+            const beforeMin = minimum[axis];
+            const beforeMax = maximum[axis];
+            const centre = (beforeMin + beforeMax) / 2;
+            const half = Math.max(0.125, value / 2);
+            this.core.execute(new FunctionalCommand(
+              `resize floor hole ${label.toLowerCase()}`,
+              () => {
+                minimum[axis] = centre - half;
+                maximum[axis] = centre + half;
+              },
+              () => {
+                minimum[axis] = beforeMin;
+                maximum[axis] = beforeMax;
+              }
+            ));
+          });
+        }
+      }
+    }
+
+    if (selection.kind === 'staircase') {
+      for (const [key, label, minimum] of [
+        ['centreX', 'Centre X', -Infinity],
+        ['startY', 'Start Y', -Infinity],
+        ['endY', 'End Y', -Infinity],
+        ['startZ', 'Start Z', -Infinity],
+        ['endZ', 'End Z', -Infinity],
+        ['width', 'Width', 0.25]
+      ] as const) {
+        this.addNumberProperty(root, label, Number(record[key]), value => {
+          const before = Number(record[key]);
+          this.core.execute(new FunctionalCommand(
+            `set staircase ${label.toLowerCase()}`,
             () => { record[key] = Math.max(minimum, value); },
             () => { record[key] = before; }
           ));
@@ -555,6 +603,8 @@ export class EditorApp {
       ['Entities', levels.reduce((sum, level) => sum + level.entities.length, 0)],
       ['Geometry', levels.reduce((sum, level) => sum + level.geometry.length, 0)],
       ['Rooms', levels.reduce((sum, level) => sum + (level.rooms?.length ?? 0), 0)],
+      ['Floor holes', levels.reduce((sum, level) => sum + (level.floorHoles?.length ?? 0), 0)],
+      ['Stairs', levels.reduce((sum, level) => sum + (level.staircases?.length ?? 0), 0)],
       ['Spawns', levels.reduce((sum, level) => sum + level.spawns.length, 0)],
       ['Connectors', levels.reduce((sum, level) => sum + level.connectors.length, 0)]
     ];
@@ -622,6 +672,9 @@ export class EditorApp {
       case 'entity': return level.entities.find(value => value.id === selection.id);
       case 'geometry': return level.geometry.find(value => value.id === selection.id);
       case 'room': return level.rooms?.find(value => value.id === selection.id);
+      case 'floor-hole': return level.floorHoles?.find(value => value.id === selection.id);
+      case 'staircase': return level.staircases?.find(value => value.id === selection.id);
+      case 'room-connection': return level.roomConnections?.find(value => value.id === selection.id);
       case 'spawn': return level.spawns.find(value => value.id === selection.id);
       case 'connector': return level.connectors.find(value => value.id === selection.id);
       case 'light': return level.lights.find(value => value.id === selection.id);
