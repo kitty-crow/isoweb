@@ -13,10 +13,12 @@ import {
   createImportWorldLevelOperation
 } from './WorldLevelManager';
 import {
+  createRotateLevelCommand,
   createSetLevelPlacementCommand,
   createStackRelativeCommand,
   effectiveLevelOrigin,
-  levelPlacement
+  levelPlacement,
+  levelQuarterTurns
 } from './WorldPlacementManager';
 import type { EditableWorldProject } from './SourceProjectIO';
 import type { Vec3Tuple, WorldConnectorDefinition } from '../world/documents';
@@ -193,6 +195,13 @@ export class WorldEditorApp {
     this.element<HTMLButtonElement>('world-stack-below').addEventListener('click', () => {
       this.stackSelected('below');
     });
+
+    this.element<HTMLButtonElement>('world-rotate-left').addEventListener('click', () => {
+      this.rotateSelected(1);
+    });
+    this.element<HTMLButtonElement>('world-rotate-right').addEventListener('click', () => {
+      this.rotateSelected(-1);
+    });
   }
 
   private bindConnectionControls(): void {
@@ -287,6 +296,18 @@ export class WorldEditorApp {
     }
   }
 
+  private rotateSelected(direction: -1 | 1): void {
+    const levelId = this.selectedLevelId();
+    if (!levelId) return;
+    try {
+      this.core.execute(createRotateLevelCommand(this.project(), levelId, direction));
+      this.core.selection.select({ kind: 'level', id: levelId, levelId });
+      this.transientProblem = '';
+    } catch (error) {
+      this.captureProblem(error);
+    }
+  }
+
   private save(): void {
     try {
       const blob = this.core.saveBlob();
@@ -352,7 +373,8 @@ export class WorldEditorApp {
       const strong = document.createElement('strong');
       strong.textContent = `${project.document.settings.defaultLevel === level.id ? '★ ' : ''}${level.name || level.id}`;
       const meta = document.createElement('span');
-      meta.textContent = `X ${origin[0].toFixed(1)} · Y ${origin[1].toFixed(1)} · Z ${origin[2].toFixed(1)}`;
+      meta.textContent =
+        `X ${origin[0].toFixed(1)} · Y ${origin[1].toFixed(1)} · Z ${origin[2].toFixed(1)} · ${levelQuarterTurns(project, level.id) * 90}°`;
       button.append(strong, meta);
       button.addEventListener('click', () => {
         this.core.selection.select({ kind: 'level', id: level.id, levelId: level.id });
@@ -393,6 +415,8 @@ export class WorldEditorApp {
       !selected || project.levels.length <= 1;
     this.element<HTMLButtonElement>('world-level-set-default').disabled =
       !selected || project.document.settings.defaultLevel === levelId;
+    this.element<HTMLButtonElement>('world-rotate-left').disabled = !selected;
+    this.element<HTMLButtonElement>('world-rotate-right').disabled = !selected;
 
     const fillTargets = (select: HTMLSelectElement): void => {
       const previous = select.value;
@@ -459,6 +483,15 @@ export class WorldEditorApp {
       this.core.execute(createSetLevelPlacementCommand(project, levelId, next));
       this.core.selection.select({ kind: 'level', id: levelId, levelId });
     });
+
+    const rotationField = document.createElement('div');
+    rotationField.className = 'editor-field';
+    const rotationLabel = document.createElement('span');
+    rotationLabel.textContent = 'Rotation';
+    const rotationValue = document.createElement('code');
+    rotationValue.textContent = `${levelQuarterTurns(project, levelId) * 90}°`;
+    rotationField.append(rotationLabel, rotationValue);
+    root.appendChild(rotationField);
 
     const effective = effectiveLevelOrigin(project, levelId);
     const effectiveField = document.createElement('div');
