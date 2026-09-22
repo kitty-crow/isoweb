@@ -9,12 +9,7 @@ export class EditorPlayPreview {
     private readonly button: HTMLButtonElement,
     private readonly layout: HTMLElement,
     private readonly frame: HTMLIFrameElement
-  ) {
-    this.button.addEventListener('click', () => {
-      if (this.playing) this.exit();
-      else this.enter();
-    });
-  }
+  ) {}
 
   get isPlaying(): boolean { return this.playing; }
 
