@@ -1,0 +1,377 @@
+body.editor-page {
+  min-width: 0;
+  min-height: 100dvh;
+  color: #e8eef5;
+  font: 14px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  touch-action: manipulation;
+  overflow: hidden;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button,
+input,
+select {
+  min-height: 44px;
+}
+
+.editor-root {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 100dvh;
+}
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid #2d3946;
+  background: #151f2a;
+}
+
+.editor-toolbar button,
+.editor-panel button,
+.editor-field input,
+.editor-vector input,
+.editor-panel select,
+.editor-panel input {
+  box-sizing: border-box;
+  border: 1px solid #3a4856;
+  border-radius: 6px;
+  color: #e8eef5;
+  background: #1d2935;
+}
+
+.editor-toolbar button {
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.editor-toolbar button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.editor-title {
+  min-width: 0;
+  margin-right: auto;
+}
+
+.editor-title strong,
+.editor-title span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-title span {
+  color: #9fb0c1;
+  font-size: 12px;
+}
+
+.editor-workspace {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(320px, 1fr) minmax(240px, 320px);
+  min-height: 0;
+}
+
+.editor-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: #111a23;
+}
+
+.editor-panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px;
+  border-bottom: 1px solid #2d3946;
+  background: #151f2a;
+}
+
+.editor-panel-header h1,
+.editor-panel-header h2,
+.editor-inspector h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.editor-hierarchy-panel {
+  border-right: 1px solid #2d3946;
+}
+
+.editor-inspector-panel {
+  border-left: 1px solid #2d3946;
+}
+
+.editor-hierarchy-tools {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+
+.editor-hierarchy-tools input,
+.editor-hierarchy-tools select {
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.editor-tree {
+  padding: 6px;
+}
+
+.editor-tree-item {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  margin: 1px 0;
+  padding: 6px 8px 6px calc(8px + var(--tree-depth, 0) * 14px);
+  border: 0;
+  border-radius: 5px;
+  text-align: left;
+  color: #cdd9e5;
+  background: transparent;
+  cursor: pointer;
+}
+
+.editor-tree-item:hover,
+.editor-tree-item[data-selected="true"] {
+  background: #263646;
+}
+
+.editor-stage {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px;
+  background:
+    linear-gradient(45deg, rgba(255,255,255,0.025) 25%, transparent 25%) 0 0 / 24px 24px,
+    linear-gradient(-45deg, rgba(255,255,255,0.025) 25%, transparent 25%) 0 12px / 24px 24px,
+    #0f1720;
+}
+
+.editor-stage-card {
+  width: min(720px, 100%);
+  padding: 18px;
+  border: 1px solid #344250;
+  border-radius: 10px;
+  background: rgba(17, 26, 35, 0.94);
+}
+
+.editor-stage-card h1 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.editor-stage-card p {
+  margin: 0 0 16px;
+  color: #9fb0c1;
+}
+
+.editor-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.editor-stat {
+  padding: 10px;
+  border: 1px solid #2d3946;
+  border-radius: 7px;
+  background: #151f2a;
+}
+
+.editor-stat strong,
+.editor-stat span {
+  display: block;
+}
+
+.editor-stat strong {
+  font-size: 20px;
+}
+
+.editor-stat span {
+  color: #9fb0c1;
+  font-size: 12px;
+}
+
+.editor-inspector {
+  padding: 10px;
+}
+
+.editor-field {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+
+.editor-field > span,
+.editor-vector legend {
+  color: #9fb0c1;
+  font-size: 12px;
+}
+
+.editor-field input,
+.editor-vector input {
+  width: 100%;
+  padding: 0 8px;
+}
+
+.editor-field code {
+  overflow-wrap: anywhere;
+}
+
+.editor-vector {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.editor-vector legend {
+  grid-column: 1 / -1;
+  margin-bottom: 5px;
+}
+
+.editor-vector label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+}
+
+.editor-problems-panel {
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-top: 1px solid #2d3946;
+  background: #151f2a;
+}
+
+.editor-problems-panel h2 {
+  display: inline;
+  margin: 0 10px 0 0;
+  font-size: 13px;
+}
+
+.editor-problems {
+  display: inline;
+}
+
+.editor-problem,
+.editor-problem-ok {
+  display: inline;
+  margin: 0 10px 0 0;
+}
+
+.editor-problem[data-severity="error"] {
+  color: #ffb4b4;
+}
+
+.editor-problem-ok {
+  color: #a9d8b4;
+}
+
+.visually-hidden-editor {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .editor-workspace {
+    grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  }
+
+  .editor-inspector-panel {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 5;
+    max-height: 50dvh;
+    border: 1px solid #344250;
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.35);
+  }
+
+  .editor-problems-panel {
+    padding-right: 48%;
+  }
+}
+
+@media (max-width: 600px) {
+  body.editor-page {
+    overflow: auto;
+  }
+
+  .editor-root {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  .editor-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .editor-title {
+    flex-basis: 100%;
+    order: -1;
+  }
+
+  .editor-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-hierarchy-panel {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 4;
+    max-height: 44dvh;
+    border: 1px solid #344250;
+    border-radius: 12px 12px 0 0;
+    transform: translateY(calc(100% - 52px));
+  }
+
+  .editor-hierarchy-panel:focus-within {
+    transform: none;
+  }
+
+  .editor-inspector-panel {
+    display: none;
+  }
+
+  .editor-stage {
+    min-height: 58dvh;
+    padding: 10px;
+  }
+
+  .editor-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .editor-problems-panel {
+    max-height: 120px;
+    padding-right: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-hierarchy-panel {
+    transition: none;
+  }
+}
