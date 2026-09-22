@@ -258,7 +258,7 @@ export type WorldDocument = {
 };
 
 export type LoadedWorldPackage = {
-  manifest: PackageManifest;
+  manifest: PackageManifest & { representation?: 'source' };
   world: WorldDocument;
   levels: LevelDocument[];
 };
