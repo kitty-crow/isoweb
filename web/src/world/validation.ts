@@ -146,7 +146,43 @@ export function validateLevelDocument(value: unknown): LevelDocument {
     if (!vec3(transform.position) || (transform.forward !== undefined && !vec3(transform.forward))) {
       throw new Error(`Entity ${entity.id} transform is invalid`);
     }
-    object(components.character, 'character component');
+
+    let collider: Record<string, unknown> | undefined;
+    if (components.collider !== undefined) {
+      collider = object(components.collider, 'collider component');
+      if (collider.type !== 'box' || !vec3(collider.minimum) || !vec3(collider.maximum)) {
+        throw new Error(`Entity ${entity.id} collider is invalid`);
+      }
+      if ((collider.minimum as Vec3Tuple).some((value, index) => value >= (collider!.maximum as Vec3Tuple)[index])) {
+        throw new Error(`Entity ${entity.id} collider is empty`);
+      }
+      for (const key of ['collisionTags', 'mustCollideWith']) {
+        if (collider[key] !== undefined &&
+            (!Array.isArray(collider[key]) || !(collider[key] as unknown[]).every(nonEmpty))) {
+          throw new Error(`Entity ${entity.id} collider filters are invalid`);
+        }
+      }
+    }
+
+    const hasCharacter = components.character !== undefined;
+    const hasDynamicBody = components.dynamicBody !== undefined;
+    if (hasCharacter === hasDynamicBody) {
+      throw new Error(`Entity ${entity.id} must have exactly one runtime body component`);
+    }
+    if (hasCharacter) {
+      object(components.character, 'character component');
+    } else {
+      if (!collider) throw new Error(`Dynamic entity ${entity.id} requires a collider`);
+      const body = object(components.dynamicBody, 'dynamic body component');
+      if (body.surfaceTextureMode !== undefined &&
+          !['stretch','tile-local','tile-world'].includes(String(body.surfaceTextureMode))) {
+        throw new Error(`Dynamic entity ${entity.id} texture mode is invalid`);
+      }
+      if (body.textureWorldUnitsPerTile !== undefined &&
+          (!finite(body.textureWorldUnitsPerTile) || body.textureWorldUnitsPerTile <= 0)) {
+        throw new Error(`Dynamic entity ${entity.id} texture tile size is invalid`);
+      }
+    }
   }
   return level as LevelDocument;
 }
@@ -167,6 +203,49 @@ export function validateWorldDocument(value: unknown): WorldDocument {
   }
   if (!ids.has(settings.defaultLevel)) throw new Error('World defaultLevel is missing');
   materials(world.materials ?? {}, 'world materials');
+
+  if (world.behaviours !== undefined) {
+    if (!Array.isArray(world.behaviours)) throw new Error('World behaviours must be an array');
+    const behaviourIds = new Set<string>();
+    const faces = new Set(['any','left','right','back','front','bottom','top']);
+    for (const raw of world.behaviours as unknown[]) {
+      const behaviour = object(raw, 'world behaviour');
+      if (!nonEmpty(behaviour.id) || behaviourIds.has(behaviour.id)) throw new Error('Invalid behaviour id');
+      behaviourIds.add(behaviour.id);
+      if (!nonEmpty(behaviour.type)) throw new Error(`Behaviour ${behaviour.id} type is invalid`);
+      switch (behaviour.type) {
+        case 'oscillating-gate':
+          if (!nonEmpty(behaviour.leftEntity) || !nonEmpty(behaviour.rightEntity) || !vec3(behaviour.base)) {
+            throw new Error(`Behaviour ${behaviour.id} gate references are invalid`);
+          }
+          for (const key of ['halfSpan','gap','sweep','angularSpeed','halfThickness','height']) {
+            if (!finite(behaviour[key])) throw new Error(`Behaviour ${behaviour.id} has invalid ${key}`);
+          }
+          break;
+        case 'vertical-cycle':
+          if (!nonEmpty(behaviour.entity) || !vec3(behaviour.base)) throw new Error(`Behaviour ${behaviour.id} is invalid`);
+          for (const key of ['upZ','downZ','period']) if (!finite(behaviour[key])) throw new Error(`Behaviour ${behaviour.id} is invalid`);
+          if ((behaviour.period as number) <= 0) throw new Error(`Behaviour ${behaviour.id} period is invalid`);
+          if (behaviour.lethalFace !== undefined && !faces.has(String(behaviour.lethalFace))) throw new Error(`Behaviour ${behaviour.id} face is invalid`);
+          if (behaviour.contactTolerance !== undefined && (!finite(behaviour.contactTolerance) || behaviour.contactTolerance < 0)) throw new Error(`Behaviour ${behaviour.id} tolerance is invalid`);
+          break;
+        case 'rotation':
+          if (!nonEmpty(behaviour.entity) || !finite(behaviour.angularSpeed) ||
+              (behaviour.directionMultiplier !== undefined && !finite(behaviour.directionMultiplier))) {
+            throw new Error(`Behaviour ${behaviour.id} is invalid`);
+          }
+          break;
+        case 'hazard':
+          if (!nonEmpty(behaviour.entity)) throw new Error(`Behaviour ${behaviour.id} entity is invalid`);
+          if (behaviour.face !== undefined && !faces.has(String(behaviour.face))) throw new Error(`Behaviour ${behaviour.id} face is invalid`);
+          if (behaviour.tolerance !== undefined && (!finite(behaviour.tolerance) || behaviour.tolerance < 0)) throw new Error(`Behaviour ${behaviour.id} tolerance is invalid`);
+          if (behaviour.action !== undefined && behaviour.action !== 'respawn') throw new Error(`Behaviour ${behaviour.id} action is unsupported`);
+          break;
+        default:
+          throw new Error(`Unsupported behaviour type ${String(behaviour.type)}`);
+      }
+    }
+  }
   return world as WorldDocument;
 }
 
@@ -184,6 +263,22 @@ export function validateLoadedWorldPackage(data: LoadedWorldPackage): LoadedWorl
     }
     for (const sample of connector.forwardTraversal ?? []) if (!vec3(sample)) throw new Error('Invalid connector traversal');
     for (const sample of connector.reverseTraversal ?? []) if (!vec3(sample)) throw new Error('Invalid connector traversal');
+  }
+
+  const entityIds = new Set<string>();
+  for (const level of data.levels) {
+    for (const entity of level.entities) {
+      if (entityIds.has(entity.id)) throw new Error(`Duplicate world entity id ${entity.id}`);
+      entityIds.add(entity.id);
+    }
+  }
+  for (const behaviour of data.world.behaviours ?? []) {
+    const referenced = behaviour.type === 'oscillating-gate'
+      ? [behaviour.leftEntity, behaviour.rightEntity]
+      : [behaviour.entity];
+    for (const id of referenced) {
+      if (!entityIds.has(id)) throw new Error(`Behaviour ${behaviour.id} references missing entity ${id}`);
+    }
   }
   return data;
 }
