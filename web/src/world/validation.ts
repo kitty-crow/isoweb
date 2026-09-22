@@ -1,6 +1,8 @@
 import type {
-  LevelDocument, LoadedWorldPackage, MaterialDefinition, PackageManifest, Vec3Tuple, WorldDocument
+  AssetSourceDefinition, LevelDocument, LoadedWorldPackage, MaterialDefinition,
+  PackageManifest, Vec3Tuple, WorldDocument
 } from './documents';
+import { collectLevelResourceIds, requireEmbeddedResources } from './PackageAssets';
 
 export const CURRENT_SCHEMA_VERSION = 1;
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
@@ -28,7 +30,43 @@ export function validateManifest(value: unknown, expected: PackageManifest['form
   }
   if (!nonEmpty(manifest.id)) throw new Error('Manifest id must be non-empty');
   if (!nonEmpty(manifest.entry) || !safePackagePath(manifest.entry)) throw new Error('Manifest entry is unsafe');
+  if (manifest.assets !== undefined) {
+    if (!Array.isArray(manifest.assets)) throw new Error('Manifest assets must be an array');
+    const assetIds = new Set<string>();
+    const assetPaths = new Set<string>();
+    for (const raw of manifest.assets as unknown[]) {
+      const asset = object(raw, 'manifest asset');
+      if (!nonEmpty(asset.id) || assetIds.has(asset.id)) throw new Error('Manifest asset id is invalid');
+      if (!nonEmpty(asset.path) || !safePackagePath(asset.path) || assetPaths.has(asset.path)) {
+        throw new Error(`Manifest asset path is invalid for ${String(asset.id)}`);
+      }
+      if (asset.mediaType !== undefined && !nonEmpty(asset.mediaType)) {
+        throw new Error(`Manifest asset media type is invalid for ${asset.id}`);
+      }
+      if (asset.size !== undefined &&
+          (!Number.isSafeInteger(asset.size) || (asset.size as number) < 0)) {
+        throw new Error(`Manifest asset size is invalid for ${asset.id}`);
+      }
+      assetIds.add(asset.id);
+      assetPaths.add(asset.path);
+    }
+  }
   return manifest as PackageManifest;
+}
+
+function assetSources(value: unknown, label: string): Record<string, AssetSourceDefinition> {
+  const registry = object(value ?? {}, label);
+  for (const [id, raw] of Object.entries(registry)) {
+    if (!nonEmpty(id)) throw new Error(`${label} has an empty asset id`);
+    const asset = object(raw, `${label}.${id}`);
+    if (!nonEmpty(asset.source) || !safePackagePath(asset.source)) {
+      throw new Error(`Asset ${id} has an unsafe source path`);
+    }
+    if (asset.mediaType !== undefined && !nonEmpty(asset.mediaType)) {
+      throw new Error(`Asset ${id} has an invalid media type`);
+    }
+  }
+  return registry as Record<string, AssetSourceDefinition>;
 }
 
 function materials(value: unknown, label: string): Record<string, MaterialDefinition> {
@@ -54,6 +92,7 @@ export function validateLevelDocument(value: unknown): LevelDocument {
   }
 
   const registry = materials(level.localMaterials, `Level ${level.id} materials`);
+  const levelAssets = assetSources(level.assets ?? {}, `Level ${level.id} assets`);
   const settings = object(level.settings, `Level ${level.id} settings`);
   if (!vec3(settings.boundsFocus)) throw new Error(`Level ${level.id} boundsFocus is invalid`);
   for (const key of ['floorDarkMaterial', 'floorLightMaterial', 'wallMaterial']) {
@@ -174,7 +213,40 @@ export function validateLevelDocument(value: unknown): LevelDocument {
       throw new Error(`Entity ${entity.id} must have exactly one runtime body component`);
     }
     if (hasCharacter) {
-      object(components.character, 'character component');
+      const character = object(components.character, 'character component');
+      if (character.sprites !== undefined) {
+        const sprites = object(character.sprites, 'character sprites');
+        for (const [state, rawDirectional] of Object.entries(sprites)) {
+          if (state !== 'still' && state !== 'moving' && state !== 'actions') {
+            throw new Error(`Entity ${entity.id} has unsupported sprite state ${state}`);
+          }
+          const directionals = state === 'actions'
+            ? Object.values(object(rawDirectional, `Entity ${entity.id} action sprites`))
+            : [rawDirectional];
+          for (const rawDirections of directionals) {
+            const directions = object(rawDirections, `Entity ${entity.id} directional sprites`);
+            for (const [facing, rawAnimation] of Object.entries(directions)) {
+              if (!['front','back','left','right'].includes(facing)) {
+                throw new Error(`Entity ${entity.id} has unsupported sprite facing ${facing}`);
+              }
+              const animation = object(rawAnimation, `Entity ${entity.id} sprite animation`);
+              if (!nonEmpty(animation.resource) || !levelAssets[animation.resource]) {
+                throw new Error(
+                  `Entity ${entity.id} references undeclared local asset ${String(animation.resource)}`
+                );
+              }
+              for (const key of ['frameCount','columns','rows','fps','worldWidth','worldHeight']) {
+                if (animation[key] !== undefined && !finite(animation[key])) {
+                  throw new Error(`Entity ${entity.id} sprite ${key} is invalid`);
+                }
+              }
+              if (animation.loop !== undefined && typeof animation.loop !== 'boolean') {
+                throw new Error(`Entity ${entity.id} sprite loop is invalid`);
+              }
+            }
+          }
+        }
+      }
     } else {
       if (!collider) throw new Error(`Dynamic entity ${entity.id} requires a collider`);
       const body = object(components.dynamicBody, 'dynamic body component');
@@ -207,6 +279,7 @@ export function validateWorldDocument(value: unknown): WorldDocument {
   }
   if (!ids.has(settings.defaultLevel)) throw new Error('World defaultLevel is missing');
   materials(world.materials ?? {}, 'world materials');
+  assetSources(world.assets ?? {}, 'world assets');
 
   if (world.behaviours !== undefined) {
     if (!Array.isArray(world.behaviours)) throw new Error('World behaviours must be an array');
@@ -275,6 +348,13 @@ export function validateLoadedWorldPackage(data: LoadedWorldPackage): LoadedWorl
       if (entityIds.has(entity.id)) throw new Error(`Duplicate world entity id ${entity.id}`);
       entityIds.add(entity.id);
     }
+  }
+  for (const level of data.levels) {
+    requireEmbeddedResources(
+      collectLevelResourceIds(level),
+      data.assets,
+      `World ${data.world.id} level ${level.id}`
+    );
   }
   for (const behaviour of data.world.behaviours ?? []) {
     const referenced = behaviour.type === 'oscillating-gate'
