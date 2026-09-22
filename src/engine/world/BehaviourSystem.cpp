@@ -38,7 +38,7 @@ const Character* BehaviourSystem::part(const std::string&id)const{return dynamic
 bool BehaviourSystem::isBehaviourEntity(const Character& c)const{return std::find(spawnedIds_.begin(),spawnedIds_.end(),c.id)!=spawnedIds_.end();}
 bool BehaviourSystem::touchesFace(const Object&o,const Object&x,HazardFace f,float tol){
  if(!o.location.sharesSpaceWith(x.location))return false;
- Vec3 mn(std::numeric_limits<float>::max(),std::numeric_limits<float>::max(),std::numeric_limits<float>::max()),mx=-mn;
+ const float limit=std::numeric_limits<float>::max();Vec3 mn(limit,limit,limit),mx(-limit,-limit,-limit);
  for(int a=0;a<2;a++)for(int b=0;b<2;b++)for(int c=0;c<2;c++){Vec3 q(a?x.hitBox.maximum.x:x.hitBox.minimum.x,b?x.hitBox.maximum.y:x.hitBox.minimum.y,c?x.hitBox.maximum.z:x.hitBox.minimum.z);q=o.worldToLocal(x.localToWorld(q));mn.x=std::min(mn.x,q.x);mn.y=std::min(mn.y,q.y);mn.z=std::min(mn.z,q.z);mx.x=std::max(mx.x,q.x);mx.y=std::max(mx.y,q.y);mx.z=std::max(mx.z,q.z);}
  const HitBox& h=o.hitBox;Vec3 cc=(mn+mx)*.5f,oc=h.centre();float ox=overlap(mn.x-tol,mx.x+tol,h.minimum.x,h.maximum.x),oy=overlap(mn.y-tol,mx.y+tol,h.minimum.y,h.maximum.y),oz=overlap(mn.z-tol,mx.z+tol,h.minimum.z,h.maximum.z);
  if(f==HazardFace::Any)return touchesFace(o,x,HazardFace::Left,tol)||touchesFace(o,x,HazardFace::Right,tol)||touchesFace(o,x,HazardFace::Back,tol)||touchesFace(o,x,HazardFace::Front,tol)||touchesFace(o,x,HazardFace::Bottom,tol)||touchesFace(o,x,HazardFace::Top,tol);
