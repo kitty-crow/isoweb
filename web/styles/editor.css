@@ -255,6 +255,23 @@ select {
   background: #1d2935;
 }
 
+.editor-layout-shell {
+  min-width: 0;
+  min-height: 360px;
+}
+
+.editor-runtime-frame {
+  width: 100%;
+  min-height: 360px;
+  border: 0;
+  background: #0f1720;
+}
+
+body[data-editor-mode="play"] .editor-stage-toolbar span,
+body[data-editor-mode="play"] .editor-stage-summary > span {
+  color: #b8c7d5;
+}
+
 .editor-layout {
   position: relative;
   min-width: 0;
@@ -668,7 +685,9 @@ select {
     flex-basis: 100%;
   }
 
-  .editor-layout {
+  .editor-layout,
+  .editor-layout-shell,
+  .editor-runtime-frame {
     min-height: 58dvh;
   }
 
