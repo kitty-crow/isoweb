@@ -1,4 +1,5 @@
 import { WebGlStaticTracer } from './staticTracer';
+import { browserMode } from '../browserMode';
 
 export type FrameBackendName = 'webgl2' | 'canvas2d';
 
@@ -123,10 +124,9 @@ class WebGl2FrameBackend implements FrameBackend {
 
     const params = new URLSearchParams(location.search);
     const gpuStaticOverride = params.get('gpuStatic');
-    const adaptiveRoute = Boolean((globalThis as any).isowebAdaptiveContainer);
     const allowGpuStatic =
       gpuStaticOverride === '1' ||
-      (gpuStaticOverride !== '0' && adaptiveRoute);
+      (gpuStaticOverride !== '0' && browserMode().webgl);
 
     if (allowGpuStatic) {
       try {
@@ -319,9 +319,9 @@ export function createFrameBackend(canvas: HTMLCanvasElement): FrameBackend {
   (globalThis as any).isowebTraceStaticWebGl = undefined;
   window.isowebGpuStaticAvailable = false;
   const params = new URLSearchParams(location.search);
-  const webglDisabled = params.get('webgl') === '0';
+  const forceCanvas2d = params.get('presentation') === 'canvas2d';
 
-  if (!webglDisabled) {
+  if (!forceCanvas2d) {
     try {
       return new WebGl2FrameBackend(canvas);
     } catch (error) {

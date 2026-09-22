@@ -4,7 +4,7 @@
   "scripts": {
     "check": "bun vendor/pages/src/cli.ts check pages.config.ts",
     "build:site": "bun vendor/pages/src/cli.ts build pages.config.ts",
-    "build:web": "bun build web/src/bootstrap.ts --outdir site/assets --target browser --format iife && mkdir -p site/styles site/assets && cp web/styles.css site/styles.css && cp web/styles/*.css site/styles/ && cp -R web/assets/. site/assets/",
+    "build:web": "bun build web/src/bootstrap.ts web/src/modeLoader.ts --outdir site/assets --target browser --format iife && mkdir -p site/styles site/assets && cp web/styles.css site/styles.css && cp web/styles/*.css site/styles/ && cp web/coi-serviceworker.js site/coi-serviceworker.js && cp -R web/assets/. site/assets/",
     "build": "bun run compile:demo-world && bun run build:site && bun run build:web",
     "build:wasm": "bash scripts/build-wasm.sh",
     "check:emscripten-bridge": "bun scripts/check-emscripten-bridge.ts",
@@ -25,18 +25,19 @@
     "test:joystick-browser": "bun scripts/joystick-browser-smoke.ts",
     "audit:mobile": "bun vendor/pages/src/cli.ts audit-mobile site",
     "test:pthreads": "bun scripts/pthread-browser-smoke.ts",
-    "test:threaded-pages": "bun scripts/threaded-pages-smoke.ts",
     "test:webgl-presenter": "bun scripts/webgl-presenter-smoke.ts",
     "bench:webgl": "bun scripts/webgl-benchmark.ts",
     "test:gpu-static-scene": "c++ -std=c++14 -Isrc scripts/gpu-static-scene-smoke.cpp scripts/support/DemoWorldFixture.cpp src/engine/world/RuntimeWorld.cpp src/engine/camera/Camera.cpp src/engine/world/World.cpp src/engine/world/EntityStore.cpp src/engine/character/CharacterAnimation.cpp src/engine/character/CharacterSelection.cpp src/engine/character/CharacterPresentation.cpp src/engine/character/CharacterPolicies.cpp src/engine/character/CharacterSystem.cpp src/engine/character/SpriteAtlas.cpp -o /tmp/isoweb-gpu-static-scene-smoke && /tmp/isoweb-gpu-static-scene-smoke",
     "test:adaptive-render": "bun scripts/adaptive-render-hierarchy-smoke.ts",
-    "test:adaptive-pages": "bun scripts/adaptive-pages-smoke.ts",
     "test:stats": "bun scripts/stats-overlay-smoke.ts",
     "package:demo-world": "bun run compile:demo-world",
     "test:world-package": "bun scripts/world-package-smoke.ts",
     "test:demo-package-parity": "bun scripts/demo-package-parity.ts",
     "test:package-behaviours": "bun scripts/package-behaviour-smoke.ts",
     "compile:demo-world": "bun scripts/compile-demo-worker.ts",
-    "test:compiled-package": "bun scripts/compiled-package-smoke.ts"
+    "test:compiled-package": "bun scripts/compiled-package-smoke.ts",
+    "test:query-modes": "bun scripts/query-mode-smoke.ts",
+    "test:query-pages": "bun scripts/query-mode-pages-smoke.ts",
+    "package:query-compat": "bun scripts/package-query-compat.ts"
   }
 }

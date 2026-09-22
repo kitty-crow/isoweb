@@ -16,19 +16,7 @@ const mimeTypes: Record<string, string> = {
 function resolvePath(pathname: string): string | null {
   const clean = normalize(decodeURIComponent(pathname)).replace(/^[/\\]+/, '');
   if (clean.startsWith('..')) return null;
-
-  for (const [prefix, root] of [
-    ['single/', 'site/'],
-    ['threaded/', 'site-threaded/'],
-    ['webgl/', 'site/webgl/']
-  ] as const) {
-    if (clean === prefix.slice(0, -1)) return root + 'index.html';
-    if (clean.startsWith(prefix)) {
-      const suffix = clean.slice(prefix.length) || 'index.html';
-      return root + suffix;
-    }
-  }
-  return null;
+  return 'site/' + (clean || 'index.html');
 }
 
 const server = Bun.serve({
@@ -101,7 +89,7 @@ async function inspect(
 async function inspectNarrowHorizontalScroll(): Promise<Record<string, unknown>> {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   try {
-    await page.goto(`http://127.0.0.1:${server.port}/single/?stats`, {
+    await page.goto(`http://127.0.0.1:${server.port}/?stats`, {
       waitUntil: 'domcontentloaded'
     });
     await page.waitForFunction(
@@ -184,19 +172,19 @@ async function inspectNarrowHorizontalScroll(): Promise<Record<string, unknown>>
 }
 
 try {
-  const single = await inspect('single/?stats', () => {
+  const single = await inspect('?stats', () => {
     const module = (globalThis as any).Module;
     module._isoweb_set_render_thread_limit(1);
     module._isoweb_render();
   });
 
-  const threaded = await inspect('threaded/?stats', () => {
+  const threaded = await inspect('?threaded&stats', () => {
     const module = (globalThis as any).Module;
     module._isoweb_set_render_thread_limit(4);
     module._isoweb_render();
   });
 
-  const gpu = await inspect('webgl/?stats', () => {
+  const gpu = await inspect('?webgl&stats', () => {
     const module = (globalThis as any).Module;
     module._isoweb_set_render_thread_limit(4);
     module._isoweb_reset_level();
@@ -214,7 +202,7 @@ try {
     }
 
     const rows = result.rows as Record<string, string>;
-    for (const required of ['FPS', 'Frame', 'Activity', 'Renderer', 'Display', 'CPU', 'RAM', 'VRAM', 'GPU']) {
+    for (const required of ['FPS', 'Frame', 'Activity', 'Requested', 'Runtime', 'Renderer', 'Display', 'CPU', 'RAM', 'VRAM', 'GPU']) {
       if (!rows[required] || rows[required] === '…') {
         throw new Error(`${name}: missing ${required}: ${JSON.stringify(result)}`);
       }
@@ -222,6 +210,19 @@ try {
     if (!String(result.note).includes('per-core utilisation')) {
       throw new Error(`${name}: browser limitation disclosure missing`);
     }
+  }
+
+  if (!(single.rows as Record<string, string>).Requested.includes('single-thread + cpu') ||
+      !(single.rows as Record<string, string>).Runtime.includes('single-thread')) {
+    throw new Error(`single: requested/runtime diagnostics are wrong: ${JSON.stringify(single)}`);
+  }
+  if (!(threaded.rows as Record<string, string>).Requested.includes('threaded + cpu') ||
+      !(threaded.rows as Record<string, string>).Runtime.includes('pthread')) {
+    throw new Error(`threaded: requested/runtime diagnostics are wrong: ${JSON.stringify(threaded)}`);
+  }
+  if (!(gpu.rows as Record<string, string>).Requested.includes('single-thread + webgl') ||
+      !(gpu.rows as Record<string, string>).Runtime.includes('single-thread')) {
+    throw new Error(`gpu: requested/runtime diagnostics are wrong: ${JSON.stringify(gpu)}`);
   }
 
   if (!(single.rows as Record<string, string>).Renderer.includes('single-thread CPU')) {
@@ -271,7 +272,7 @@ try {
   }
 
   console.log(
-    'Stats overlay passed in single-thread, pthread and WebGL2 GPU modes, including narrow scrolling and control-safe minimise/restore.'
+    'Stats overlay passed on root query modes with requested/actual runtime reporting, plus narrow scrolling and control-safe minimise/restore.'
   );
 } finally {
   await browser.close();

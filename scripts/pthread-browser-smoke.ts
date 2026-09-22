@@ -51,7 +51,7 @@ page.on('requestfailed', (request: any) => {
 
 try {
   console.log('[pthread-browser] booting cross-origin-isolated pthread build');
-  await page.goto(`http://127.0.0.1:${server.port}/?webgl=0`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${server.port}/?presentation=canvas2d`, { waitUntil: 'domcontentloaded' });
 
   const preReady = await page.evaluate(() => ({
     isolated: crossOriginIsolated,

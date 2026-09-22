@@ -51,7 +51,7 @@ const expectedFrames = [
 ] as const;
 
 async function capture(page: any, suffix: string) {
-  await page.goto(`http://127.0.0.1:${server.port}/?webgl=0${suffix}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${server.port}/?presentation=canvas2d${suffix}`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(
     () => document.documentElement.classList.contains('world-ready'),
     undefined,

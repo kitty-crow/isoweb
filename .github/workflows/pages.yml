@@ -39,6 +39,9 @@ jobs:
       - name: Check Pages configuration
         run: bun run check
 
+      - name: Test browser query-mode parser
+        run: bun run test:query-modes
+
       - name: Test source world package round-trip and safety
         run: bun run test:world-package
 
@@ -139,34 +142,18 @@ jobs:
       - name: Prove adaptive GPU MT ST hierarchy
         run: bun run test:adaptive-render
 
-      - name: Package WebGL Pages route
+      - name: Package query-selected runtime artefacts
         run: |
-          rm -rf site/webgl site/adaptive
-          mkdir -p site/webgl/single
-          cp -R site-threaded/. site/webgl/
-          cp site/assets/isoweb.js site/webgl/single/isoweb.js
-          cp site/assets/isoweb.wasm site/webgl/single/isoweb.wasm
-          cp scripts/adaptive-pages/index.html site/webgl/index.html
-          cp scripts/adaptive-pages/adaptive-loader.js site/webgl/adaptive-loader.js
-          cp scripts/adaptive-pages/coi-serviceworker.js site/webgl/coi-serviceworker.js
+          rm -rf site/assets/threaded
+          mkdir -p site/assets/threaded
+          cp site-threaded/assets/isoweb* site/assets/threaded/
+          bun run package:query-compat
 
-      - name: Prove WebGL Pages route
-        run: bun run test:adaptive-pages
+      - name: Prove root query-mode renderer matrix
+        run: bun run test:query-pages
 
       - name: Test stats overlay in ST MT GPU modes
         run: bun run test:stats
-
-      - name: Package threaded Pages test route
-        run: |
-          rm -rf site/threaded
-          mkdir -p site/threaded
-          cp -R site-threaded/. site/threaded/
-          cp scripts/threaded-pages/index.html site/threaded/index.html
-          cp scripts/threaded-pages/threaded-loader.js site/threaded/threaded-loader.js
-          cp scripts/threaded-pages/coi-serviceworker.js site/threaded/coi-serviceworker.js
-
-      - name: Prove threaded Pages test route
-        run: bun run test:threaded-pages
 
       - name: Configure Pages
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')

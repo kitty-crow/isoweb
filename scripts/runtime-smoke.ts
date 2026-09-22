@@ -85,7 +85,7 @@ function browserMessages(): string {
 
 try {
   console.log('[runtime-smoke] booting default world');
-  await page.goto(`http://127.0.0.1:${server.port}/?webgl=0`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${server.port}/?presentation=canvas2d`, { waitUntil: 'domcontentloaded' });
   await waitForWasmReady();
 
   const bootState = await page.evaluate(() => {
@@ -328,7 +328,7 @@ try {
   const resetYawEnabled = await page.locator('#reset-yaw').isEnabled();
   if (!resetYawEnabled) throw new Error('Yaw centre joystick became disabled after rotating the camera.');
 
-  await page.goto(`http://127.0.0.1:${server.port}/?dyaw=1`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${server.port}/?dyaw`, { waitUntil: 'domcontentloaded' });
   await waitForWasmReady();
   await page.locator('#rotate-clockwise').click();
   await page.waitForFunction(
@@ -337,7 +337,7 @@ try {
     { timeout: 10_000 }
   );
 
-  await page.goto(`http://127.0.0.1:${server.port}/?dzoom=1`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${server.port}/?dzoom`, { waitUntil: 'domcontentloaded' });
   await waitForWasmReady();
   await page.waitForFunction(
     () => document.getElementById('view-status')?.textContent?.includes('zoom 1x detailed'),

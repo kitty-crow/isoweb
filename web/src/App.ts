@@ -8,6 +8,7 @@ import { WorldStateLoader } from './state/WorldStateLoader';
 import { WheelController } from './input/WheelController';
 import { ViewportController } from './viewport/ViewportController';
 import { StatsOverlay } from './StatsOverlay';
+import { browserMode } from './browserMode';
 
 export class App {
   constructor(private readonly module: IsowebModule) {}
@@ -21,10 +22,11 @@ export class App {
     const wheel = new WheelController(elements.viewport, this.module, viewport, panQueue);
     const pointer = new PointerController(elements.viewport, this.module, viewport, panQueue);
     const browserArgs = new URLSearchParams(window.location.search);
-    const detailedZoomMode = browserArgs.get('dzoom') === '1';
-    const detailedYawMode = browserArgs.get('dyaw') === '1';
+    const mode = browserMode();
+    const detailedZoomMode = mode.detailedZoom;
+    const detailedYawMode = mode.detailedYaw;
     const obstaclesEnabled = browserArgs.get('obstacles') === '1';
-    const statsEnabled = browserArgs.has('stats') && browserArgs.get('stats') !== '0';
+    const statsEnabled = mode.stats;
     const worldArgument = browserArgs.get('world');
     const worldUrl = worldArgument === 'source'
       ? new URL('assets/demo-source.isoworld', document.baseURI).toString()
