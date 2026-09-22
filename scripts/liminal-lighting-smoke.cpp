@@ -2,7 +2,7 @@
 #include <iostream>
 #include <memory>
 
-#include "demo/DemoWorld.hpp"
+#include "support/DemoWorldFixture.hpp"
 #include "engine/camera/Camera.hpp"
 #include "engine/character/CharacterSystem.hpp"
 #include "engine/world/Character.hpp"
@@ -23,7 +23,7 @@ float brightness(const isoweb::engine::Vec3& value) {
 int main() {
   using namespace isoweb::engine;
 
-  isoweb::demo::DemoWorld world;
+  isoweb::test::DemoWorldFixture world;
   if (world.liminalObjects().size() != 2) return 1;
   if (world.residentLevelCount() != 1) return 26;
   if (!world.isLevelResident("middle") || world.isLevelResident("lower")) return 27;
