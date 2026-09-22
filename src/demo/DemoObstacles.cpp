@@ -4,7 +4,7 @@ DemoObstacleSystem::DemoObstacleSystem(engine::World& world):behaviours_(world){
  using namespace engine;
  auto box=[](Vec3 a,Vec3 b){HitBox h;h.minimum=a;h.maximum=b;return h;};
  auto add=[&](const char*id,const char*level,Vec3 pos,Vec3 f,HitBox hit,SurfaceTextureMode mode=SurfaceTextureMode::TileLocal){
-  DynamicEntityDefinition d;d.id=id;d.worldId="demo";d.timelineId="default";d.levelId=level;d.position=pos;d.forward=f;d.hitBox=hit;d.textureMode=mode;d.textureWorldUnitsPerTile=.5f;d.collisionTags.push_back("demo-obstacle");behaviours_.addEntity(d);
+  DynamicEntityDefinition d;d.id=id;d.worldId="demo";d.timelineId="default";d.levelId=level;d.position=pos;d.forward=f;d.hitBox=hit;d.textureMode=mode;d.textureWorldUnitsPerTile=.5f;d.collisionTags.push_back("world-behaviour");behaviours_.addEntity(d);
  };
  add("demo-obstacle-barrier-left","middle",{0,1.9f,0},{0,1,0},box({-.1f,-.11f,0},{.1f,.11f,1.3f}),SurfaceTextureMode::TileWorld);
  add("demo-obstacle-barrier-right","middle",{0,1.9f,0},{0,1,0},box({-.1f,-.11f,0},{.1f,.11f,1.3f}),SurfaceTextureMode::TileWorld);
