@@ -18,6 +18,7 @@ float cycleHeight(float phase,float up,float down){
 }
 void BehaviourSystem::clearDefinitions(){setEnabled(false);entities_.clear();gates_.clear();verticals_.clear();rotations_.clear();hazards_.clear();}
 void BehaviourSystem::addEntity(const DynamicEntityDefinition& d){entities_.push_back(d);if(enabled_) { setEnabled(false); setEnabled(true); }}
+bool BehaviourSystem::addEntityCollisionTag(const std::string& id,const std::string& tag){for(auto& d:entities_)if(d.id==id){d.collisionTags.push_back(tag);return true;}return false;}
 void BehaviourSystem::addGate(const OscillatingGateDefinition& d){gates_.push_back(d);}
 void BehaviourSystem::addVerticalCycle(const VerticalCycleDefinition& d){verticals_.push_back(d);}
 void BehaviourSystem::addRotation(const RotationDefinition& d){rotations_.push_back(d);}
@@ -51,7 +52,7 @@ std::vector<std::string> BehaviourSystem::tick(float dt){
  if(!enabled_)return{};dt=std::max(0.f,dt);
  for(auto&g:gates_){g.phase=std::fmod(g.phase+dt*g.angularSpeed,PI*2);float centre=std::sin(g.phase)*g.sweep,half=g.gap*.5f;auto set=[&](Character*p,float a,float b){if(!p)return;float cx=(a+b)*.5f,h=std::max(.01f,(b-a)*.5f);p->location.position={cx,g.base.y,g.base.z};p->hitBox.minimum={-h,-g.halfThickness,0};p->hitBox.maximum={h,g.halfThickness,g.height};};set(part(g.leftId),-g.halfSpan,centre-half);set(part(g.rightId),centre+half,g.halfSpan);}
  for(auto&v:verticals_){Character*p=part(v.entityId);if(!p)continue;float old=v.phase;Vec3 pos=p->location.position;v.phase+=dt/v.period;p->location.position=v.base+Vec3(0,0,cycleHeight(v.phase,v.upZ,v.downZ));if(v.blockOnSafeContact){for(const Character*c:world_.entities().characters())if(c&&!isBehaviourEntity(*c)&&p->overlaps(*c)&&!touchesFace(*p,*c,v.lethalFace,v.contactTolerance)){v.phase=old;p->location.position=pos;break;}}}
- for(auto&r:rotations_){r.phase=std::fmod(r.phase+dt*r.angularSpeed,PI*2);Vec3 f(std::sin(r.phase),std::cos(r.phase),0);for(size_t i=0;i<r.entityIds.size();++i)if(Character*p=part(r.entityIds[i]))p->forward=(i%2)?f*-1.f:f;}
+ for(auto&r:rotations_){r.phase=std::fmod(r.phase+dt*r.angularSpeed,PI*2);Vec3 f(std::sin(r.phase),std::cos(r.phase),0);for(size_t i=0;i<r.entityIds.size();++i)if(Character*p=part(r.entityIds[i])){const float m=i<r.directionMultipliers.size()?r.directionMultipliers[i]:1.f;p->forward=f*m;}}
  std::set<std::string> hit;for(const auto&h:hazards_){const Character*p=part(h.entityId);if(!p)continue;for(const Character*c:world_.entities().characters())if(c&&!isBehaviourEntity(*c)&&touchesFace(*p,*c,h.face,h.tolerance))hit.insert(c->id);}return {hit.begin(),hit.end()};
 }
 }}
