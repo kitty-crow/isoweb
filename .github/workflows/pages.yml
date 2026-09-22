@@ -51,6 +51,9 @@ jobs:
       - name: Test shared Editor Core
         run: bun run test:editor-core
 
+      - name: Test Level Builder local authoring
+        run: bun run test:level-builder-authoring
+
       - name: Compile demo deployment world
         run: bun run compile:demo-world
 
