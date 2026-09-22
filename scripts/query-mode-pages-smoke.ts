@@ -106,6 +106,45 @@ try {
     throw new Error('?threaded&webgl mode is wrong: ' + JSON.stringify(hybrid));
   }
 
+  const webglFallbackPage = await browser.newPage({ viewport: { width: 960, height: 720 } });
+  await webglFallbackPage.addInitScript(() => {
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function(type: any, ...args: any[]) {
+      if (type === 'webgl2') return null;
+      return original.call(this, type, ...args);
+    } as any;
+  });
+  await webglFallbackPage.goto(
+    'http://127.0.0.1:' + server.port + '/?webgl',
+    { waitUntil: 'domcontentloaded' }
+  );
+  await webglFallbackPage.waitForFunction(
+    () => document.documentElement.classList.contains('wasm-ready'),
+    undefined,
+    { timeout: 60_000 }
+  );
+  const webglFallback = await webglFallbackPage.evaluate(() => {
+    const module = (globalThis as any).Module;
+    module._isoweb_set_render_thread_limit(4);
+    module._isoweb_reset_level();
+    module._isoweb_render();
+    return {
+      runtime: (globalThis as any).isowebRuntimeMode,
+      backend: module._isoweb_last_static_render_backend(),
+      threads: module._isoweb_last_render_thread_count(),
+      presentation: (window as any).isowebPresentationBackend
+    };
+  });
+  await webglFallbackPage.close();
+  if (
+    webglFallback.runtime !== 'single-thread' ||
+    webglFallback.backend !== 0 ||
+    webglFallback.threads !== 1 ||
+    webglFallback.presentation !== 'canvas2d'
+  ) {
+    throw new Error('WebGL failure did not fall back to ST CPU: ' + JSON.stringify(webglFallback));
+  }
+
   const hybridFallbackPage = await browser.newPage({ viewport: { width: 960, height: 720 } });
   await hybridFallbackPage.addInitScript(() => {
     const original = HTMLCanvasElement.prototype.getContext;
