@@ -121,6 +121,9 @@ jobs:
         working-directory: vendor/pages
         run: bunx playwright install --with-deps chromium
 
+      - name: Exercise graphical Level Builder authoring
+        run: bun run test:editor-authoring-browser
+
       - name: Smoke-test WASM browser boot
         run: bun run test:runtime
 
