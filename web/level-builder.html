@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no">
+  <base href="../">
+  <meta name="theme-color" content="#0f1720">
+  <title>Level Builder · IsoWeb</title>
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/editor.css">
+</head>
+<body class="editor-page">
+  <div class="editor-root">
+    <header class="editor-toolbar" aria-label="Level Builder toolbar">
+      <div class="editor-title">
+        <strong id="editor-product">Level Builder</strong>
+        <span id="editor-project-title">Untitled</span>
+      </div>
+      <button id="editor-new" type="button">New</button>
+      <button id="editor-open" type="button">Open</button>
+      <button id="editor-save" type="button">Save</button>
+      <button id="editor-undo" type="button" disabled>Undo</button>
+      <button id="editor-redo" type="button" disabled>Redo</button>
+      <input id="editor-open-file" class="visually-hidden-editor" type="file" accept=".isolevel">
+    </header>
+
+    <main class="editor-workspace">
+      <aside class="editor-panel editor-hierarchy-panel" aria-label="Hierarchy">
+        <div class="editor-panel-header">
+          <h2>Hierarchy</h2>
+          <div class="editor-hierarchy-tools">
+            <input id="editor-hierarchy-search" type="search" placeholder="Search" aria-label="Search hierarchy">
+            <select id="editor-hierarchy-filter" aria-label="Filter hierarchy by type">
+              <option value="all">All</option>
+              <option value="level">Levels</option>
+              <option value="entity">Entities</option>
+              <option value="geometry">Geometry</option>
+              <option value="room">Rooms</option>
+              <option value="spawn">Spawns</option>
+              <option value="connector">Connectors</option>
+              <option value="light">Lights</option>
+              <option value="material">Materials</option>
+              <option value="prefab">Prefabs</option>
+            </select>
+          </div>
+        </div>
+        <div id="editor-hierarchy" class="editor-tree"></div>
+      </aside>
+
+      <section class="editor-stage" aria-label="Editor viewport workspace">
+        <div class="editor-stage-card">
+          <h1>Level Builder</h1>
+          <p>The source document below is authoritative. Runtime preview will be attached to this shared core through the existing IsoWeb engine, not a second editor renderer.</p>
+          <div id="editor-overview" class="editor-overview" aria-label="Project summary"></div>
+        </div>
+      </section>
+
+      <aside class="editor-panel editor-inspector-panel" aria-label="Inspector">
+        <div class="editor-panel-header"><h2>Inspector</h2></div>
+        <div id="editor-inspector" class="editor-inspector"></div>
+      </aside>
+    </main>
+
+    <footer class="editor-problems-panel" aria-live="polite">
+      <h2>Problems</h2>
+      <div id="editor-problems" class="editor-problems"></div>
+    </footer>
+  </div>
+  <script src="assets/level-builder.js"></script>
+</body>
+</html>
