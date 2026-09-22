@@ -376,6 +376,28 @@ body[data-editor-mode="play"] .editor-stage-summary > span {
   background: rgba(39, 55, 69, 0.34);
 }
 
+.editor-layout-item[data-kind="floor-hole"] {
+  z-index: 3;
+  border: 2px dashed #aab9c6;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(12, 20, 28, 0.92) 0 6px,
+      rgba(105, 126, 143, 0.42) 6px 10px
+    );
+}
+
+.editor-layout-item[data-kind="staircase"] {
+  z-index: 3;
+  border-color: #9aafbf;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(79, 101, 118, 0.9) 0 5px,
+      rgba(28, 42, 54, 0.9) 5px 9px
+    );
+}
+
 .editor-layout-item[data-kind="geometry"] {
   background: rgba(88, 110, 128, 0.84);
 }
