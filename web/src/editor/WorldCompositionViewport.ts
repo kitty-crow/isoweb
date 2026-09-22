@@ -1,7 +1,14 @@
 import type { LevelDocument, Vec3Tuple, WorldConnectorDefinition } from '../world/documents';
 import { FunctionalCommand } from './CommandHistory';
 import type { EditorCore } from './EditorCore';
-import { createSetLevelPlacementCommand, effectiveLevelOrigin, levelPlacement } from './WorldPlacementManager';
+import {
+  createSetLevelPlacementCommand,
+  effectiveLevelOrigin,
+  levelPlacement,
+  levelQuarterTurns,
+  rotateLocalPoint,
+  worldPointForLevel
+} from './WorldPlacementManager';
 import type { EditableWorldProject } from './SourceProjectIO';
 
 type Bounds2 = { minX: number; minY: number; maxX: number; maxY: number };
@@ -63,10 +70,6 @@ function levelBounds(level: LevelDocument): Bounds2 {
   return bounds;
 }
 
-function add(a: Vec3Tuple, b: Vec3Tuple): Vec3Tuple {
-  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-}
-
 export class WorldCompositionViewport {
   private readonly scale = 30;
   private drag: DragState | null = null;
@@ -109,10 +112,8 @@ export class WorldCompositionViewport {
     project: EditableWorldProject,
     connector: WorldConnectorDefinition
   ): void {
-    const fromOrigin = effectiveLevelOrigin(project, connector.fromLevel);
-    const toOrigin = effectiveLevelOrigin(project, connector.toLevel);
-    const from = add(fromOrigin, connector.fromPosition);
-    const to = add(toOrigin, connector.toPosition);
+    const from = worldPointForLevel(project, connector.fromLevel, connector.fromPosition);
+    const to = worldPointForLevel(project, connector.toLevel, connector.toPosition);
 
     const x1 = this.root.clientWidth / 2 + from[0] * this.scale;
     const y1 = this.root.clientHeight / 2 - from[1] * this.scale;
@@ -148,10 +149,18 @@ export class WorldCompositionViewport {
   private renderLevel(project: EditableWorldProject, level: LevelDocument): void {
     const bounds = levelBounds(level);
     const origin = effectiveLevelOrigin(project, level.id);
-    const centreX = origin[0] + (bounds.minX + bounds.maxX) / 2;
-    const centreY = origin[1] + (bounds.minY + bounds.maxY) / 2;
-    const width = Math.max(MIN_CARD_METRES, bounds.maxX - bounds.minX);
-    const depth = Math.max(MIN_CARD_METRES, bounds.maxY - bounds.minY);
+    const turns = levelQuarterTurns(project, level.id);
+    const localCentre = rotateLocalPoint([
+      (bounds.minX + bounds.maxX) / 2,
+      (bounds.minY + bounds.maxY) / 2,
+      0
+    ], turns);
+    const centreX = origin[0] + localCentre[0];
+    const centreY = origin[1] + localCentre[1];
+    const localWidth = Math.max(MIN_CARD_METRES, bounds.maxX - bounds.minX);
+    const localDepth = Math.max(MIN_CARD_METRES, bounds.maxY - bounds.minY);
+    const width = turns % 2 === 0 ? localWidth : localDepth;
+    const depth = turns % 2 === 0 ? localDepth : localWidth;
 
     const item = document.createElement('button');
     item.type = 'button';
@@ -169,7 +178,8 @@ export class WorldCompositionViewport {
     const name = document.createElement('strong');
     name.textContent = level.name || level.id;
     const meta = document.createElement('span');
-    meta.textContent = `Z ${origin[2].toFixed(2)} m${project.document.settings.defaultLevel === level.id ? ' · start' : ''}`;
+    meta.textContent =
+      `Z ${origin[2].toFixed(2)} m · ${turns * 90}°${project.document.settings.defaultLevel === level.id ? ' · start' : ''}`;
     item.append(name, meta);
 
     item.addEventListener('click', event => {
