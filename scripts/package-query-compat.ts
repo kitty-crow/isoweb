@@ -13,8 +13,12 @@ function page(mode: 'threaded' | 'webgl'): string {
     '    (() => {\n' +
     "      const target = new URL('../', location.href);\n" +
     '      const existing = new URLSearchParams(location.search);\n' +
-    "      existing.set('" + mode + "', '');\n" +
-    '      target.search = existing.toString();\n' +
+    "      existing.delete('" + mode + "');\n" +
+    "      const fields = ['" + mode + "'];\n" +
+    '      for (const [key, value] of existing) {\n' +
+    "        fields.push(value === '' ? encodeURIComponent(key) : encodeURIComponent(key) + '=' + encodeURIComponent(value));\n" +
+    '      }\n' +
+    "      target.search = '?' + fields.join('&');\n" +
     '      location.replace(target);\n' +
     '    })();\n' +
     '  </script>\n' +
