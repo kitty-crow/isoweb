@@ -1,4 +1,8 @@
 import { FunctionalCommand } from './CommandHistory';
+import {
+  createDeleteCommand, createDuplicateOperation, createLocalAddOperation,
+  selectedLevel, type LocalAddKind
+} from './AuthoringCommands';
 import { EditorCore } from './EditorCore';
 import type { EditorSelection, EditorSelectionKind } from './Selection';
 import type { EditableSourceProject } from './SourceProjectIO';
@@ -56,6 +60,51 @@ export class EditorApp {
     this.element<HTMLButtonElement>('editor-save').addEventListener('click', () => this.save());
     this.element<HTMLButtonElement>('editor-undo').addEventListener('click', () => this.core.undo());
     this.element<HTMLButtonElement>('editor-redo').addEventListener('click', () => this.core.redo());
+
+    this.element<HTMLButtonElement>('editor-add').addEventListener('click', () => {
+      const project = this.core.store.project;
+      if (!project) return;
+      try {
+        const kind = this.element<HTMLSelectElement>('editor-add-kind').value as LocalAddKind;
+        const operation = createLocalAddOperation(project, this.core.selection.value, kind);
+        this.core.execute(operation.command);
+        this.core.selection.select(operation.selection);
+        this.transientProblem = '';
+      } catch (error) {
+        this.transientProblem = error instanceof Error ? error.message : String(error);
+        this.renderProblems();
+      }
+    });
+
+    this.element<HTMLButtonElement>('editor-duplicate').addEventListener('click', () => {
+      const project = this.core.store.project;
+      const selection = this.core.selection.value;
+      if (!project || !selection) return;
+      try {
+        const operation = createDuplicateOperation(project, selection);
+        this.core.execute(operation.command);
+        this.core.selection.select(operation.selection);
+        this.transientProblem = '';
+      } catch (error) {
+        this.transientProblem = error instanceof Error ? error.message : String(error);
+        this.renderProblems();
+      }
+    });
+
+    this.element<HTMLButtonElement>('editor-delete').addEventListener('click', () => {
+      const project = this.core.store.project;
+      const selection = this.core.selection.value;
+      if (!project || !selection) return;
+      try {
+        const level = selectedLevel(project, selection);
+        this.core.execute(createDeleteCommand(project, selection));
+        this.core.selection.select({ kind: 'level', id: level.id, levelId: level.id });
+        this.transientProblem = '';
+      } catch (error) {
+        this.transientProblem = error instanceof Error ? error.message : String(error);
+        this.renderProblems();
+      }
+    });
   }
 
   private bindHierarchyControls(): void {
@@ -114,6 +163,14 @@ export class EditorApp {
     redo.disabled = !snapshot.canRedo;
     redo.title = snapshot.redoLabel ? `Redo ${snapshot.redoLabel}` : 'Redo';
 
+    const selection = this.core.selection.value;
+    const localEditable = new Set([
+      'ground', 'entity', 'geometry', 'room', 'spawn', 'connector', 'light'
+    ]);
+    const canOperate = !!selection && localEditable.has(selection.kind);
+    this.element<HTMLButtonElement>('editor-duplicate').disabled = !canOperate;
+    this.element<HTMLButtonElement>('editor-delete').disabled = !canOperate;
+
     this.renderHierarchy();
     this.renderInspector();
     this.renderOverview();
@@ -155,6 +212,7 @@ export class EditorApp {
     const levels = project.kind === 'level' ? [project.document] : project.levels;
     for (const level of levels) {
       add(level.name || level.id, 'level', level.id, level.id, 1);
+      for (const ground of level.ground) add(ground.id, 'ground', ground.id, level.id, 2);
       for (const entity of level.entities) add(entity.id, 'entity', entity.id, level.id, 2);
       for (const geometry of level.geometry) add(geometry.id, 'geometry', geometry.id, level.id, 2);
       for (const room of level.rooms ?? []) add(room.id, 'room', room.id, level.id, 2);
@@ -301,6 +359,9 @@ export class EditorApp {
         return { label: 'Position', value: transform.position as Vec3Tuple };
       }
     }
+    if (selection.kind === 'ground' && Array.isArray(record.centre)) {
+      return { label: 'Centre', value: record.centre as Vec3Tuple };
+    }
     if (['geometry', 'light'].includes(selection.kind) && Array.isArray(record.position)) {
       return { label: 'Position', value: record.position as Vec3Tuple };
     }
@@ -319,6 +380,7 @@ export class EditorApp {
     const levels = project.kind === 'level' ? [project.document] : project.levels;
     const stats = [
       ['Levels', levels.length],
+      ['Ground', levels.reduce((sum, level) => sum + level.ground.length, 0)],
       ['Entities', levels.reduce((sum, level) => sum + level.entities.length, 0)],
       ['Geometry', levels.reduce((sum, level) => sum + level.geometry.length, 0)],
       ['Rooms', levels.reduce((sum, level) => sum + (level.rooms?.length ?? 0), 0)],
@@ -385,6 +447,7 @@ export class EditorApp {
     }
 
     switch (selection.kind) {
+      case 'ground': return level.ground.find(value => value.id === selection.id);
       case 'entity': return level.entities.find(value => value.id === selection.id);
       case 'geometry': return level.geometry.find(value => value.id === selection.id);
       case 'room': return level.rooms?.find(value => value.id === selection.id);
