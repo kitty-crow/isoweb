@@ -280,7 +280,6 @@ export type LevelDocument = {
   lights: PointLightDefinition[];
   spawns: SpawnDefinition[];
   connectors: ConnectorDefinition[];
-  behaviours?: WorldBehaviourDefinition[];
   localMaterials: Record<string, MaterialDefinition>;
   localPrefabs?: Record<string, PrefabDefinition>;
   assets?: Record<string, AssetSourceDefinition>;
