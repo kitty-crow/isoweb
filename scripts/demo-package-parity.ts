@@ -20,6 +20,7 @@ let packageRequested = false;
 
 const server = Bun.serve({
   port: 0,
+  idleTimeout: 120,
   async fetch(request) {
     const url = new URL(request.url);
     let pathname = decodeURIComponent(url.pathname);
