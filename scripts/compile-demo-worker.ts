@@ -20,7 +20,7 @@ for (const reference of world.levels) {
   const level = validateLevelDocument(
     JSON.parse(await readFile(join(sourceRoot, reference.path), 'utf8')) as LevelDocument
   );
-  if (level.id !== reference.id) throw new Error(\`Source level id mismatch: \${reference.id} != \${level.id}\`);
+  if (level.id !== reference.id) throw new Error(`Source level id mismatch: ${reference.id} != ${level.id}`);
   levels.push(level);
 }
 
@@ -48,7 +48,7 @@ await writeFile(join(assetRoot, 'demo-source.isoworld'), sourceWorldBytes);
 
 for (const level of levels) {
   await writeFile(
-    join(assetRoot, \`demo-\${level.id}-source.isolevel\`),
+    join(assetRoot, `demo-${level.id}-source.isolevel`),
     sourceWriter.writeLevelBytes(level)
   );
 }
@@ -62,14 +62,14 @@ for (const level of compiledLevels) {
   const bytes = compiledWriter.writeLevelBytes(level);
   const roundTrip = reader.loadLevelBytes(bytes);
   if (!('compiledFormatVersion' in roundTrip) || roundTrip.id !== level.id) {
-    throw new Error(\`Compiled isolevel round-trip failed for \${level.id}\`);
+    throw new Error(`Compiled isolevel round-trip failed for ${level.id}`);
   }
   compiledLevelPackages.set(level.id, bytes);
-  await writeFile(join(assetRoot, \`demo-\${level.id}.isolevel\`), bytes);
+  await writeFile(join(assetRoot, `demo-${level.id}.isolevel`), bytes);
 }
 
 const compiledPaths = new Map(
-  world.levels.map(reference => [reference.id, \`levels/\${reference.id}.isolevel\`])
+  world.levels.map(reference => [reference.id, `levels/${reference.id}.isolevel`])
 );
 const compiledWorld = compiler.compileWorld(world, compiledPaths);
 const compiledWorldBytes = compiledWriter.writeWorldBytes(
@@ -91,6 +91,6 @@ if (
 await writeFile(join(assetRoot, 'demo.isoworld'), compiledWorldBytes);
 
 console.log(
-  \`Compiled demo deployment: \${compiledLevels.length} isolevel packages -> demo.isoworld; \` +
+  `Compiled demo deployment: ${compiledLevels.length} isolevel packages -> demo.isoworld; ` +
   'source package retained as demo-source.isoworld.'
 );
