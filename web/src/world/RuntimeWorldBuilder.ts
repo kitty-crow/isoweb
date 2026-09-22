@@ -1,7 +1,8 @@
 import type { IsowebModule } from '../runtime';
 import type {
-  CharacterEntityDefinition, DirectionalSprites, LevelDocument, LoadedWorldPackage,
-  MaterialDefinition, PrimitiveType, Vec3Tuple
+  CharacterEntityDefinition, DirectionalSprites, DynamicBodyEntityDefinition, EntityDefinition,
+  LevelDocument, LoadedWorldPackage, MaterialDefinition, PrimitiveType, Vec3Tuple,
+  WorldBehaviourDefinition
 } from './documents';
 
 type CCallArgType = 'number' | 'string' | 'array';
@@ -10,6 +11,8 @@ const PRIMITIVE_KIND: Record<PrimitiveType, number> = {
   cube: 0, sphere: 1, cone: 2, pyramid: 3, dodecahedron: 4, icosahedron: 5
 };
 const FACING: Record<keyof DirectionalSprites, number> = { front: 0, back: 1, left: 2, right: 3 };
+const TEXTURE_MODE = { stretch: 0, 'tile-local': 1, 'tile-world': 2 } as const;
+const HAZARD_FACE = { any: 0, left: 1, right: 2, back: 3, front: 4, bottom: 5, top: 6 } as const;
 
 export class RuntimeWorldBuilder {
   constructor(private readonly module: IsowebModule) {}
@@ -61,10 +64,15 @@ export class RuntimeWorldBuilder {
     }
 
     this.applyEngineDefaults(packageData);
+    this.callVoid('isoweb_behaviour_clear', [], []);
     const resources = new Set<string>();
     for (const level of levels) {
-      for (const entity of level.entities) this.applyCharacter(world.id, level.id, entity, resources);
+      for (const entity of level.entities) {
+        if (this.isCharacter(entity)) this.applyCharacter(world.id, level.id, entity, resources);
+        else this.applyDynamicBody(world.id, level.id, entity);
+      }
     }
+    for (const behaviour of world.behaviours ?? []) this.applyBehaviour(behaviour);
     return resources;
   }
 
@@ -168,6 +176,95 @@ export class RuntimeWorldBuilder {
     this.module._isoweb_set_selection_mode(selection.mode === 'single' ? 1 : 0);
     const tint = selection.tint ?? [0.20, 0.48, 1.0];
     this.module._isoweb_set_selection_style(tint[0], tint[1], tint[2], selection.strength ?? 0.45);
+  }
+
+  private isCharacter(entity: EntityDefinition): entity is CharacterEntityDefinition {
+    return 'character' in entity.components;
+  }
+
+  private applyDynamicBody(worldId: string, levelId: string, entity: DynamicBodyEntityDefinition): void {
+    const transform = entity.components.transform;
+    const collider = entity.components.collider;
+    const body = entity.components.dynamicBody;
+    const forward = transform.forward ?? [0, 1, 0];
+    this.requireCall(
+      'isoweb_behaviour_add_entity',
+      [
+        'string','string','string','string',
+        'number','number','number','number','number',
+        'number','number','number','number','number','number',
+        'number','number','number'
+      ],
+      [
+        entity.id, worldId, 'default', levelId,
+        ...transform.position, forward[0], forward[1],
+        ...collider.minimum, ...collider.maximum,
+        collider.solid === false ? 0 : 1,
+        TEXTURE_MODE[body.surfaceTextureMode ?? 'tile-local'],
+        body.textureWorldUnitsPerTile ?? 1
+      ],
+      `dynamic entity ${entity.id}`
+    );
+    for (const tag of collider.collisionTags ?? []) {
+      this.requireCall(
+        'isoweb_behaviour_add_entity_collision_tag',
+        ['string','string'], [entity.id, tag],
+        `dynamic entity ${entity.id} collision tag`
+      );
+    }
+    for (const selector of collider.mustCollideWith ?? []) {
+      this.requireCall(
+        'isoweb_behaviour_add_entity_collision_selector',
+        ['string','string'], [entity.id, selector],
+        `dynamic entity ${entity.id} collision selector`
+      );
+    }
+  }
+
+  private applyBehaviour(behaviour: WorldBehaviourDefinition): void {
+    switch (behaviour.type) {
+      case 'oscillating-gate':
+        this.requireCall(
+          'isoweb_behaviour_add_gate',
+          ['string','string','number','number','number','number','number','number','number','number','number'],
+          [
+            behaviour.leftEntity, behaviour.rightEntity, ...behaviour.base,
+            behaviour.halfSpan, behaviour.gap, behaviour.sweep, behaviour.angularSpeed,
+            behaviour.halfThickness, behaviour.height
+          ],
+          `behaviour ${behaviour.id}`
+        );
+        return;
+      case 'vertical-cycle':
+        this.requireCall(
+          'isoweb_behaviour_add_vertical_cycle',
+          ['string','number','number','number','number','number','number','number','number','number'],
+          [
+            behaviour.entity, ...behaviour.base, behaviour.upZ, behaviour.downZ, behaviour.period,
+            behaviour.blockOnSafeContact === true ? 1 : 0,
+            HAZARD_FACE[behaviour.lethalFace ?? 'bottom'],
+            behaviour.contactTolerance ?? 0.028
+          ],
+          `behaviour ${behaviour.id}`
+        );
+        return;
+      case 'rotation':
+        this.requireCall(
+          'isoweb_behaviour_add_rotation',
+          ['string','number','number'],
+          [behaviour.entity, behaviour.angularSpeed, behaviour.directionMultiplier ?? 1],
+          `behaviour ${behaviour.id}`
+        );
+        return;
+      case 'hazard':
+        this.requireCall(
+          'isoweb_behaviour_add_hazard',
+          ['string','number','number'],
+          [behaviour.entity, HAZARD_FACE[behaviour.face ?? 'any'], behaviour.tolerance ?? 0.028],
+          `behaviour ${behaviour.id}`
+        );
+        return;
+    }
   }
 
   private applyCharacter(
