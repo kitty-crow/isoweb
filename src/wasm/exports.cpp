@@ -331,14 +331,15 @@ extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_world_build_add_floor_hole(
 
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_world_build_add_staircase(
   int levelIndex,
-  float centreX,
-  float startY, float endY,
+  float startX, float startY,
+  float endX, float endY,
   float startZ, float endZ,
   float width
 ) {
   isoweb::engine::RuntimeStaircase staircase;
-  staircase.centreX = centreX;
+  staircase.startX = startX;
   staircase.startY = startY;
+  staircase.endX = endX;
   staircase.endY = endY;
   staircase.startZ = startZ;
   staircase.endZ = endZ;
