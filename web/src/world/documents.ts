@@ -1,5 +1,13 @@
 export type Vec3Tuple = [number, number, number];
 
+export type PackageAssetManifestEntry = {
+  id: string;
+  path: string;
+  mediaType?: string;
+  size?: number;
+  hash?: string;
+};
+
 export type PackageManifest = {
   format: 'isoworld' | 'isolevel';
   representation?: 'source' | 'compiled';
@@ -9,7 +17,12 @@ export type PackageManifest = {
   entry: string;
   minimumEngineVersion?: string;
   createdWith?: { application: string; version: string };
-  assets?: Array<{ id: string; path: string; hash?: string }>;
+  assets?: PackageAssetManifestEntry[];
+};
+
+export type AssetSourceDefinition = {
+  source: string;
+  mediaType?: string;
 };
 
 export type MaterialDefinition = { id: string; baseColour: Vec3Tuple };
@@ -211,6 +224,7 @@ export type LevelDocument = {
   spawns: unknown[];
   connectors: unknown[];
   localMaterials: Record<string, MaterialDefinition>;
+  assets?: Record<string, AssetSourceDefinition>;
   settings: {
     boundsFocus: Vec3Tuple;
     floorDarkMaterial: string;
@@ -249,7 +263,7 @@ export type WorldDocument = {
     };
   };
   levels: Array<{ id: string; path: string }>;
-  assets: Record<string, unknown>;
+  assets: Record<string, AssetSourceDefinition>;
   materials: Record<string, MaterialDefinition>;
   prefabs: Record<string, unknown>;
   connectors?: WorldConnectorDefinition[];
@@ -261,4 +275,5 @@ export type LoadedWorldPackage = {
   manifest: PackageManifest & { representation?: 'source' };
   world: WorldDocument;
   levels: LevelDocument[];
+  assets: import('./PackageAssets').EmbeddedPackageAssetMap;
 };

@@ -2,6 +2,10 @@ import { strToU8, zipSync } from '../../../vendor/fflate/index';
 import type { PackageManifest } from './documents';
 import type { CompiledLevelDocument, CompiledWorldDocument } from './WorldCompiler';
 import {
+  addAssetsToArchive, collectCompiledLevelResourceIds, normaliseAssetInputs,
+  requireAssetInputs, type PackageAssetInputMap
+} from './PackageAssets';
+import {
   validateCompiledLevelDocument, validateCompiledWorldDocument, validateCompiledWorldGraph
 } from './compiledValidation';
 import { CURRENT_SCHEMA_VERSION } from './validation';
@@ -9,8 +13,22 @@ import { CURRENT_SCHEMA_VERSION } from './validation';
 const json = (value: unknown): Uint8Array => strToU8(JSON.stringify(value, null, 2) + '\n');
 
 export class CompiledPackageWriter {
-  writeLevelBytes(level: CompiledLevelDocument): Uint8Array {
+  writeLevelBytes(
+    level: CompiledLevelDocument,
+    assets?: PackageAssetInputMap
+  ): Uint8Array {
     validateCompiledLevelDocument(level);
+    const inputs = normaliseAssetInputs(assets);
+    requireAssetInputs(
+      collectCompiledLevelResourceIds(level),
+      inputs,
+      `Compiled level ${level.id}`
+    );
+
+    const files: Record<string, Uint8Array> = {
+      'runtime/level.json': json(level)
+    };
+    const manifestAssets = addAssetsToArchive(files, inputs);
     const manifest: PackageManifest = {
       format: 'isolevel',
       representation: 'compiled',
@@ -19,18 +37,18 @@ export class CompiledPackageWriter {
       name: level.name,
       entry: 'runtime/level.json',
       minimumEngineVersion: '0.1.0',
-      createdWith: { application: 'isoweb-world-compiler', version: '0.1.0' }
+      createdWith: { application: 'isoweb-world-compiler', version: '0.1.0' },
+      assets: manifestAssets
     };
-    return zipSync({
-      'manifest.json': json(manifest),
-      'runtime/level.json': json(level)
-    }, { level: 6 });
+    files['manifest.json'] = json(manifest);
+    return zipSync(files, { level: 6 });
   }
 
   writeWorldBytes(
     world: CompiledWorldDocument,
     levels: CompiledLevelDocument[],
-    levelPackages?: Map<string, Uint8Array>
+    levelPackages?: Map<string, Uint8Array>,
+    worldAssets?: PackageAssetInputMap
   ): Uint8Array {
     validateCompiledWorldDocument(world);
     levels.forEach(validateCompiledLevelDocument);
@@ -41,10 +59,22 @@ export class CompiledPackageWriter {
     for (const reference of world.levels) {
       const level = byId.get(reference.id);
       if (!level) throw new Error(`Missing compiled level ${reference.id}`);
-      const packaged = levelPackages?.get(reference.id) ?? this.writeLevelBytes(level);
-      files[reference.path] = packaged;
+      const packaged = levelPackages?.get(reference.id);
+      if (!packaged) {
+        if (collectCompiledLevelResourceIds(level).size > 0) {
+          throw new Error(
+            `Compiled world ${world.id} requires a self-contained isolevel package for ${level.id}`
+          );
+        }
+        files[reference.path] = this.writeLevelBytes(level);
+      } else {
+        files[reference.path] = packaged;
+      }
     }
 
+    const inputs = normaliseAssetInputs(worldAssets);
+    requireAssetInputs(world.assets, inputs, `Compiled world ${world.id}`);
+    const manifestAssets = addAssetsToArchive(files, inputs);
     const manifest: PackageManifest = {
       format: 'isoworld',
       representation: 'compiled',
@@ -54,7 +84,7 @@ export class CompiledPackageWriter {
       entry: 'runtime/world.json',
       minimumEngineVersion: '0.1.0',
       createdWith: { application: 'isoweb-world-compiler', version: '0.1.0' },
-      assets: []
+      assets: manifestAssets
     };
     files['manifest.json'] = json(manifest);
     files['runtime/world.json'] = json(world);

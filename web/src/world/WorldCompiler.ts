@@ -113,6 +113,7 @@ export type CompiledLevelDocument = {
   floorHoles: CompiledFloorHole[];
   staircases: CompiledStaircase[];
   entities: CompiledEntity[];
+  assets: string[];
 };
 
 export type CompiledConnector = {
@@ -186,18 +187,21 @@ export type CompiledWorldDocument = {
   levels: Array<{ id: string; path: string }>;
   connectors: CompiledConnector[];
   behaviours: CompiledBehaviour[];
+  assets: string[];
 };
 
 export type LoadedSourceWorldPackage = {
   manifest: PackageManifest & { representation?: 'source' };
   world: WorldDocument;
   levels: LevelDocument[];
+  assets: import('./PackageAssets').EmbeddedPackageAssetMap;
 };
 
 export type LoadedCompiledWorldPackage = {
   manifest: PackageManifest & { representation: 'compiled' };
   world: CompiledWorldDocument;
   levels: CompiledLevelDocument[];
+  assets: import('./PackageAssets').EmbeddedPackageAssetMap;
 };
 
 export type LoadedRuntimeWorldPackage = LoadedSourceWorldPackage | LoadedCompiledWorldPackage;
@@ -369,7 +373,8 @@ export class WorldCompiler {
         endZ: stair.endZ,
         width: stair.width
       })),
-      entities
+      entities,
+      assets: Object.keys(level.assets ?? {}).sort()
     };
   }
 
@@ -406,11 +411,17 @@ export class WorldCompiler {
         reverseTraversal: connector.reverseTraversal ?? [],
         bidirectional: connector.bidirectional === false ? 0 : 1
       })),
-      behaviours: (world.behaviours ?? []).map(behaviour => this.compileBehaviour(behaviour))
+      behaviours: (world.behaviours ?? []).map(behaviour => this.compileBehaviour(behaviour)),
+      assets: Object.keys(world.assets ?? {}).sort()
     };
   }
 
-  compilePackage(source: { manifest: PackageManifest; world: WorldDocument; levels: LevelDocument[] }): LoadedCompiledWorldPackage {
+  compilePackage(source: {
+    manifest: PackageManifest;
+    world: WorldDocument;
+    levels: LevelDocument[];
+    assets: import('./PackageAssets').EmbeddedPackageAssetMap;
+  }): LoadedCompiledWorldPackage {
     const levelPaths = new Map(source.world.levels.map(reference => [reference.id, `levels/${reference.id}.isolevel`]));
     return {
       manifest: {
@@ -419,7 +430,8 @@ export class WorldCompiler {
         entry: 'runtime/world.json'
       },
       world: this.compileWorld(source.world, levelPaths),
-      levels: source.levels.map(level => this.compileLevel(level))
+      levels: source.levels.map(level => this.compileLevel(level)),
+      assets: source.assets
     };
   }
 

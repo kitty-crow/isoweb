@@ -16,6 +16,14 @@ The reusable engine lives under `src/engine/`; demo-world content lives under `s
 
 The current demo geometry is still mapped to hitboxes around each rendered object's extents and all six demo objects are solid. Stairs and floors remain traversal surfaces rather than blocking world objects.
 
+## Self-contained world packages
+
+Built `.isolevel` and `.isoworld` files are self-contained deployment units. A standalone level package contains its document/runtime projection plus every asset declared or referenced by that level. A compiled world contains its world runtime document, world-global assets, and the exact self-contained compiled `.isolevel` packages for its levels.
+
+Authoring documents reference assets by logical id. Each level declares the source files for its local asset ids, and the build/compiler resolves those files and embeds their bytes in the package archive. New package writers reject missing referenced assets instead of emitting packages that depend on the hosting website.
+
+At runtime, package assets are read directly from the archive. Character sprite atlases are decoded from the embedded bytes and registered with WASM; they are not fetched from external URLs. The same package infrastructure accepts arbitrary declared binary payloads, so future meshes, textures, GLBs and prefab data can remain inside the world/level container when their engine components are implemented.
+
 ## Browser modes
 
 IsoWeb uses one canonical application path. Optional browser modes are selected by presence-only query flags and compose freely.
