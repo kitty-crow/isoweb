@@ -6,20 +6,12 @@ import {
 import { EditorCore } from './EditorCore';
 import { EditorLayoutViewport } from './EditorLayoutViewport';
 import { EditorPlayPreview } from './EditorPlayPreview';
+import {
+  createDeleteRoomConnectionCommand,
+  createRoomConnectionOperation
+} from './RoomConnectionManager';
 import type { EditorSelection, EditorSelectionKind } from './Selection';
-import type { EditableSourceProject, EditableWorldProject } from './SourceProjectIO';
-import {
-  createDeleteWorldLevelCommand,
-  createDuplicateWorldLevelOperation,
-  createImportWorldLevelOperation,
-  createMoveWorldLevelCommand,
-  createNewWorldLevelOperation
-} from './WorldLevelManager';
-import {
-  createDeleteWorldConnectorCommand,
-  createSetDefaultLevelCommand,
-  createWorldPortalOperation
-} from './WorldConnectorManager';
+import type { EditableSourceProject } from './SourceProjectIO';
 import type { LevelDocument, Vec3Tuple } from '../world/documents';
 
 type IndexedRecord = Record<string, unknown>;
@@ -36,7 +28,7 @@ export class EditorApp {
 
   start(): void {
     this.bindToolbar();
-    this.bindWorldLevelToolbar();
+    this.bindRoomConnectionControls();
     this.bindHierarchyControls();
     this.layoutViewport = new EditorLayoutViewport(
       this.core,
@@ -147,135 +139,49 @@ export class EditorApp {
     });
   }
 
-  private bindWorldLevelToolbar(): void {
-    if (this.core.kind !== 'world') return;
-
-    const importInput = this.element<HTMLInputElement>('world-level-import-file');
-
-    this.element<HTMLButtonElement>('world-level-new').addEventListener('click', () => {
+  private bindRoomConnectionControls(): void {
+    this.element<HTMLButtonElement>('editor-room-connect').addEventListener('click', () => {
       const project = this.core.store.project;
-      if (!project || project.kind !== 'world') return;
-      try {
-        const operation = createNewWorldLevelOperation(project);
-        this.core.execute(operation.command);
-        this.core.selection.select({
-          kind: 'level',
-          id: operation.levelId,
-          levelId: operation.levelId
-        });
-        this.transientProblem = '';
-      } catch (error) {
-        this.captureProblem(error);
-      }
-    });
-
-    this.element<HTMLButtonElement>('world-level-import').addEventListener('click', () => {
-      importInput.value = '';
-      importInput.click();
-    });
-    importInput.addEventListener('change', () => {
-      const file = importInput.files?.[0];
-      if (file) void this.importWorldLevel(file);
-    });
-
-    this.element<HTMLButtonElement>('world-level-duplicate').addEventListener('click', () => {
-      const project = this.worldProject();
-      const levelId = project ? this.selectedWorldLevelId(project) : undefined;
-      if (!project || !levelId) return;
-      try {
-        const operation = createDuplicateWorldLevelOperation(project, levelId);
-        this.core.execute(operation.command);
-        this.core.selection.select({
-          kind: 'level',
-          id: operation.levelId,
-          levelId: operation.levelId
-        });
-        this.transientProblem = '';
-      } catch (error) {
-        this.captureProblem(error);
-      }
-    });
-
-    this.element<HTMLButtonElement>('world-level-delete').addEventListener('click', () => {
-      const project = this.worldProject();
-      const levelId = project ? this.selectedWorldLevelId(project) : undefined;
-      if (!project || !levelId) return;
-      const fallback = project.levels.find(level => level.id !== levelId);
-      try {
-        this.core.execute(createDeleteWorldLevelCommand(project, levelId));
-        if (fallback) {
-          this.core.selection.select({ kind: 'level', id: fallback.id, levelId: fallback.id });
-        }
-        this.transientProblem = '';
-      } catch (error) {
-        this.captureProblem(error);
-      }
-    });
-
-    this.element<HTMLButtonElement>('world-level-set-default').addEventListener('click', () => {
-      const project = this.worldProject();
-      const levelId = project ? this.selectedWorldLevelId(project) : undefined;
-      if (!project || !levelId) return;
-      try {
-        this.core.execute(createSetDefaultLevelCommand(project, levelId));
-        this.core.selection.select({ kind: 'level', id: levelId, levelId });
-        this.transientProblem = '';
-      } catch (error) {
-        this.captureProblem(error);
-      }
-    });
-
-    this.element<HTMLButtonElement>('world-connector-add').addEventListener('click', () => {
-      const project = this.worldProject();
-      const fromLevel = project ? this.selectedWorldLevelId(project) : undefined;
-      const toLevel = this.element<HTMLSelectElement>('world-connector-target').value;
-      if (!project || !fromLevel || !toLevel) return;
-      try {
-        const operation = createWorldPortalOperation(project, fromLevel, toLevel);
-        this.core.execute(operation.command);
-        this.core.selection.select({ kind: 'connector', id: operation.connectorId });
-        this.transientProblem = '';
-      } catch (error) {
-        this.captureProblem(error);
-      }
-    });
-
-    this.element<HTMLButtonElement>('world-connector-delete').addEventListener('click', () => {
-      const project = this.worldProject();
       const selection = this.core.selection.value;
-      if (!project || selection?.kind !== 'connector' || selection.levelId) return;
-      const connector = project.document.connectors?.find(candidate => candidate.id === selection.id);
-      if (!connector) return;
+      if (!project || selection?.kind !== 'room' || !selection.levelId) return;
+      const target = this.element<HTMLSelectElement>('editor-room-target').value;
+      if (!target) return;
       try {
-        this.core.execute(createDeleteWorldConnectorCommand(project, connector.id));
-        this.core.selection.select({
-          kind: 'level',
-          id: connector.fromLevel,
-          levelId: connector.fromLevel
-        });
+        const operation = createRoomConnectionOperation(
+          project,
+          selection,
+          selection.id,
+          target
+        );
+        this.core.execute(operation.command);
+        this.core.selection.select(operation.selection);
         this.transientProblem = '';
       } catch (error) {
-        this.captureProblem(error);
+        this.transientProblem = error instanceof Error ? error.message : String(error);
+        this.renderProblems();
       }
     });
 
-    for (const [id, direction] of [
-      ['world-level-up', -1],
-      ['world-level-down', 1]
-    ] as const) {
-      this.element<HTMLButtonElement>(id).addEventListener('click', () => {
-        const project = this.worldProject();
-        const levelId = project ? this.selectedWorldLevelId(project) : undefined;
-        if (!project || !levelId) return;
-        try {
-          this.core.execute(createMoveWorldLevelCommand(project, levelId, direction));
-          this.core.selection.select({ kind: 'level', id: levelId, levelId });
-          this.transientProblem = '';
-        } catch (error) {
-          this.captureProblem(error);
-        }
-      });
-    }
+    this.element<HTMLButtonElement>('editor-room-disconnect').addEventListener('click', () => {
+      const project = this.core.store.project;
+      const selection = this.core.selection.value;
+      if (!project || selection?.kind !== 'room-connection') return;
+      try {
+        const level = selectedLevel(project, selection);
+        const connection = level.roomConnections?.find(candidate => candidate.id === selection.id);
+        this.core.execute(createDeleteRoomConnectionCommand(project, selection));
+        const fallback = connection?.a.roomId ?? level.id;
+        this.core.selection.select(
+          fallback === level.id
+            ? { kind: 'level', id: level.id, levelId: level.id }
+            : { kind: 'room', id: fallback, levelId: level.id }
+        );
+        this.transientProblem = '';
+      } catch (error) {
+        this.transientProblem = error instanceof Error ? error.message : String(error);
+        this.renderProblems();
+      }
+    });
   }
 
   private bindHierarchyControls(): void {
@@ -283,41 +189,6 @@ export class EditorApp {
       .addEventListener('input', () => this.renderHierarchy());
     this.element<HTMLSelectElement>('editor-hierarchy-filter')
       .addEventListener('change', () => this.renderHierarchy());
-  }
-
-  private async importWorldLevel(file: File): Promise<void> {
-    const project = this.worldProject();
-    if (!project) return;
-    try {
-      const operation = await createImportWorldLevelOperation(project, file);
-      this.core.execute(operation.command);
-      this.core.selection.select({
-        kind: 'level',
-        id: operation.levelId,
-        levelId: operation.levelId
-      });
-      this.transientProblem = '';
-    } catch (error) {
-      this.captureProblem(error);
-    }
-  }
-
-  private worldProject(): EditableWorldProject | null {
-    const project = this.core.store.project;
-    return project?.kind === 'world' ? project : null;
-  }
-
-  private selectedWorldLevelId(project: EditableWorldProject): string | undefined {
-    const selection = this.core.selection.value;
-    const candidate = selection?.levelId ??
-      (selection?.kind === 'level' ? selection.id : undefined) ??
-      project.document.settings.defaultLevel;
-    return project.levels.some(level => level.id === candidate) ? candidate : undefined;
-  }
-
-  private captureProblem(error: unknown): void {
-    this.transientProblem = error instanceof Error ? error.message : String(error);
-    this.renderProblems();
   }
 
   private discardAllowed(): boolean {
@@ -371,14 +242,12 @@ export class EditorApp {
 
     const selection = this.core.selection.value;
     const localEditable = new Set([
-      'ground', 'entity', 'geometry', 'room', 'spawn', 'connector', 'light'
+      'ground', 'entity', 'geometry', 'room', 'floor-hole', 'staircase', 'spawn', 'connector', 'light'
     ]);
-    const canOperate = !!selection &&
-      localEditable.has(selection.kind) &&
-      (selection.kind !== 'connector' || !!selection.levelId);
+    const canOperate = !!selection && localEditable.has(selection.kind);
     this.element<HTMLButtonElement>('editor-duplicate').disabled = !canOperate;
     this.element<HTMLButtonElement>('editor-delete').disabled = !canOperate;
-    this.renderWorldLevelControls(project);
+    this.renderRoomConnectionControls(project);
 
     this.renderHierarchy();
     this.renderInspector();
@@ -387,41 +256,28 @@ export class EditorApp {
     this.renderProblems();
   }
 
-  private renderWorldLevelControls(project: EditableSourceProject): void {
-    if (project.kind !== 'world') return;
-    const levelId = this.selectedWorldLevelId(project);
-    const index = levelId ? project.levels.findIndex(level => level.id === levelId) : -1;
-    const selected = index >= 0;
-    this.element<HTMLButtonElement>('world-level-duplicate').disabled = !selected;
-    this.element<HTMLButtonElement>('world-level-delete').disabled =
-      !selected || project.levels.length <= 1;
-    this.element<HTMLButtonElement>('world-level-up').disabled = !selected || index <= 0;
-    this.element<HTMLButtonElement>('world-level-down').disabled =
-      !selected || index < 0 || index >= project.levels.length - 1;
-    this.element<HTMLButtonElement>('world-level-set-default').disabled =
-      !selected || project.document.settings.defaultLevel === levelId;
+  private renderRoomConnectionControls(project: EditableSourceProject): void {
+    const selection = this.core.selection.value;
+    const target = this.element<HTMLSelectElement>('editor-room-target');
+    const connect = this.element<HTMLButtonElement>('editor-room-connect');
+    const disconnect = this.element<HTMLButtonElement>('editor-room-disconnect');
 
-    const target = this.element<HTMLSelectElement>('world-connector-target');
-    const previousTarget = target.value;
     target.replaceChildren();
-    for (const level of project.levels) {
-      if (level.id === levelId) continue;
+    target.disabled = true;
+    connect.disabled = true;
+    disconnect.disabled = selection?.kind !== 'room-connection';
+
+    if (selection?.kind !== 'room' || !selection.levelId) return;
+    const level = selectedLevel(project, selection);
+    for (const room of level.rooms ?? []) {
+      if (room.id === selection.id) continue;
       const option = document.createElement('option');
-      option.value = level.id;
-      option.textContent = level.name || level.id;
+      option.value = room.id;
+      option.textContent = room.id;
       target.appendChild(option);
     }
-    if (Array.from(target.options).some(option => option.value === previousTarget)) {
-      target.value = previousTarget;
-    }
-    target.disabled = !selected || target.options.length === 0;
-    this.element<HTMLButtonElement>('world-connector-add').disabled =
-      target.disabled || !target.value;
-
-    const selection = this.core.selection.value;
-    const worldConnectorSelected = selection?.kind === 'connector' && !selection.levelId &&
-      !!project.document.connectors?.some(connector => connector.id === selection.id);
-    this.element<HTMLButtonElement>('world-connector-delete').disabled = !worldConnectorSelected;
+    target.disabled = target.options.length === 0;
+    connect.disabled = target.disabled;
   }
 
   private renderHierarchy(): void {
@@ -458,19 +314,22 @@ export class EditorApp {
     add(project.document.name || project.document.id, 'project', project.document.id);
     const levels = project.kind === 'level' ? [project.document] : project.levels;
     for (const level of levels) {
-      const isDefault = project.kind === 'world' &&
-        project.document.settings.defaultLevel === level.id;
-      add(
-        `${isDefault ? '★ ' : ''}${level.name || level.id}`,
-        'level',
-        level.id,
-        level.id,
-        1
-      );
+      add(level.name || level.id, 'level', level.id, level.id, 1);
       for (const ground of level.ground) add(ground.id, 'ground', ground.id, level.id, 2);
       for (const entity of level.entities) add(entity.id, 'entity', entity.id, level.id, 2);
       for (const geometry of level.geometry) add(geometry.id, 'geometry', geometry.id, level.id, 2);
       for (const room of level.rooms ?? []) add(room.id, 'room', room.id, level.id, 2);
+      for (const connection of level.roomConnections ?? []) {
+        add(
+          `Opening · ${connection.a.roomId} ↔ ${connection.b.roomId}`,
+          'room-connection',
+          connection.id,
+          level.id,
+          2
+        );
+      }
+      for (const hole of level.floorHoles ?? []) add(hole.id, 'floor-hole', hole.id, level.id, 2);
+      for (const stair of level.staircases ?? []) add(stair.id, 'staircase', stair.id, level.id, 2);
       for (const spawn of level.spawns) add(spawn.id, 'spawn', spawn.id, level.id, 2);
       for (const connector of level.connectors) add(connector.id, 'connector', connector.id, level.id, 2);
       for (const light of level.lights) add(light.id, 'light', light.id, level.id, 2);
@@ -478,15 +337,6 @@ export class EditorApp {
       for (const id of Object.keys(level.localPrefabs ?? {})) add(id, 'prefab', id, level.id, 2);
     }
     if (project.kind === 'world') {
-      for (const connector of project.document.connectors ?? []) {
-        add(
-          `↔ ${connector.fromLevel} → ${connector.toLevel} · ${connector.id}`,
-          'connector',
-          connector.id,
-          undefined,
-          1
-        );
-      }
       for (const id of Object.keys(project.document.materials)) add(id, 'material', id, undefined, 1);
       for (const id of Object.keys(project.document.prefabs)) add(id, 'prefab', id, undefined, 1);
     }
@@ -595,40 +445,95 @@ export class EditorApp {
       }
     }
 
-    if (selection.kind === 'connector') {
-      if (project.kind === 'world' && !selection.levelId) {
-        const connector = target as { fromLevel: string; toLevel: string };
-        this.addSelectProperty(
-          root,
-          'From level',
-          connector.fromLevel,
-          project.levels.filter(level => level.id !== connector.toLevel)
-            .map(level => [level.id, level.name || level.id] as const),
-          value => {
-            const before = connector.fromLevel;
+    if (selection.kind === 'floor-hole') {
+      const minimum = record.minimum as [number, number];
+      const maximum = record.maximum as [number, number];
+      if (Array.isArray(minimum) && Array.isArray(maximum)) {
+        for (const [axis, label] of [[0, 'Width'], [1, 'Depth']] as const) {
+          this.addNumberProperty(root, label, maximum[axis] - minimum[axis], value => {
+            const beforeMin = minimum[axis];
+            const beforeMax = maximum[axis];
+            const centre = (beforeMin + beforeMax) / 2;
+            const half = Math.max(0.125, value / 2);
             this.core.execute(new FunctionalCommand(
-              'change portal source level',
-              () => { connector.fromLevel = value; },
-              () => { connector.fromLevel = before; }
+              `resize floor hole ${label.toLowerCase()}`,
+              () => {
+                minimum[axis] = centre - half;
+                maximum[axis] = centre + half;
+              },
+              () => {
+                minimum[axis] = beforeMin;
+                maximum[axis] = beforeMax;
+              }
             ));
-          }
-        );
-        this.addSelectProperty(
-          root,
-          'To level',
-          connector.toLevel,
-          project.levels.filter(level => level.id !== connector.fromLevel)
-            .map(level => [level.id, level.name || level.id] as const),
-          value => {
-            const before = connector.toLevel;
-            this.core.execute(new FunctionalCommand(
-              'change portal target level',
-              () => { connector.toLevel = value; },
-              () => { connector.toLevel = before; }
-            ));
-          }
-        );
+          });
+        }
       }
+    }
+
+    if (selection.kind === 'staircase') {
+      for (const [key, label, minimum] of [
+        ['centreX', 'Centre X', -Infinity],
+        ['startY', 'Start Y', -Infinity],
+        ['endY', 'End Y', -Infinity],
+        ['startZ', 'Start Z', -Infinity],
+        ['endZ', 'End Z', -Infinity],
+        ['width', 'Width', 0.25]
+      ] as const) {
+        this.addNumberProperty(root, label, Number(record[key]), value => {
+          const before = Number(record[key]);
+          this.core.execute(new FunctionalCommand(
+            `set staircase ${label.toLowerCase()}`,
+            () => { record[key] = Math.max(minimum, value); },
+            () => { record[key] = before; }
+          ));
+        });
+      }
+    }
+
+    if (selection.kind === 'room-connection') {
+      for (const endpointKey of ['a', 'b'] as const) {
+        const endpoint = record[endpointKey] as IndexedRecord | undefined;
+        if (!endpoint) continue;
+        this.addSelectProperty(
+          root,
+          endpointKey === 'a' ? 'Room A wall' : 'Room B wall',
+          String(endpoint.side),
+          [
+            ['north', 'North'],
+            ['south', 'South'],
+            ['east', 'East'],
+            ['west', 'West']
+          ],
+          value => {
+            const before = endpoint.side;
+            this.core.execute(new FunctionalCommand(
+              'change room opening wall',
+              () => { endpoint.side = value; },
+              () => { endpoint.side = before; }
+            ));
+          }
+        );
+        this.addNumberProperty(root, endpointKey === 'a' ? 'Room A offset' : 'Room B offset', Number(endpoint.offset ?? 0), value => {
+          const before = endpoint.offset;
+          this.core.execute(new FunctionalCommand(
+            'move room opening',
+            () => { endpoint.offset = value; },
+            () => { endpoint.offset = before; }
+          ));
+        });
+        this.addNumberProperty(root, endpointKey === 'a' ? 'Room A width' : 'Room B width', Number(endpoint.width), value => {
+          const before = endpoint.width;
+          this.core.execute(new FunctionalCommand(
+            'resize room opening',
+            () => { endpoint.width = Math.max(0.25, value); },
+            () => { endpoint.width = before; }
+          ));
+        });
+      }
+    }
+
+    if (selection.kind === 'connector') {
       if (Array.isArray(record.fromPosition)) {
         this.addTupleProperty(root, 'From', record.fromPosition as Vec3Tuple);
       }
@@ -851,9 +756,11 @@ export class EditorApp {
       ['Entities', levels.reduce((sum, level) => sum + level.entities.length, 0)],
       ['Geometry', levels.reduce((sum, level) => sum + level.geometry.length, 0)],
       ['Rooms', levels.reduce((sum, level) => sum + (level.rooms?.length ?? 0), 0)],
+      ['Floor holes', levels.reduce((sum, level) => sum + (level.floorHoles?.length ?? 0), 0)],
+      ['Stairs', levels.reduce((sum, level) => sum + (level.staircases?.length ?? 0), 0)],
+      ['Room openings', levels.reduce((sum, level) => sum + (level.roomConnections?.length ?? 0), 0)],
       ['Spawns', levels.reduce((sum, level) => sum + level.spawns.length, 0)],
-      ['Local links', levels.reduce((sum, level) => sum + level.connectors.length, 0)],
-      ['World links', project.kind === 'world' ? (project.document.connectors?.length ?? 0) : 0]
+      ['Connectors', levels.reduce((sum, level) => sum + level.connectors.length, 0)]
     ];
 
     for (const [label, value] of stats) {
@@ -902,9 +809,6 @@ export class EditorApp {
     selection: EditorSelection
   ): unknown {
     if (selection.kind === 'project') return project.document;
-    if (project.kind === 'world' && selection.kind === 'connector' && !selection.levelId) {
-      return project.document.connectors?.find(connector => connector.id === selection.id);
-    }
     const level = this.findLevel(project, selection.levelId ?? selection.id);
     if (selection.kind === 'level') return level;
     if (!level) {
@@ -922,6 +826,9 @@ export class EditorApp {
       case 'entity': return level.entities.find(value => value.id === selection.id);
       case 'geometry': return level.geometry.find(value => value.id === selection.id);
       case 'room': return level.rooms?.find(value => value.id === selection.id);
+      case 'floor-hole': return level.floorHoles?.find(value => value.id === selection.id);
+      case 'staircase': return level.staircases?.find(value => value.id === selection.id);
+      case 'room-connection': return level.roomConnections?.find(value => value.id === selection.id);
       case 'spawn': return level.spawns.find(value => value.id === selection.id);
       case 'connector': return level.connectors.find(value => value.id === selection.id);
       case 'light': return level.lights.find(value => value.id === selection.id);
