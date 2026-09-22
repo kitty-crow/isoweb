@@ -5,6 +5,7 @@ import {
 } from './AuthoringCommands';
 import { EditorCore } from './EditorCore';
 import { EditorLayoutViewport } from './EditorLayoutViewport';
+import { EditorPlayPreview } from './EditorPlayPreview';
 import type { EditorSelection, EditorSelectionKind } from './Selection';
 import type { EditableSourceProject } from './SourceProjectIO';
 import type { LevelDocument, Vec3Tuple } from '../world/documents';
@@ -14,6 +15,7 @@ type IndexedRecord = Record<string, unknown>;
 export class EditorApp {
   private transientProblem = '';
   private layoutViewport: EditorLayoutViewport | null = null;
+  private playPreview: EditorPlayPreview | null = null;
 
   constructor(
     private readonly core: EditorCore,
@@ -26,6 +28,12 @@ export class EditorApp {
     this.layoutViewport = new EditorLayoutViewport(
       this.core,
       this.element<HTMLElement>('editor-layout')
+    );
+    this.playPreview = new EditorPlayPreview(
+      this.core,
+      this.element<HTMLButtonElement>('editor-play'),
+      this.element<HTMLElement>('editor-layout-shell'),
+      this.element<HTMLIFrameElement>('editor-runtime-frame')
     );
     this.core.store.subscribe(() => this.render());
     this.core.selection.subscribe(() => this.render());
@@ -47,6 +55,7 @@ export class EditorApp {
   private bindToolbar(): void {
     this.element<HTMLButtonElement>('editor-new').addEventListener('click', () => {
       if (!this.discardAllowed()) return;
+      this.playPreview?.exit();
       this.transientProblem = '';
       this.core.newProject();
     });
@@ -54,6 +63,7 @@ export class EditorApp {
     const input = this.element<HTMLInputElement>('editor-open-file');
     this.element<HTMLButtonElement>('editor-open').addEventListener('click', () => {
       if (!this.discardAllowed()) return;
+      this.playPreview?.exit();
       input.value = '';
       input.click();
     });
@@ -66,6 +76,17 @@ export class EditorApp {
     this.element<HTMLButtonElement>('editor-save').addEventListener('click', () => this.save());
     this.element<HTMLButtonElement>('editor-undo').addEventListener('click', () => this.core.undo());
     this.element<HTMLButtonElement>('editor-redo').addEventListener('click', () => this.core.redo());
+
+    this.element<HTMLButtonElement>('editor-play').addEventListener('click', () => {
+      try {
+        if (this.playPreview?.isPlaying) this.playPreview.exit();
+        else this.playPreview?.enter();
+        this.transientProblem = '';
+      } catch (error) {
+        this.transientProblem = error instanceof Error ? error.message : String(error);
+        this.renderProblems();
+      }
+    });
 
     this.element<HTMLButtonElement>('editor-add').addEventListener('click', () => {
       const project = this.core.store.project;
