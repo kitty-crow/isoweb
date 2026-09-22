@@ -8,7 +8,7 @@ export class PackageWriter {
   writeLevelBytes(level: LevelDocument): Uint8Array {
     validateLevelDocument(level);
     const manifest: PackageManifest = {
-      format: 'isolevel', schemaVersion: CURRENT_SCHEMA_VERSION, id: level.id, name: level.name,
+      format: 'isolevel', representation: 'source', schemaVersion: CURRENT_SCHEMA_VERSION, id: level.id, name: level.name,
       entry: 'level.json', createdWith: { application: 'isoweb-level-builder', version: '0.1.0' }
     };
     return zipSync({ 'manifest.json': json(manifest), 'level.json': json(level) }, { level: 6 });
@@ -24,7 +24,7 @@ export class PackageWriter {
       files[reference.path] = json(level);
     }
     const manifest: PackageManifest = {
-      format: 'isoworld', schemaVersion: CURRENT_SCHEMA_VERSION, id: world.id, name: world.name,
+      format: 'isoworld', representation: 'source', schemaVersion: CURRENT_SCHEMA_VERSION, id: world.id, name: world.name,
       entry: 'world.json', minimumEngineVersion: '0.1.0',
       createdWith: { application: 'isoweb-world-editor', version: '0.1.0' }, assets: []
     };
