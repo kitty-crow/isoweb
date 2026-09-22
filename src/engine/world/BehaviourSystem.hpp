@@ -14,6 +14,7 @@ struct DynamicEntityDefinition {
   bool solid = true;
   float textureWorldUnitsPerTile = 1.0f;
   std::vector<std::string> collisionTags;
+  std::vector<std::string> mustCollideWith;
 };
 struct OscillatingGateDefinition {
   std::string leftId, rightId;
@@ -38,6 +39,7 @@ public:
  void clearDefinitions();
  void addEntity(const DynamicEntityDefinition&);
  bool addEntityCollisionTag(const std::string& id, const std::string& tag);
+ bool addEntityCollisionSelector(const std::string& id, const std::string& selector);
  void addGate(const OscillatingGateDefinition&);
  void addVerticalCycle(const VerticalCycleDefinition&);
  void addRotation(const RotationDefinition&);
