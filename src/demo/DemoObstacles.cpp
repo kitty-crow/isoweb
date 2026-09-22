@@ -13,7 +13,7 @@ DemoObstacleSystem::DemoObstacleSystem(engine::World& world):behaviours_(world){
  add("demo-obstacle-blade-b","lower",{2.15f,-3.82f,0},{0,-1,0},box({-.11f,.16f,.08f},{.11f,1.08f,.28f}));
  OscillatingGateDefinition gate;gate.leftId="demo-obstacle-barrier-left";gate.rightId="demo-obstacle-barrier-right";gate.base={0,1.9f,0};gate.halfSpan=4.48f;gate.gap=2.35f;gate.sweep=2.15f;gate.angularSpeed=.24f;gate.halfThickness=.11f;gate.height=1.3f;behaviours_.addGate(gate);
  VerticalCycleDefinition guillotine;guillotine.entityId="demo-obstacle-guillotine";guillotine.base={0,2.15f,0};guillotine.upZ=2.25f;guillotine.downZ=.28f;guillotine.period=2.6f;guillotine.blockOnSafeContact=true;guillotine.lethalFace=HazardFace::Bottom;guillotine.contactTolerance=.028f;behaviours_.addVerticalCycle(guillotine);
- RotationDefinition blades;blades.entityIds={"demo-obstacle-blade-a","demo-obstacle-blade-b"};blades.angularSpeed=2.35f;behaviours_.addRotation(blades);
+ RotationDefinition blades;blades.entityIds={"demo-obstacle-blade-a","demo-obstacle-blade-b"};blades.directionMultipliers={1.0f,-1.0f};blades.angularSpeed=2.35f;behaviours_.addRotation(blades);
  HazardDefinition x;x.tolerance=.028f;x.entityId="demo-obstacle-barrier-left";x.face=HazardFace::Right;behaviours_.addHazard(x);x.entityId="demo-obstacle-barrier-right";x.face=HazardFace::Left;behaviours_.addHazard(x);x.entityId="demo-obstacle-guillotine";x.face=HazardFace::Bottom;behaviours_.addHazard(x);x.entityId="demo-obstacle-blade-a";x.face=HazardFace::Any;behaviours_.addHazard(x);x.entityId="demo-obstacle-blade-b";behaviours_.addHazard(x);
 }
 }}
