@@ -47,10 +47,14 @@ export function effectiveLevelOrigin(
   const level = project.levels.find(candidate => candidate.id === levelId);
   if (!level) throw new Error(`World level ${levelId} does not exist`);
   const placement = levelPlacement(project, levelId);
+  const localOrigin = rotateLocalPoint(
+    level.viewOrigin,
+    levelQuarterTurns(project, levelId)
+  );
   return [
-    level.viewOrigin[0] + placement[0],
-    level.viewOrigin[1] + placement[1],
-    level.viewOrigin[2] + placement[2]
+    localOrigin[0] + placement[0],
+    localOrigin[1] + placement[1],
+    localOrigin[2] + placement[2]
   ];
 }
 
