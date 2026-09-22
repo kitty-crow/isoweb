@@ -4,6 +4,7 @@ import {
   createLocalAddOperation
 } from '../web/src/editor/AuthoringCommands';
 import { EditorCore } from '../web/src/editor/EditorCore';
+import { PackageReader } from '../web/src/world/PackageReader';
 
 const core = new EditorCore('level');
 const project = core.newProject();
@@ -71,6 +72,17 @@ if (problems.length !== 0) {
   throw new Error(`Authored level is invalid: ${JSON.stringify(problems)}`);
 }
 
+const previewBytes = core.previewWorldBytes();
+if (!core.store.dirty) {
+  throw new Error('Runtime preview packaging unexpectedly cleared dirty authored state');
+}
+const preview = await new PackageReader().loadWorld(previewBytes);
+if (preview.world.settings.defaultLevel !== project.document.id ||
+    preview.levels.length !== 1 ||
+    preview.levels[0].id !== project.document.id) {
+  throw new Error('Level Builder runtime preview did not wrap the current source level correctly');
+}
+
 const bytes = core.saveBytes();
 const reopened = new EditorCore('level');
 const reopenedProject = await reopened.open(bytes);
@@ -90,5 +102,10 @@ worldCore.execute(worldCube.command);
 if (world.levels[0].geometry.length !== 1) {
   throw new Error('World Editor did not reuse local Level Builder authoring commands');
 }
+const worldPreview = await new PackageReader().loadWorld(worldCore.previewWorldBytes());
+if (worldPreview.world.id !== world.document.id ||
+    worldPreview.levels[0].geometry.length !== 1) {
+  throw new Error('World Editor runtime preview did not preserve the current in-memory source world');
+}
 
-console.log('Level authoring smoke passed: ground, primitives, rooms, entities, spawns and local connectors are undoable and persist in source packages.');
+console.log('Level authoring smoke passed: drag-ready local content is undoable, persists in source packages, and builds a real-runtime preview world.');
