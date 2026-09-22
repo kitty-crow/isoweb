@@ -78,6 +78,31 @@ export class SourceProjectIO {
     );
   }
 
+  previewWorldBytes(project: EditableSourceProject): Uint8Array {
+    if (project.kind === 'world') return this.saveWorldBytes(project);
+
+    const level = project.document;
+    const world: WorldDocument = {
+      schemaVersion: level.schemaVersion,
+      id: `preview-${level.id}`,
+      name: `${level.name ?? level.id} Preview`,
+      settings: { defaultLevel: level.id },
+      levels: [{ id: level.id, path: `levels/${level.id}.json` }],
+      assets: {},
+      materials: {},
+      prefabs: {},
+      connectors: [],
+      behaviours: [],
+      metadata: { editorPreview: true }
+    };
+
+    return this.writer.writeWorldBytes(
+      world,
+      [level],
+      sourceAssetInputs(project.assets)
+    );
+  }
+
   saveLevel(project: EditableLevelProject): Blob {
     return new Blob([this.saveLevelBytes(project)], { type: 'application/octet-stream' });
   }

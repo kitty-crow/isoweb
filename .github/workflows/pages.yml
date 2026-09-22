@@ -51,6 +51,9 @@ jobs:
       - name: Test shared Editor Core
         run: bun run test:editor-core
 
+      - name: Test Level Builder local authoring
+        run: bun run test:level-builder-authoring
+
       - name: Compile demo deployment world
         run: bun run compile:demo-world
 
@@ -117,6 +120,9 @@ jobs:
       - name: Install Chromium for browser checks
         working-directory: vendor/pages
         run: bunx playwright install --with-deps chromium
+
+      - name: Exercise graphical Level Builder authoring
+        run: bun run test:editor-authoring-browser
 
       - name: Smoke-test WASM browser boot
         run: bun run test:runtime

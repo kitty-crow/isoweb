@@ -47,6 +47,12 @@ export class EditorCore {
     return this.store.project ? validateEditorProject(this.store.project) : [];
   }
 
+  previewWorldBytes(): Uint8Array {
+    const project = this.store.project;
+    if (!project) throw new Error('No editable source project is open');
+    return this.io.previewWorldBytes(project);
+  }
+
   saveBytes(): Uint8Array {
     const project = this.store.project;
     if (!project) throw new Error('No editable source project is open');
