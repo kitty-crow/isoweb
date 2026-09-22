@@ -15,6 +15,18 @@ const project = core.newProject();
 if (project.kind !== 'world') throw new Error('Expected world project');
 
 const firstId = project.levels[0].id;
+project.levels[0].entities.push({
+  id: 'shared-entity',
+  components: {
+    transform: { position: [0, 0, 0] },
+    character: { controllable: false, npc: true }
+  }
+});
+project.levels[0].spawns.push({
+  id: 'shared-spawn',
+  transform: { position: [0, 0, 0] },
+  entityId: 'shared-entity'
+});
 
 const added = createNewWorldLevelOperation(project);
 core.execute(added.command);
@@ -28,6 +40,11 @@ if (project.levels.length !== 3 ||
     project.levels[1].id !== duplicated.levelId ||
     project.levels[1].id === firstId) {
   throw new Error('Duplicate level did not allocate a stable unique world-level id');
+}
+const duplicatedLevel = project.levels[1];
+if (duplicatedLevel.entities[0]?.id === 'shared-entity' ||
+    duplicatedLevel.spawns[0]?.entityId !== duplicatedLevel.entities[0]?.id) {
+  throw new Error('Duplicate level did not remap world-global entity ids and spawn references');
 }
 
 core.execute(createMoveWorldLevelCommand(project, duplicated.levelId, 1));
@@ -69,6 +86,18 @@ project.assets.set('collision.png', {
 const imported = createLevelProject();
 imported.document.id = firstId;
 imported.document.name = 'Imported level';
+imported.document.entities.push({
+  id: 'shared-entity',
+  components: {
+    transform: { position: [1, 1, 0] },
+    character: { controllable: false, npc: true }
+  }
+});
+imported.document.spawns.push({
+  id: 'imported-spawn',
+  transform: { position: [1, 1, 0] },
+  entityId: 'shared-entity'
+});
 imported.document.assets = {
   'duplicate.png': { source: 'assets/by-id/duplicate.png', mediaType: 'image/png' },
   'collision.png': { source: 'assets/by-id/collision.png', mediaType: 'image/png' }
@@ -88,6 +117,14 @@ core.execute(importOperation.command);
 const importedLevel = project.levels.find(level => level.id === importOperation.levelId);
 if (!importedLevel || importedLevel.id === firstId) {
   throw new Error('Imported level id collision was not resolved');
+}
+const importedEntity = importedLevel.entities.find(entity =>
+  entity.components.transform.position[0] === 1 &&
+  entity.components.transform.position[1] === 1
+);
+if (!importedEntity || importedEntity.id === 'shared-entity' ||
+    importedLevel.spawns.find(spawn => spawn.id === 'imported-spawn')?.entityId !== importedEntity.id) {
+  throw new Error('Imported level did not remap colliding world-global entity ids');
 }
 if (importedLevel.localMaterials['default-floor'].baseColourTexture !== 'canonical.png') {
   throw new Error('Content-identical imported asset was not deduplicated and remapped');
@@ -131,4 +168,4 @@ if (!protectedDeleteRejected) {
   throw new Error('Deleting a level referenced by a world connector was not blocked');
 }
 
-console.log('World level manager smoke passed: create, duplicate, reorder, safe delete, .isolevel import, content deduplication, collision remap and .isoworld round-trip work.');
+console.log('World level manager smoke passed: create, duplicate, reorder, safe delete, entity-id remapping, .isolevel import, content deduplication, collision remap and .isoworld round-trip work.');

@@ -1,4 +1,4 @@
-import { EditorApp } from '../editor/EditorApp';
 import { EditorCore } from '../editor/EditorCore';
+import { WorldEditorApp } from '../editor/WorldEditorApp';
 
-new EditorApp(new EditorCore('world'), 'World Editor').start();
+new WorldEditorApp(new EditorCore('world')).start();

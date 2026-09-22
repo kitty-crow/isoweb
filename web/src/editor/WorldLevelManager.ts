@@ -60,6 +60,45 @@ function referencedByWorldConnector(project: EditableWorldProject, levelId: stri
   )?.id;
 }
 
+function worldEntityIds(project: EditableWorldProject): Set<string> {
+  return new Set(
+    project.levels.flatMap(level => level.entities.map(entity => entity.id))
+  );
+}
+
+function remapLevelEntityIdsForWorld(
+  project: EditableWorldProject,
+  level: LevelDocument
+): Map<string, string> {
+  const reserved = worldEntityIds(project);
+  const remapped = new Map<string, string>();
+
+  for (const entity of level.entities) {
+    const original = entity.id;
+    const finalId = nextId(original, reserved);
+    reserved.add(finalId);
+    if (finalId === original) continue;
+    entity.id = finalId;
+    remapped.set(original, finalId);
+  }
+
+  if (remapped.size === 0) return remapped;
+
+  for (const spawn of level.spawns) {
+    if (spawn.entityId && remapped.has(spawn.entityId)) {
+      spawn.entityId = remapped.get(spawn.entityId);
+    }
+  }
+
+  for (const key of ['hiddenIds', 'lockedIds'] as const) {
+    const ids = level.editor?.[key];
+    if (!ids) continue;
+    level.editor![key] = ids.map(id => remapped.get(id) ?? id);
+  }
+
+  return remapped;
+}
+
 function walkSpriteResources(level: LevelDocument, replace: (id: string) => string): void {
   for (const entity of level.entities) {
     if (!('character' in entity.components)) continue;
@@ -121,6 +160,7 @@ async function importedLevelPlan(
   const existingLevelIds = project.levels.map(candidate => candidate.id);
   level.id = nextId(level.id, existingLevelIds);
   if (level.id !== imported.document.id && level.name) level.name = `${level.name} (imported)`;
+  remapLevelEntityIdsForWorld(project, level);
 
   const hashToExisting = new Map<string, string>();
   for (const [id, asset] of project.assets) {
@@ -159,7 +199,8 @@ export function createNewWorldLevelOperation(project: EditableWorldProject): Wor
   const level = createLevelDocument(id, `Level ${project.levels.length + 1}`);
   const reference = {
     id,
-    path: levelPath(id, project.document.levels.map(candidate => candidate.path))
+    path: levelPath(id, project.document.levels.map(candidate => candidate.path)),
+    placement: { position: [0, 0, 0] as [number, number, number] }
   };
 
   return {
@@ -190,9 +231,15 @@ export function createDuplicateWorldLevelOperation(
   const level = clone(source);
   level.id = nextId(source.id, project.levels.map(candidate => candidate.id));
   level.name = `${source.name ?? source.id} copy`;
+  remapLevelEntityIdsForWorld(project, level);
+  const sourceReference = project.document.levels.find(candidate => candidate.id === sourceLevelId);
   const reference = {
     id: level.id,
-    path: levelPath(level.id, project.document.levels.map(candidate => candidate.path))
+    path: levelPath(level.id, project.document.levels.map(candidate => candidate.path)),
+    placement: {
+      position: [...(sourceReference?.placement?.position ?? [0, 0, 0])] as [number, number, number],
+      quarterTurns: sourceReference?.placement?.quarterTurns ?? 0
+    }
   };
   const insertIndex = sourceIndex + 1;
 
@@ -297,7 +344,8 @@ export async function createImportWorldLevelOperation(
     path: levelPath(
       plan.level.id,
       project.document.levels.map(candidate => candidate.path)
-    )
+    ),
+    placement: { position: [0, 0, 0] as [number, number, number] }
   };
 
   return {

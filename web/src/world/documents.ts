@@ -304,6 +304,22 @@ export type WorldConnectorDefinition = {
   bidirectional?: boolean;
 };
 
+export type WorldLevelPlacement = {
+  position: Vec3Tuple;
+  /**
+   * Clockwise/counter-clockwise editor controls operate in exact 90° steps.
+   * Keeping composition rotation cardinal preserves axis-aligned room/floor
+   * semantics while allowing a level to be reused at any cardinal orientation.
+   */
+  quarterTurns?: 0 | 1 | 2 | 3;
+};
+
+export type WorldLevelReference = {
+  id: string;
+  path: string;
+  placement?: WorldLevelPlacement;
+};
+
 export type WorldDocument = {
   schemaVersion: number;
   id: string;
@@ -321,7 +337,7 @@ export type WorldDocument = {
       };
     };
   };
-  levels: Array<{ id: string; path: string }>;
+  levels: WorldLevelReference[];
   assets: Record<string, AssetSourceDefinition>;
   materials: Record<string, MaterialDefinition>;
   prefabs: Record<string, PrefabDefinition>;

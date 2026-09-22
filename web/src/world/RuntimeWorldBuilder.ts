@@ -157,9 +157,11 @@ export class RuntimeWorldBuilder {
     for (const stair of level.staircases) {
       this.requireCall(
         'isoweb_world_build_add_staircase',
-        ['number','number','number','number','number','number','number'],
+        ['number','number','number','number','number','number','number','number'],
         [
-          levelIndex, stair.centreX, stair.startY, stair.endY,
+          levelIndex,
+          stair.startX, stair.startY,
+          stair.endX, stair.endY,
           stair.startZ, stair.endZ, stair.width
         ],
         `compiled staircase in ${level.id}`

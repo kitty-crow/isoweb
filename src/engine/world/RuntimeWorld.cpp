@@ -790,11 +790,19 @@ private:
       std::array<StairStep, STAIR_STEP_COUNT> steps;
       const float lowerZ = std::min(staircase.startZ, staircase.endZ);
       const bool ascending = staircase.endZ > staircase.startZ;
+      const float xStep = (staircase.endX - staircase.startX) * inverseStepCount;
       const float yStep = (staircase.endY - staircase.startY) * inverseStepCount;
-      const float halfY = std::fabs(yStep) * 0.5f;
-      const float halfX = staircase.width * 0.5f;
+      const bool primarilyX = std::fabs(xStep) >= std::fabs(yStep);
+      const float halfX = primarilyX
+        ? std::max(0.0125f, std::fabs(xStep) * 0.5f)
+        : staircase.width * 0.5f;
+      const float halfY = primarilyX
+        ? staircase.width * 0.5f
+        : std::max(0.0125f, std::fabs(yStep) * 0.5f);
 
       for (int index = 0; index < STAIR_STEP_COUNT; ++index) {
+        const float x0 = staircase.startX + xStep * index;
+        const float x1 = x0 + xStep;
         const float y0 = staircase.startY + yStep * index;
         const float y1 = y0 + yStep;
         const float fraction = (ascending ? index + 1 : index) * inverseStepCount;
@@ -802,7 +810,7 @@ private:
           (staircase.endZ - staircase.startZ) * fraction;
         const float boxMaximumZ = std::max(topZ, lowerZ + 0.025f);
         steps[index].centre = {
-          staircase.centreX,
+          (x0 + x1) * 0.5f,
           (y0 + y1) * 0.5f,
           (lowerZ + boxMaximumZ) * 0.5f
         };
@@ -859,14 +867,14 @@ private:
     }
 
     for (const RuntimeStaircase& staircase : definition_.staircases) {
-      const float minimumY = std::min(staircase.startY, staircase.endY);
-      const float maximumY = std::max(staircase.startY, staircase.endY);
+      const float halfWidth = staircase.width * 0.5f;
+      const float minimumX = std::min(staircase.startX, staircase.endX) - halfWidth;
+      const float maximumX = std::max(staircase.startX, staircase.endX) + halfWidth;
+      const float minimumY = std::min(staircase.startY, staircase.endY) - halfWidth;
+      const float maximumY = std::max(staircase.startY, staircase.endY) + halfWidth;
       const float minimumZ = std::min(staircase.startZ, staircase.endZ);
       const float maximumZ = std::max(staircase.startZ, staircase.endZ);
-      for (float x : {
-        staircase.centreX - staircase.width * 0.5f,
-        staircase.centreX + staircase.width * 0.5f
-      }) {
+      for (float x : {minimumX, maximumX}) {
         for (float y : {minimumY, maximumY}) {
           for (float z : {minimumZ, maximumZ}) {
             bounds_.points.push_back({x, y, z});

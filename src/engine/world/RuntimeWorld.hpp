@@ -43,8 +43,9 @@ struct RuntimeFloorHole {
 };
 
 struct RuntimeStaircase {
-  float centreX = 0.0f;
+  float startX = 0.0f;
   float startY = 0.0f;
+  float endX = 0.0f;
   float endY = 0.0f;
   float startZ = 0.0f;
   float endZ = 0.0f;

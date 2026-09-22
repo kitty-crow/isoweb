@@ -122,8 +122,13 @@ export function validateCompiledLevelDocument(value: unknown): CompiledLevelDocu
   }
   for (const raw of level.staircases as unknown[]) {
     const stair = object(raw, 'compiled staircase');
-    for (const key of ['centreX','startY','endY','startZ','endZ','width']) if (!finite(stair[key])) throw new Error('Compiled staircase is invalid');
-    if (Number(stair.width) <= 0 || stair.startY === stair.endY) throw new Error('Compiled staircase dimensions are invalid');
+    for (const key of ['startX','startY','endX','endY','startZ','endZ','width']) {
+      if (!finite(stair[key])) throw new Error('Compiled staircase is invalid');
+    }
+    if (Number(stair.width) <= 0 ||
+        (stair.startX === stair.endX && stair.startY === stair.endY)) {
+      throw new Error('Compiled staircase dimensions are invalid');
+    }
   }
 
   if (!(level.assets as unknown[]).every(nonEmpty) ||

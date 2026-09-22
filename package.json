@@ -47,6 +47,8 @@
     "test:level-builder-authoring": "bun scripts/level-builder-authoring-smoke.ts",
     "test:editor-authoring-browser": "bun scripts/editor-authoring-browser-smoke.ts",
     "test:world-editor-levels": "bun scripts/world-editor-level-manager-smoke.ts",
-    "test:world-editor-connectors": "bun scripts/world-editor-connector-smoke.ts"
+    "test:world-editor-connectors": "bun scripts/world-editor-connector-smoke.ts",
+    "test:world-editor-composition": "bun scripts/world-editor-composition-smoke.ts",
+    "test:world-editor-browser": "bun scripts/world-editor-browser-smoke.ts"
   }
 }

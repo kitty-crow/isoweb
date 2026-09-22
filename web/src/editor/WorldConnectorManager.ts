@@ -1,6 +1,10 @@
 import type { Vec3Tuple, WorldConnectorDefinition } from '../world/documents';
 import { FunctionalCommand, type EditorCommand } from './CommandHistory';
 import type { EditableWorldProject } from './SourceProjectIO';
+import {
+  localPointForWorld,
+  worldPointForLevel
+} from './WorldPlacementManager';
 
 export type WorldConnectorOperation = {
   command: EditorCommand;
@@ -17,10 +21,18 @@ function nextId(prefix: string, existing: Iterable<string>): string {
   throw new Error(`Unable to allocate connector id for ${prefix}`);
 }
 
-function levelOrigin(project: EditableWorldProject, levelId: string): Vec3Tuple {
+function levelAnchor(project: EditableWorldProject, levelId: string): Vec3Tuple {
   const level = project.levels.find(candidate => candidate.id === levelId);
   if (!level) throw new Error(`Level ${levelId} does not exist`);
-  return [...level.viewOrigin] as Vec3Tuple;
+  return [...level.settings.boundsFocus] as Vec3Tuple;
+}
+
+function lerp(a: Vec3Tuple, b: Vec3Tuple, t: number): Vec3Tuple {
+  return [
+    a[0] + (b[0] - a[0]) * t,
+    a[1] + (b[1] - a[1]) * t,
+    a[2] + (b[2] - a[2]) * t
+  ];
 }
 
 export function createSetDefaultLevelCommand(
@@ -38,38 +50,61 @@ export function createSetDefaultLevelCommand(
   );
 }
 
-export function createWorldPortalOperation(
+export function createWorldConnectionOperation(
   project: EditableWorldProject,
   fromLevel: string,
-  toLevel: string
+  toLevel: string,
+  type: 'portal' | 'stairs'
 ): WorldConnectorOperation {
-  if (fromLevel === toLevel) throw new Error('A portal must connect two different levels');
+  if (fromLevel === toLevel) throw new Error('A world connection must link two different levels');
   const levels = new Set(project.levels.map(level => level.id));
   if (!levels.has(fromLevel) || !levels.has(toLevel)) {
-    throw new Error('Portal endpoints must reference existing levels');
+    throw new Error('Connection endpoints must reference existing levels');
   }
 
   project.document.connectors ??= [];
   const connectorId = nextId(
-    `${fromLevel}-${toLevel}`,
+    `${fromLevel}-${toLevel}-${type}`,
     project.document.connectors.map(connector => connector.id)
   );
+
+  const fromPosition = levelAnchor(project, fromLevel);
+  const toPosition = levelAnchor(project, toLevel);
+  let forwardTraversal: Vec3Tuple[] = [];
+  let reverseTraversal: Vec3Tuple[] = [];
+
+  if (type === 'stairs') {
+    const worldFrom = worldPointForLevel(project, fromLevel, fromPosition);
+    const worldTo = worldPointForLevel(project, toLevel, toPosition);
+    const physicalSamples: Vec3Tuple[] = [];
+    const sampleCount = 10;
+    for (let index = 1; index <= sampleCount; ++index) {
+      physicalSamples.push(lerp(worldFrom, worldTo, index / (sampleCount + 1)));
+    }
+    forwardTraversal = physicalSamples.map(point =>
+      localPointForWorld(project, fromLevel, point)
+    );
+    reverseTraversal = [...physicalSamples].reverse().map(point =>
+      localPointForWorld(project, toLevel, point)
+    );
+  }
+
   const connector: WorldConnectorDefinition = {
     id: connectorId,
-    type: 'portal',
+    type,
     fromLevel,
     toLevel,
-    fromPosition: levelOrigin(project, fromLevel),
-    toPosition: levelOrigin(project, toLevel),
-    forwardTraversal: [],
-    reverseTraversal: [],
+    fromPosition,
+    toPosition,
+    forwardTraversal,
+    reverseTraversal,
     bidirectional: true
   };
 
   return {
     connectorId,
     command: new FunctionalCommand(
-      'add world portal',
+      `add world ${type}`,
       () => {
         project.document.connectors ??= [];
         if (project.document.connectors.some(candidate => candidate.id === connector.id)) {
@@ -84,6 +119,14 @@ export function createWorldPortalOperation(
       }
     )
   };
+}
+
+export function createWorldPortalOperation(
+  project: EditableWorldProject,
+  fromLevel: string,
+  toLevel: string
+): WorldConnectorOperation {
+  return createWorldConnectionOperation(project, fromLevel, toLevel, 'portal');
 }
 
 export function createDeleteWorldConnectorCommand(
