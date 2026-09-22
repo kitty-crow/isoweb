@@ -50,7 +50,7 @@
         <div class="editor-stage-toolbar world-composition-toolbar">
           <div>
             <strong>World composition</strong>
-            <span>Drag whole levels to place them in X/Y. Use stacking controls for Z.</span>
+            <span>Drag whole levels in X/Y. Stack in Z, rotate in 90° steps, then connect levels with stairs or portals.</span>
           </div>
 
           <label>
@@ -74,6 +74,8 @@
             </label>
             <button id="world-stack-above" type="button">Stack above</button>
             <button id="world-stack-below" type="button">Stack below</button>
+            <button id="world-rotate-left" type="button" disabled aria-label="Rotate selected level 90 degrees left">↺ 90°</button>
+            <button id="world-rotate-right" type="button" disabled aria-label="Rotate selected level 90 degrees right">↻ 90°</button>
           </div>
 
           <div class="world-toolbar-group" aria-label="Create inter-level connection">
