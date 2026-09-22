@@ -74,7 +74,7 @@ try {
 
     module._isoweb_set_obstacles_enabled(0);
     module._isoweb_set_obstacles_enabled(1);
-    for (let i = 0; i < 12; ++i) module._isoweb_tick(0.1);
+    for (let i = 0; i < 13; ++i) module._isoweb_tick(0.1);
     const guillotineZ = get('demo-obstacle-guillotine', 'z');
 
     module._isoweb_set_obstacles_enabled(0);
