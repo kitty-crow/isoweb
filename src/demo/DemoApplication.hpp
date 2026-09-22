@@ -6,7 +6,7 @@
 #include <unordered_map>
 
 #include "engine/world/BehaviourSystem.hpp"
-#include "demo/DemoWorld.hpp"
+#include "engine/world/World.hpp"
 #include "engine/camera/Camera.hpp"
 #include "engine/character/CharacterSystem.hpp"
 #include "engine/platform/BrowserPresenter.hpp"
@@ -112,7 +112,7 @@ public:
 private:
   void redraw(bool refreshPresentation = true);
 
-  DemoWorld world_;
+  engine::World world_;
   engine::RuntimeWorldBuilder worldBuilder_;
   engine::Camera camera_;
   engine::ControlSprites controls_;

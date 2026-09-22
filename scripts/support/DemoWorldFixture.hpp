@@ -6,15 +6,15 @@
 #include "engine/world/World.hpp"
 
 namespace isoweb {
-namespace demo {
+namespace test {
 
-class DemoWorld final : public engine::World {
+class DemoWorldFixture final : public engine::World {
 public:
-  DemoWorld();
+  DemoWorldFixture();
 
 private:
   static std::vector<std::unique_ptr<engine::IWorldLevel>> makeLevels();
 };
 
-} // namespace demo
+} // namespace test
 } // namespace isoweb

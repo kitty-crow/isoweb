@@ -3,7 +3,7 @@
 #include <memory>
 #include <type_traits>
 
-#include "demo/DemoWorld.hpp"
+#include "support/DemoWorldFixture.hpp"
 #include "engine/camera/Camera.hpp"
 #include "engine/character/CharacterAnimation.hpp"
 #include "engine/character/CharacterSystem.hpp"
@@ -143,7 +143,7 @@ int main() {
   if (!character.sprites.still.hasExplicitRight()) return 17;
   character.sprites.actions["wave"].front.resource = "wave-front.webp";
 
-  isoweb::demo::DemoWorld world;
+  isoweb::test::DemoWorldFixture world;
   world.setLevelId(0, "lower");
   world.setLevelId(1, "middle");
   world.setLevelId(2, "upper");

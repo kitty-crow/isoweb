@@ -3,7 +3,7 @@
 #include <iostream>
 #include <memory>
 
-#include "demo/DemoWorld.hpp"
+#include "support/DemoWorldFixture.hpp"
 #include "engine/camera/Camera.hpp"
 #include "engine/character/CharacterSystem.hpp"
 #include "engine/world/Character.hpp"
@@ -47,7 +47,7 @@ struct SamplePair {
   Vec3 runtime;
 };
 
-SamplePair sampleFloor(isoweb::demo::DemoWorld& world, const Vec3& point) {
+SamplePair sampleFloor(isoweb::test::DemoWorldFixture& world, const Vec3& point) {
   const Ray ray{{point.x, point.y, 5.0f}, {0.0f, 0.0f, -1.0f}};
   float environmentDistance = 0.0f;
   SamplePair pair;
@@ -59,7 +59,7 @@ SamplePair sampleFloor(isoweb::demo::DemoWorld& world, const Vec3& point) {
 } // namespace
 
 int main() {
-  isoweb::demo::DemoWorld world;
+  isoweb::test::DemoWorldFixture world;
   CharacterSystem characters(world);
   Camera camera(CameraConfig(3.25f, 6.15f, 5.50f));
 
@@ -143,7 +143,7 @@ int main() {
   // Lower preview runtime entities remain dynamic without rendering a second
   // complete level. From the upper level, choose rays that miss upper and
   // middle geometry before reaching exposed points on the lower west room.
-  isoweb::demo::DemoWorld previewWorld;
+  isoweb::test::DemoWorldFixture previewWorld;
   CharacterSystem previewCharacters(previewWorld);
   require(previewWorld.levelUp(), "could not switch preview regression to upper level");
 

@@ -2,7 +2,7 @@
 #include <iostream>
 #include <memory>
 
-#include "demo/DemoWorld.hpp"
+#include "support/DemoWorldFixture.hpp"
 #include "engine/camera/Camera.hpp"
 #include "engine/character/CharacterSystem.hpp"
 #include "engine/world/Character.hpp"
@@ -29,7 +29,7 @@ std::size_t transitionCount(const Character& character) {
   return count;
 }
 
-Character* addCharacter(isoweb::demo::DemoWorld& world, const char* label, const char* level) {
+Character* addCharacter(isoweb::test::DemoWorldFixture& world, const char* label, const char* level) {
   std::unique_ptr<Character> owned(new Character());
   Character* character = owned.get();
   character->id = label;
@@ -47,7 +47,7 @@ void verifyRoute(
   const char* toLevel,
   std::size_t expectedTransitions
 ) {
-  isoweb::demo::DemoWorld world;
+  isoweb::test::DemoWorldFixture world;
   CharacterSystem characters(world);
   Camera camera(CameraConfig(3.25f, 6.15f, 5.50f));
   Character* character = addCharacter(world, label, fromLevel);

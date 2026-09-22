@@ -1,4 +1,4 @@
-#include "demo/DemoWorld.hpp"
+#include "DemoWorldFixture.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -9,7 +9,7 @@
 #include "engine/world/RuntimeWorld.hpp"
 
 namespace isoweb {
-namespace demo {
+namespace test {
 namespace {
 
 using engine::NavigationLink;
@@ -266,7 +266,7 @@ RuntimeLevelDefinition upperLevel() {
 
 } // namespace
 
-std::vector<std::unique_ptr<engine::IWorldLevel>> DemoWorld::makeLevels() {
+std::vector<std::unique_ptr<engine::IWorldLevel>> DemoWorldFixture::makeLevels() {
   std::vector<std::unique_ptr<engine::IWorldLevel>> levels;
   levels.reserve(3);
   levels.push_back(engine::makeRuntimeWorldLevel(lowerLevel()));
@@ -275,7 +275,7 @@ std::vector<std::unique_ptr<engine::IWorldLevel>> DemoWorld::makeLevels() {
   return levels;
 }
 
-DemoWorld::DemoWorld()
+DemoWorldFixture::DemoWorldFixture()
     : engine::World(makeLevels(), 1) {
   setLevelId(0, "lower");
   setLevelId(1, "middle");
@@ -291,5 +291,5 @@ DemoWorld::DemoWorld()
   });
 }
 
-} // namespace demo
+} // namespace test
 } // namespace isoweb

@@ -2,7 +2,7 @@
 #include <iostream>
 #include <memory>
 
-#include "demo/DemoWorld.hpp"
+#include "support/DemoWorldFixture.hpp"
 #include "engine/camera/Camera.hpp"
 #include "engine/character/CharacterSystem.hpp"
 #include "engine/world/Character.hpp"
@@ -28,7 +28,7 @@ bool near(float a, float b, float tolerance = 0.03f) {
 } // namespace
 
 int main() {
-  isoweb::demo::DemoWorld world;
+  isoweb::test::DemoWorldFixture world;
 
 
   const auto* lowerRooms = world.roomLayout("lower");

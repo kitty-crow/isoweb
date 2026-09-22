@@ -90,6 +90,9 @@ private:
 
 class World : public IWorld {
 public:
+  // Starts in an inert, non-authored state so package/document loading can be
+  // the sole source of runtime world content.
+  World();
   World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defaultLevelIndex);
 
   // Replace the authored level projection without replacing the World object.

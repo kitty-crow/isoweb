@@ -1,7 +1,7 @@
 #include <cstdlib>
 #include <iostream>
 
-#include "demo/DemoWorld.hpp"
+#include "support/DemoWorldFixture.hpp"
 #include "engine/render/GpuStaticScene.hpp"
 
 using namespace isoweb::engine;
@@ -17,7 +17,7 @@ void require(bool condition, const char* message) {
 } // namespace
 
 int main() {
-  isoweb::demo::DemoWorld world;
+  isoweb::test::DemoWorldFixture world;
   GpuStaticScene scene;
 
   require(world.activeLevelIndex() == world.defaultLevelIndex(), "demo did not start on default level");

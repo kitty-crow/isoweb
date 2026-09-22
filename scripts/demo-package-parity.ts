@@ -14,10 +14,6 @@ const mimeTypes: Record<string, string> = {
   '.isoworld': 'application/octet-stream'
 };
 
-let releasePackage!: () => void;
-const packageGate = new Promise<void>(resolve => { releasePackage = resolve; });
-let packageRequested = false;
-
 const server = Bun.serve({
   port: 0,
   idleTimeout: 120,
@@ -26,11 +22,6 @@ const server = Bun.serve({
     let pathname = decodeURIComponent(url.pathname);
     if (pathname === '/') pathname = '/index.html';
     if (pathname === '/favicon.ico') return new Response(null, { status: 204 });
-
-    if (pathname.endsWith('/assets/demo.isoworld')) {
-      packageRequested = true;
-      await packageGate;
-    }
 
     const relative = normalize(pathname).replace(/^[/\\]+/, '');
     if (relative.startsWith('..')) return new Response('Forbidden', { status: 403 });
@@ -44,8 +35,33 @@ const server = Bun.serve({
   }
 });
 
-async function captureBootstrap(page: any): Promise<number> {
-  return page.evaluate(() => {
+const expectedFrames = [
+  {"level":0,"yaw":0,"width":693,"height":520,"sha256":"2a97cd8c7f51ac0fd1df24a29c1f8dd42f6974c92cf45cc3a9282d0bccb46e34"},
+  {"level":0,"yaw":1,"width":693,"height":520,"sha256":"ddda44454e67728deb9e0ff76ce75c89f3fb1d6705d6faa38dbfb477189f4e06"},
+  {"level":0,"yaw":2,"width":693,"height":520,"sha256":"004b4d3f6a8241a3db636c3074bf75c68694ae04645314be4242b93b5744884e"},
+  {"level":0,"yaw":3,"width":693,"height":520,"sha256":"e91fc4277e69e1557023cfdc45156acbd71976676b65d8c6d745dc72605f5a64"},
+  {"level":1,"yaw":0,"width":693,"height":520,"sha256":"caab95cbe9abf28854639a8801762c04589af4bba32e0a193154d4f875008120"},
+  {"level":1,"yaw":1,"width":693,"height":520,"sha256":"ff6eda3bfa3c53a77302377a09a77c8729854fba25744cc82fe254a97e5a2441"},
+  {"level":1,"yaw":2,"width":693,"height":520,"sha256":"395b727cc873eed97aeacb8d3e59edffce08f0b007eae3a87a9ae95a6cf9b8c1"},
+  {"level":1,"yaw":3,"width":693,"height":520,"sha256":"d371022975e6bac5ac85b5250654b168b97ed88917dfbdc3b48bd870466aff83"},
+  {"level":2,"yaw":0,"width":693,"height":520,"sha256":"c920b88cde9f1b9b562d5042c20fcfa3a2b00ba19bbac719c37b279de720d463"},
+  {"level":2,"yaw":1,"width":693,"height":520,"sha256":"90e0ea431544d4d1526f48a547350a3f08042866089b7c607a9e0d877ba78f09"},
+  {"level":2,"yaw":2,"width":693,"height":520,"sha256":"549769c8b8f0587d66857390150842596e5d0d591e0e0421e23732f1d230b737"},
+  {"level":2,"yaw":3,"width":693,"height":520,"sha256":"6671b49968d028a9e457875a12e69978c54c1f78d25b8dc0e46f164c7ffd5cc6"}
+] as const;
+
+const browser = await chromium.launch({ headless: true });
+
+try {
+  const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
+  await page.goto(`http://127.0.0.1:${server.port}/?webgl=0`, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(
+    () => document.documentElement.classList.contains('world-ready'),
+    undefined,
+    { timeout: 45_000 }
+  );
+
+  const frames = await page.evaluate(async () => {
     const module = (globalThis as any).Module;
     const canvas = document.getElementById('canvas') as HTMLCanvasElement;
     const context = canvas.getContext('2d');
@@ -59,80 +75,8 @@ async function captureBootstrap(page: any): Promise<number> {
     module._isoweb_reset_level();
     while (module._isoweb_active_level_index() > 0) module._isoweb_level_down();
 
-    const frames: Array<{
-      level: number;
-      yaw: number;
-      width: number;
-      height: number;
-      pixels: Uint8ClampedArray;
-    }> = [];
-
+    const result: Array<{ level: number; yaw: number; width: number; height: number; sha256: string }> = [];
     const levelCount = module._isoweb_level_count();
-    for (let level = 0; level < levelCount; ++level) {
-      if (module._isoweb_active_level_index() !== level) {
-        throw new Error(`Could not select bootstrap level ${level}`);
-      }
-
-      module._isoweb_reset_yaw();
-      module._isoweb_reset_zoom();
-      module._isoweb_reset_camera();
-
-      for (let yaw = 0; yaw < 4; ++yaw) {
-        module._isoweb_render();
-        let guard = 0;
-        while (module._isoweb_preview_needs_refinement() && guard++ < 2000) {
-          module._isoweb_refine_preview(64);
-        }
-        module._isoweb_render();
-
-        frames.push({
-          level,
-          yaw,
-          width: canvas.width,
-          height: canvas.height,
-          pixels: new Uint8ClampedArray(
-            context.getImageData(0, 0, canvas.width, canvas.height).data
-          )
-        });
-
-        module._isoweb_rotate_clockwise();
-      }
-
-      if (level + 1 < levelCount) module._isoweb_level_up();
-    }
-
-    (globalThis as any).__isowebBootstrapFrames = frames;
-    return frames.length;
-  });
-}
-
-async function comparePackaged(page: any): Promise<{ frames: number; bytes: number }> {
-  return page.evaluate(() => {
-    const module = (globalThis as any).Module;
-    const canvas = document.getElementById('canvas') as HTMLCanvasElement;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Canvas2D context unavailable.');
-
-    const baseline = (globalThis as any).__isowebBootstrapFrames as Array<{
-      level: number;
-      yaw: number;
-      width: number;
-      height: number;
-      pixels: Uint8ClampedArray;
-    }> | undefined;
-    if (!baseline?.length) throw new Error('Bootstrap parity frames are missing.');
-
-    module._isoweb_set_obstacles_enabled(0);
-    module._isoweb_clear_entities();
-    module._isoweb_reset_zoom();
-    module._isoweb_reset_camera();
-    module._isoweb_reset_yaw();
-    module._isoweb_reset_level();
-    while (module._isoweb_active_level_index() > 0) module._isoweb_level_down();
-
-    const levelCount = module._isoweb_level_count();
-    let frameIndex = 0;
-    let bytes = 0;
 
     for (let level = 0; level < levelCount; ++level) {
       if (module._isoweb_active_level_index() !== level) {
@@ -151,57 +95,15 @@ async function comparePackaged(page: any): Promise<{ frames: number; bytes: numb
         }
         module._isoweb_render();
 
-        const expected = baseline[frameIndex++];
-        if (!expected) throw new Error('Packaged demo produced more frames than bootstrap demo.');
-        if (
-          expected.level !== level || expected.yaw !== yaw ||
-          expected.width !== canvas.width || expected.height !== canvas.height
-        ) {
-          throw new Error(
-            `Frame metadata changed at level ${level}, yaw ${yaw * 90} degrees.`
-          );
-        }
-
-        const actual = context.getImageData(0, 0, canvas.width, canvas.height).data;
-        bytes += actual.length;
-        let mismatchedChannels = 0;
-        let mismatchedPixels = 0;
-        let maxDelta = 0;
-        let firstMismatch = -1;
-
-        for (let pixel = 0; pixel < canvas.width * canvas.height; ++pixel) {
-          const base = pixel * 4;
-          let pixelMismatch = false;
-          for (let channel = 0; channel < 4; ++channel) {
-            const index = base + channel;
-            const delta = Math.abs(expected.pixels[index] - actual[index]);
-            if (delta === 0) continue;
-            ++mismatchedChannels;
-            pixelMismatch = true;
-            maxDelta = Math.max(maxDelta, delta);
-            if (firstMismatch < 0) firstMismatch = index;
-          }
-          if (pixelMismatch) ++mismatchedPixels;
-        }
-
-        if (mismatchedChannels !== 0) {
-          const pixel = Math.floor(firstMismatch / 4);
-          throw new Error(
-            `Packaged demo differs from bootstrap demo at level ${level}, yaw ${yaw * 90} degrees: ` +
-            JSON.stringify({
-              mismatchedChannels,
-              mismatchedPixels,
-              maxDelta,
-              firstMismatch: {
-                x: pixel % canvas.width,
-                y: Math.floor(pixel / canvas.width),
-                channel: firstMismatch % 4,
-                bootstrap: expected.pixels[firstMismatch],
-                package: actual[firstMismatch]
-              }
-            })
-          );
-        }
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        const digest = await crypto.subtle.digest(
+          'SHA-256',
+          pixels.buffer.slice(pixels.byteOffset, pixels.byteOffset + pixels.byteLength)
+        );
+        const sha256 = Array.from(new Uint8Array(digest))
+          .map(value => value.toString(16).padStart(2, '0'))
+          .join('');
+        result.push({ level, yaw, width: canvas.width, height: canvas.height, sha256 });
 
         module._isoweb_rotate_clockwise();
       }
@@ -209,57 +111,27 @@ async function comparePackaged(page: any): Promise<{ frames: number; bytes: numb
       if (level + 1 < levelCount) module._isoweb_level_up();
     }
 
-    if (frameIndex !== baseline.length) {
+    return result;
+  });
+
+  if (frames.length !== expectedFrames.length) {
+    throw new Error(`Expected ${expectedFrames.length} packaged demo frames, got ${frames.length}.`);
+  }
+  for (let index = 0; index < expectedFrames.length; ++index) {
+    const expected = expectedFrames[index];
+    const actual = frames[index];
+    if (
+      actual.level !== expected.level || actual.yaw !== expected.yaw ||
+      actual.width !== expected.width || actual.height !== expected.height ||
+      actual.sha256 !== expected.sha256
+    ) {
       throw new Error(
-        `Packaged demo produced ${frameIndex} frames, bootstrap demo produced ${baseline.length}.`
+        `Packaged demo golden mismatch at frame ${index}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
       );
     }
-
-    delete (globalThis as any).__isowebBootstrapFrames;
-    return { frames: frameIndex, bytes };
-  });
-}
-
-const browser = await chromium.launch({ headless: true });
-
-try {
-  const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
-
-  await page.goto(`http://127.0.0.1:${server.port}/?webgl=0`, { waitUntil: 'domcontentloaded' });
-
-  await page.waitForFunction(
-    () => {
-      const module = (globalThis as any).Module;
-      return typeof module?._isoweb_render === 'function' &&
-        (window.isowebPresentedFrameCount ?? 0) > 0;
-    },
-    undefined,
-    { timeout: 45_000 }
-  );
-
-  const requestDeadline = Date.now() + 10_000;
-  while (!packageRequested && Date.now() < requestDeadline) await Bun.sleep(10);
-  if (!packageRequested) throw new Error('Browser never requested demo.isoworld.');
-
-  const bootstrapFrames = await captureBootstrap(page);
-  if (bootstrapFrames !== 12) {
-    throw new Error(`Expected 12 bootstrap frames, got ${bootstrapFrames}.`);
   }
-
-  releasePackage();
-  await page.waitForFunction(
-    () => document.documentElement.classList.contains('world-ready'),
-    undefined,
-    { timeout: 30_000 }
-  );
-
-  const result = await comparePackaged(page);
-  console.log(
-    `Demo package parity passed: ${result.frames} frames and ${result.bytes} RGBA bytes match exactly ` +
-    '(3 levels x 4 regular yaw angles).'
-  );
+  console.log('Demo package golden render passed: 12 exact RGBA hashes match (3 levels x 4 regular yaw angles).');
 } finally {
-  releasePackage();
   await browser.close();
   server.stop(true);
 }
