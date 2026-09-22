@@ -21,7 +21,8 @@ const addKinds = [
   'character',
   'dynamic-body',
   'spawn',
-  'connector'
+  'connector',
+  'light'
 ] as const;
 
 for (const kind of addKinds) {
@@ -36,6 +37,17 @@ if ((project.document.rooms ?? []).length !== 1) throw new Error('Room authoring
 if (project.document.entities.length !== 2) throw new Error('Entity authoring failed');
 if (project.document.spawns.length !== 1) throw new Error('Spawn authoring failed');
 if (project.document.connectors.length !== 1) throw new Error('Local connector authoring failed');
+if (project.document.lights.length !== 2) throw new Error('Point-light authoring failed');
+
+const placedRoom = createLocalAddOperation(project, core.selection.value, 'room', { x: 3.5, y: -2, z: 1 });
+core.execute(placedRoom.command);
+const placedRoomValue = (project.document.rooms ?? []).find(value => value.id === placedRoom.selection.id);
+if (!placedRoomValue ||
+    placedRoomValue.centre[0] !== 3.5 ||
+    placedRoomValue.centre[1] !== -2 ||
+    placedRoomValue.centre[2] !== 1) {
+  throw new Error('Explicit drag/drop placement coordinates were not preserved');
+}
 
 const cube = project.document.geometry.find(value => value.type === 'cube');
 if (!cube) throw new Error('Cube was not created');
@@ -64,7 +76,7 @@ const reopened = new EditorCore('level');
 const reopenedProject = await reopened.open(bytes);
 if (reopenedProject.kind !== 'level' ||
     reopenedProject.document.geometry.length !== 6 ||
-    (reopenedProject.document.rooms ?? []).length !== 1 ||
+    (reopenedProject.document.rooms ?? []).length !== 2 ||
     reopenedProject.document.entities.length !== 2 ||
     reopenedProject.document.connectors.length !== 1) {
   throw new Error('Authored level did not survive source package save/reopen');
