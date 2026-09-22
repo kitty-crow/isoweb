@@ -1,7 +1,10 @@
 import type { Vec3Tuple, WorldConnectorDefinition } from '../world/documents';
 import { FunctionalCommand, type EditorCommand } from './CommandHistory';
 import type { EditableWorldProject } from './SourceProjectIO';
-import { effectiveLevelOrigin } from './WorldPlacementManager';
+import {
+  localPointForWorld,
+  worldPointForLevel
+} from './WorldPlacementManager';
 
 export type WorldConnectorOperation = {
   command: EditorCommand;
@@ -22,14 +25,6 @@ function levelAnchor(project: EditableWorldProject, levelId: string): Vec3Tuple 
   const level = project.levels.find(candidate => candidate.id === levelId);
   if (!level) throw new Error(`Level ${levelId} does not exist`);
   return [...level.settings.boundsFocus] as Vec3Tuple;
-}
-
-function add(a: Vec3Tuple, b: Vec3Tuple): Vec3Tuple {
-  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-}
-
-function subtract(a: Vec3Tuple, b: Vec3Tuple): Vec3Tuple {
-  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 }
 
 function lerp(a: Vec3Tuple, b: Vec3Tuple, t: number): Vec3Tuple {
@@ -79,17 +74,19 @@ export function createWorldConnectionOperation(
   let reverseTraversal: Vec3Tuple[] = [];
 
   if (type === 'stairs') {
-    const fromOrigin = effectiveLevelOrigin(project, fromLevel);
-    const toOrigin = effectiveLevelOrigin(project, toLevel);
-    const worldFrom = add(fromOrigin, fromPosition);
-    const worldTo = add(toOrigin, toPosition);
+    const worldFrom = worldPointForLevel(project, fromLevel, fromPosition);
+    const worldTo = worldPointForLevel(project, toLevel, toPosition);
     const physicalSamples: Vec3Tuple[] = [];
     const sampleCount = 10;
     for (let index = 1; index <= sampleCount; ++index) {
       physicalSamples.push(lerp(worldFrom, worldTo, index / (sampleCount + 1)));
     }
-    forwardTraversal = physicalSamples.map(point => subtract(point, fromOrigin));
-    reverseTraversal = [...physicalSamples].reverse().map(point => subtract(point, toOrigin));
+    forwardTraversal = physicalSamples.map(point =>
+      localPointForWorld(project, fromLevel, point)
+    );
+    reverseTraversal = [...physicalSamples].reverse().map(point =>
+      localPointForWorld(project, toLevel, point)
+    );
   }
 
   const connector: WorldConnectorDefinition = {
