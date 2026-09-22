@@ -3,6 +3,7 @@ export type EditorSelectionKind =
   | 'level'
   | 'entity'
   | 'geometry'
+  | 'ground'
   | 'room'
   | 'spawn'
   | 'connector'
