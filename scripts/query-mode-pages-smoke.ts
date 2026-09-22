@@ -145,8 +145,8 @@ try {
     throw new Error('Hybrid WebGL failure did not fall back to MT CPU: ' + JSON.stringify(hybridFallback));
   }
 
-  const threadFallbackPage = await browser.newPage({ viewport: { width: 960, height: 720 } });
-  await threadFallbackPage.addInitScript(() => {
+  const fallbackContext = await browser.newContext();
+  await fallbackContext.addInitScript(() => {
     try {
       Object.defineProperty(Navigator.prototype, 'serviceWorker', {
         configurable: true,
@@ -154,6 +154,7 @@ try {
       });
     } catch {}
   });
+  const threadFallbackPage = await fallbackContext.newPage();
   await threadFallbackPage.goto(
     'http://127.0.0.1:' + server.port + '/?threaded',
     { waitUntil: 'domcontentloaded' }
@@ -168,7 +169,7 @@ try {
     runtime: (globalThis as any).isowebRuntimeMode,
     reason: (globalThis as any).isowebRuntimeFallbackReason ?? ''
   }));
-  await threadFallbackPage.close();
+  await fallbackContext.close();
   if (
     !threadFallback.requested.threaded ||
     threadFallback.runtime !== 'single-thread' ||
