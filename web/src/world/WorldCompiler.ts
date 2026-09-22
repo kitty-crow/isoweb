@@ -378,7 +378,11 @@ export class WorldCompiler {
     };
   }
 
-  compileWorld(world: WorldDocument, compiledLevelPaths?: Map<string, string>): CompiledWorldDocument {
+  compileWorld(
+    world: WorldDocument,
+    compiledLevelPaths?: Map<string, string>,
+    sourceLevels?: LevelDocument[]
+  ): CompiledWorldDocument {
     const defaultLevelIndex = world.levels.findIndex(level => level.id === world.settings.defaultLevel);
     if (defaultLevelIndex < 0) throw new Error(`Default level ${world.settings.defaultLevel} is missing`);
     const selection = world.settings.engine?.selection;
@@ -411,7 +415,10 @@ export class WorldCompiler {
         reverseTraversal: connector.reverseTraversal ?? [],
         bidirectional: connector.bidirectional === false ? 0 : 1
       })),
-      behaviours: (world.behaviours ?? []).map(behaviour => this.compileBehaviour(behaviour)),
+      behaviours: [
+        ...(world.behaviours ?? []),
+        ...(sourceLevels ?? []).flatMap(level => level.behaviours ?? [])
+      ].map(behaviour => this.compileBehaviour(behaviour)),
       assets: Object.keys(world.assets ?? {}).sort()
     };
   }
@@ -429,7 +436,7 @@ export class WorldCompiler {
         representation: 'compiled',
         entry: 'runtime/world.json'
       },
-      world: this.compileWorld(source.world, levelPaths),
+      world: this.compileWorld(source.world, levelPaths, source.levels),
       levels: source.levels.map(level => this.compileLevel(level)),
       assets: source.assets
     };
