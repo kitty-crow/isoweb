@@ -466,8 +466,18 @@ void World::setNavigationLinks(std::vector<NavigationLink> links) {
       link.fromToViewOffset = accumulated / static_cast<float>(pairCount);
       link.hasViewOffset = true;
     } else {
-      link.fromToViewOffset = link.toPosition - link.fromPosition;
-      link.hasViewOffset = true;
+      const std::size_t fromIndex = levelIndex(link.fromLevelId);
+      const std::size_t toIndex = levelIndex(link.toLevelId);
+      if (fromIndex < levelViewOrigins_.size() && toIndex < levelViewOrigins_.size()) {
+        // Convert a position authored in the source level's local frame into
+        // the destination level's local frame. Direct portals have no paired
+        // liminal traversal samples, so their view transform comes from the
+        // two level frame origins rather than from arbitrary endpoint values.
+        link.fromToViewOffset = levelViewOrigins_[fromIndex] - levelViewOrigins_[toIndex];
+        link.hasViewOffset = true;
+      } else {
+        link.hasViewOffset = false;
+      }
     }
   }
   liminalObjects_ = std::move(links);
