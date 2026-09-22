@@ -2,7 +2,9 @@ import type {
   AssetSourceDefinition, LevelDocument, LoadedWorldPackage, MaterialDefinition,
   PackageManifest, Vec3Tuple, WorldDocument
 } from './documents';
-import { collectLevelResourceIds, requireEmbeddedResources } from './PackageAssets';
+import {
+  collectLevelResourceIds, collectWorldDeclaredAssetIds, requireEmbeddedResources
+} from './PackageAssets';
 
 export const CURRENT_SCHEMA_VERSION = 1;
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
@@ -356,6 +358,11 @@ export function validateLoadedWorldPackage(data: LoadedWorldPackage): LoadedWorl
       `World ${data.world.id} level ${level.id}`
     );
   }
+  requireEmbeddedResources(
+    collectWorldDeclaredAssetIds(data.world.assets),
+    data.assets,
+    `World ${data.world.id}`
+  );
   for (const behaviour of data.world.behaviours ?? []) {
     const referenced = behaviour.type === 'oscillating-gate'
       ? [behaviour.leftEntity, behaviour.rightEntity]
