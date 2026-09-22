@@ -86,6 +86,33 @@ export function localPointForWorld(
   return rotateLocalPoint(delta, 4 - levelQuarterTurns(project, levelId));
 }
 
+function lerp(a: Vec3Tuple, b: Vec3Tuple, t: number): Vec3Tuple {
+  return [
+    a[0] + (b[0] - a[0]) * t,
+    a[1] + (b[1] - a[1]) * t,
+    a[2] + (b[2] - a[2]) * t
+  ];
+}
+
+export function rebuildWorldStairTraversals(project: EditableWorldProject): void {
+  for (const connector of project.document.connectors ?? []) {
+    if (connector.type !== 'stairs') continue;
+    const worldFrom = worldPointForLevel(project, connector.fromLevel, connector.fromPosition);
+    const worldTo = worldPointForLevel(project, connector.toLevel, connector.toPosition);
+    const physicalSamples: Vec3Tuple[] = [];
+    const sampleCount = 10;
+    for (let index = 1; index <= sampleCount; ++index) {
+      physicalSamples.push(lerp(worldFrom, worldTo, index / (sampleCount + 1)));
+    }
+    connector.forwardTraversal = physicalSamples.map(point =>
+      localPointForWorld(project, connector.fromLevel, point)
+    );
+    connector.reverseTraversal = [...physicalSamples].reverse().map(point =>
+      localPointForWorld(project, connector.toLevel, point)
+    );
+  }
+}
+
 function placementSnapshot(
   project: EditableWorldProject,
   levelId: string
@@ -120,8 +147,14 @@ export function createSetLevelPlacementCommand(
   };
   return new FunctionalCommand(
     label,
-    () => assignPlacement(target, after),
-    () => assignPlacement(target, before)
+    () => {
+      assignPlacement(target, after);
+      rebuildWorldStairTraversals(project);
+    },
+    () => {
+      assignPlacement(target, before);
+      rebuildWorldStairTraversals(project);
+    }
   );
 }
 
@@ -138,8 +171,14 @@ export function createRotateLevelCommand(
   };
   return new FunctionalCommand(
     direction > 0 ? 'rotate level left' : 'rotate level right',
-    () => assignPlacement(target, after),
-    () => assignPlacement(target, before)
+    () => {
+      assignPlacement(target, after);
+      rebuildWorldStairTraversals(project);
+    },
+    () => {
+      assignPlacement(target, before);
+      rebuildWorldStairTraversals(project);
+    }
   );
 }
 
