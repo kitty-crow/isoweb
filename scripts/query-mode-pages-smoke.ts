@@ -219,12 +219,15 @@ try {
     );
     const result = await page.evaluate(expected => ({
       pathname: location.pathname,
+      search: location.search,
       params: Array.from(new URLSearchParams(location.search).keys()),
       expected
     }), flag);
     await page.close();
     if (
       result.pathname !== '/' ||
+      !result.search.startsWith('?' + flag + '&') ||
+      result.search.includes(flag + '=') ||
       !result.params.includes(flag) ||
       !result.params.includes('stats') ||
       !result.params.includes('dzoom')
