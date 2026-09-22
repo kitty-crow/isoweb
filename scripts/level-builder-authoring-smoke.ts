@@ -4,6 +4,10 @@ import {
   createLocalAddOperation
 } from '../web/src/editor/AuthoringCommands';
 import { EditorCore } from '../web/src/editor/EditorCore';
+import {
+  createDeleteRoomConnectionCommand,
+  createRoomConnectionOperation
+} from '../web/src/editor/RoomConnectionManager';
 import { PackageReader } from '../web/src/world/PackageReader';
 
 const core = new EditorCore('level');
@@ -54,6 +58,45 @@ if (!placedRoomValue ||
   throw new Error('Explicit drag/drop placement coordinates were not preserved');
 }
 
+const rooms = project.document.rooms ?? [];
+if (rooms.length !== 2) throw new Error('Room setup for opening authoring is invalid');
+const opening = createRoomConnectionOperation(
+  project,
+  { kind: 'room', id: rooms[0].id, levelId: project.document.id },
+  rooms[0].id,
+  rooms[1].id
+);
+core.execute(opening.command);
+if ((project.document.roomConnections ?? []).length !== 1) {
+  throw new Error('Room opening authoring failed');
+}
+const openingValue = project.document.roomConnections![0];
+if (openingValue.a.roomId !== rooms[0].id ||
+    openingValue.b.roomId !== rooms[1].id ||
+    openingValue.a.width <= 0 ||
+    openingValue.b.width <= 0) {
+  throw new Error('Room opening endpoints were not authored correctly');
+}
+
+let referencedRoomDeleteRejected = false;
+try {
+  createDeleteCommand(project, { kind: 'room', id: rooms[0].id, levelId: project.document.id });
+} catch (error) {
+  referencedRoomDeleteRejected = String(error).includes(openingValue.id);
+}
+if (!referencedRoomDeleteRejected) {
+  throw new Error('Deleting a room referenced by an opening was not blocked');
+}
+
+core.execute(createDeleteRoomConnectionCommand(project, opening.selection));
+if ((project.document.roomConnections ?? []).length !== 0) {
+  throw new Error('Room opening delete failed');
+}
+core.undo();
+if ((project.document.roomConnections ?? []).length !== 1) {
+  throw new Error('Undo did not restore room opening');
+}
+
 const cube = project.document.geometry.find(value => value.type === 'cube');
 if (!cube) throw new Error('Cube was not created');
 core.selection.select({ kind: 'geometry', id: cube.id, levelId: project.document.id });
@@ -85,7 +128,8 @@ if (preview.world.settings.defaultLevel !== project.document.id ||
     preview.levels.length !== 1 ||
     preview.levels[0].id !== project.document.id ||
     (preview.levels[0].floorHoles ?? []).length !== 1 ||
-    (preview.levels[0].staircases ?? []).length !== 1) {
+    (preview.levels[0].staircases ?? []).length !== 1 ||
+    (preview.levels[0].roomConnections ?? []).length !== 1) {
   throw new Error('Level Builder runtime preview did not wrap the current source level correctly');
 }
 
@@ -97,6 +141,7 @@ if (reopenedProject.kind !== 'level' ||
     (reopenedProject.document.rooms ?? []).length !== 2 ||
     (reopenedProject.document.floorHoles ?? []).length !== 1 ||
     (reopenedProject.document.staircases ?? []).length !== 1 ||
+    (reopenedProject.document.roomConnections ?? []).length !== 1 ||
     reopenedProject.document.entities.length !== 2 ||
     reopenedProject.document.connectors.length !== 1) {
   throw new Error('Authored level did not survive source package save/reopen');
@@ -116,4 +161,4 @@ if (worldPreview.world.id !== world.document.id ||
   throw new Error('World Editor runtime preview did not preserve the current in-memory source world');
 }
 
-console.log('Level authoring smoke passed: drag-ready rooms, floor holes, stairs, geometry and gameplay objects are undoable, persist in source packages, and build a real-runtime preview world.');
+console.log('Level authoring smoke passed: rooms, openings, floor holes, stairs, geometry and gameplay objects are undoable, persist in source packages, and build a real-runtime preview world.');
