@@ -1,4 +1,5 @@
 import type { IsowebModule } from './runtime';
+import { browserMode } from './browserMode';
 
 type MemoryPerformance = Performance & {
   memory?: {
@@ -76,6 +77,8 @@ export class StatsOverlay {
       'FPS',
       'Frame',
       'Activity',
+      'Requested',
+      'Runtime',
       'Renderer',
       'Display',
       'CPU',
@@ -186,6 +189,15 @@ export class StatsOverlay {
       'Activity',
       this.activity === 'idle' && recentPresent ? 'render / presentation' : this.activity
     );
+    const requested = browserMode();
+    const requestedModes = [
+      requested.threaded ? 'threaded' : 'single-thread',
+      requested.webgl ? 'webgl' : 'cpu'
+    ];
+    this.set('Requested', requestedModes.join(' + '));
+    const runtimeMode = globalThis.isowebRuntimeMode ?? 'single-thread';
+    const fallback = globalThis.isowebRuntimeFallbackReason;
+    this.set('Runtime', fallback ? `${runtimeMode} · fallback: ${fallback}` : runtimeMode);
     this.set('Renderer', staticBackendLabel(backend));
     this.set('Display', presentation === 'webgl2' ? 'WebGL2' : 'Canvas2D');
     this.set(
