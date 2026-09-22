@@ -65,7 +65,7 @@ export class EditorLayoutViewport {
       }
     });
     this.root.addEventListener('drop', event => this.dropPaletteItem(event));
-    this.root.addEventListener('click', event => this.placeArmedItem(event));
+    this.root.addEventListener('click', event => this.placeArmedItem(event), true);
     this.root.addEventListener('pointermove', event => this.pointerMove(event));
     this.root.addEventListener('pointerup', event => this.pointerUp(event));
     this.root.addEventListener('pointercancel', event => this.pointerUp(event));
@@ -145,8 +145,8 @@ export class EditorLayoutViewport {
   private placeArmedItem(event: MouseEvent): void {
     const kind = this.placementKind;
     if (!kind) return;
-    const target = event.target as HTMLElement;
-    if (target.closest('.editor-layout-item')) return;
+    event.preventDefault();
+    event.stopPropagation();
     const position = this.clientToWorld(event.clientX, event.clientY);
     this.addAt(kind, position);
     this.setPlacementKind(null);
@@ -204,6 +204,7 @@ export class EditorLayoutViewport {
       this.core.selection.select(selection);
     });
     item.addEventListener('pointerdown', event => {
+      if (this.placementKind) return;
       if ((event.target as HTMLElement).classList.contains('editor-layout-handle')) return;
       event.stopPropagation();
       this.beginMove(event, selection, target, item);
