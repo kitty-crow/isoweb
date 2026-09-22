@@ -34,6 +34,7 @@
     "test:stats": "bun scripts/stats-overlay-smoke.ts",
     "package:demo-world": "bun scripts/package-demo-world.ts",
     "test:world-package": "bun scripts/world-package-smoke.ts",
-    "test:demo-package-parity": "bun scripts/demo-package-parity.ts"
+    "test:demo-package-parity": "bun scripts/demo-package-parity.ts",
+    "test:package-behaviours": "bun scripts/package-behaviour-smoke.ts"
   }
 }
