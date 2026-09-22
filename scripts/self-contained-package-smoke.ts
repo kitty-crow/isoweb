@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { strFromU8, unzipSync } from '../vendor/fflate/index';
 
 import { CompiledPackageWriter } from '../web/src/world/CompiledPackageWriter';
@@ -117,6 +117,7 @@ const compiledWorldBytes = compiledWriter.writeWorldBytes(
   new Map([['world-probe.bin', { bytes: worldProbe, mediaType: 'application/octet-stream' }]])
 );
 const compiledWorldPackage = reader.loadWorldBytes(compiledWorldBytes);
+await writeFile('web/assets/self-contained-fixture.isoworld', compiledWorldBytes);
 assertBytes('compiled isoworld nested sprite', compiledWorldPackage.assets.get('probe.png')?.bytes, probePng);
 assertBytes('compiled isoworld world asset', compiledWorldPackage.assets.get('world-probe.bin')?.bytes, worldProbe);
 
