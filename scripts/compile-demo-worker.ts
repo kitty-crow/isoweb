@@ -57,7 +57,7 @@ function mergeAssetInputs(
       inferAssetMediaType(id, existing.mediaType) !== inferAssetMediaType(id, asset.mediaType) ||
       !sameBytes(existing.bytes, asset.bytes)
     ) {
-      throw new Error(\`Asset id \${id} has conflicting bytes while assembling \${context}\`);
+      throw new Error(`Asset id ${id} has conflicting bytes while assembling ${context}`);
     }
   }
 }
@@ -74,7 +74,7 @@ for (const reference of world.levels) {
     JSON.parse(await readFile(sourcePath, 'utf8')) as LevelDocument
   );
   if (level.id !== reference.id) {
-    throw new Error(\`Source level id mismatch: \${reference.id} != \${level.id}\`);
+    throw new Error(`Source level id mismatch: ${reference.id} != ${level.id}`);
   }
   levels.push(level);
   levelAssets.set(
@@ -89,7 +89,7 @@ for (const level of levels) {
   mergeAssetInputs(
     completeSourceWorldAssets,
     levelAssets.get(level.id) ?? new Map(),
-    \`source world \${world.id}\`
+    `source world ${world.id}`
   );
 }
 
@@ -109,7 +109,7 @@ await writeFile(join(assetRoot, 'demo-source.isoworld'), sourceWorldBytes);
 
 for (const level of levels) {
   await writeFile(
-    join(assetRoot, \`demo-\${level.id}-source.isolevel\`),
+    join(assetRoot, `demo-${level.id}-source.isolevel`),
     sourceWriter.writeLevelBytes(level, levelAssets.get(level.id))
   );
 }
@@ -124,14 +124,14 @@ for (const level of compiledLevels) {
     !('compiledFormatVersion' in roundTrip.level) ||
     roundTrip.level.id !== level.id
   ) {
-    throw new Error(\`Compiled isolevel round-trip failed for \${level.id}\`);
+    throw new Error(`Compiled isolevel round-trip failed for ${level.id}`);
   }
   compiledLevelPackages.set(level.id, bytes);
-  await writeFile(join(assetRoot, \`demo-\${level.id}.isolevel\`), bytes);
+  await writeFile(join(assetRoot, `demo-${level.id}.isolevel`), bytes);
 }
 
 const compiledPaths = new Map(
-  world.levels.map(reference => [reference.id, \`levels/\${reference.id}.isolevel\`])
+  world.levels.map(reference => [reference.id, `levels/${reference.id}.isolevel`])
 );
 const compiledWorld = compiler.compileWorld(world, compiledPaths);
 const compiledWorldBytes = compiledWriter.writeWorldBytes(
@@ -152,6 +152,6 @@ if (
 await writeFile(join(assetRoot, 'demo.isoworld'), compiledWorldBytes);
 
 console.log(
-  \`Compiled self-contained demo deployment: \${compiledLevels.length} isolevel packages -> demo.isoworld; \` +
+  `Compiled self-contained demo deployment: ${compiledLevels.length} isolevel packages -> demo.isoworld; ` +
   'source world and standalone source/compiled levels retain embedded assets.'
 );
