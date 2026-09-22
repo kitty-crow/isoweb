@@ -138,7 +138,55 @@ Object renderProxy(const Object& object, const Vec3& position, const std::string
   return proxy;
 }
 
+class BootstrapLevel final : public IWorldLevel {
+public:
+  BootstrapLevel() {
+    bounds_.focus = {0.0f, 0.0f, 0.0f};
+    bounds_.points = {
+      {-1.0f, -1.0f, 0.0f}, {1.0f, -1.0f, 0.0f},
+      {-1.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 0.0f}
+    };
+  }
+
+  const WorldBounds& bounds() const override { return bounds_; }
+
+  Vec3 sample(const Ray&, float backgroundY) const override {
+    const float t = std::max(0.0f, std::min(1.0f, backgroundY));
+    return Vec3(0.075f, 0.12f, 0.18f) * (1.0f - t) +
+      Vec3(0.20f, 0.28f, 0.34f) * t;
+  }
+
+  bool traceEnvironment(const Ray&, SceneSurfaceHit& hit) const override {
+    hit = SceneSurfaceHit();
+    return false;
+  }
+
+  bool walkableSurfaceAt(float, float, SceneSurfaceHit& hit) const override {
+    hit = SceneSurfaceHit();
+    return false;
+  }
+
+  const std::vector<Object>& objects() const override { return objects_; }
+  bool overlapsStatic(std::size_t, const Object&) const override { return false; }
+  bool intersectsSolid(const HitBox&) const override { return false; }
+
+private:
+  WorldBounds bounds_;
+  std::vector<Object> objects_;
+};
+
+std::vector<std::unique_ptr<IWorldLevel>> bootstrapLevels() {
+  std::vector<std::unique_ptr<IWorldLevel>> levels;
+  levels.emplace_back(new BootstrapLevel());
+  return levels;
+}
+
 } // namespace
+
+World::World()
+    : World(bootstrapLevels(), 0) {
+  setLevelId(0, "__bootstrap__");
+}
 
 World::World(std::vector<std::unique_ptr<IWorldLevel>> levels, std::size_t defaultLevelIndex) {
   if (!replaceLevels(std::move(levels), defaultLevelIndex)) std::abort();
