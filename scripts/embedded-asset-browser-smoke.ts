@@ -136,15 +136,30 @@ async function prove(path: string): Promise<void> {
   });
 
   try {
+    console.log('[embedded-assets] loading ' + path);
     await page.goto(
       `http://127.0.0.1:${server.port}/?presentation=canvas2d&world=${encodeURIComponent(path)}`,
       { waitUntil: 'domcontentloaded' }
     );
-    await page.waitForFunction(
-      () => document.documentElement.classList.contains('world-ready'),
-      undefined,
-      { timeout: 45_000 }
-    );
+    try {
+      await page.waitForFunction(
+        () => document.documentElement.classList.contains('world-ready'),
+        undefined,
+        { timeout: 45_000 }
+      );
+    } catch (error) {
+      const state = await page.evaluate(() => ({
+        ready: document.documentElement.classList.contains('world-ready'),
+        loading: document.getElementById('loading')?.textContent ?? null,
+        href: location.href
+      })).catch(() => null);
+      throw new Error(
+        path + ' did not become world-ready. state=' + JSON.stringify(state) +
+        ' errors=' + JSON.stringify(errors) +
+        ' forbiddenAssetRequests=' + forbiddenAssetRequests +
+        ' cause=' + String(error)
+      );
+    }
 
     const state = await page.evaluate(() => ({
       characters: (globalThis as any).Module._isoweb_character_count(),
