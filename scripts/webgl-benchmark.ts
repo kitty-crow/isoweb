@@ -76,7 +76,7 @@ const browser = await chromium.launch({ headless: true });
 try {
   const canvasPage = await browser.newPage({ viewport: { width: 960, height: 720 } });
   const webglPage = await browser.newPage({ viewport: { width: 960, height: 720 } });
-  const canvas = await measure(canvasPage, '?webgl=0');
+  const canvas = await measure(canvasPage, '?presentation=canvas2d');
   const webgl = await measure(webglPage, '?gpuStatic=0');
 
   if (canvas.backend !== 'canvas2d' || webgl.backend !== 'webgl2') {
