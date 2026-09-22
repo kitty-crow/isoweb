@@ -43,16 +43,8 @@ const server = Bun.serve({
   }
 });
 
-type Frame = {
-  level: number;
-  yaw: number;
-  width: number;
-  height: number;
-  pixels: number[];
-};
-
-async function captureStaticScene(page: any): Promise<Frame[]> {
-  return page.evaluate(async () => {
+async function captureBootstrap(page: any): Promise<number> {
+  return page.evaluate(() => {
     const module = (globalThis as any).Module;
     const canvas = document.getElementById('canvas') as HTMLCanvasElement;
     const context = canvas.getContext('2d');
@@ -64,15 +56,20 @@ async function captureStaticScene(page: any): Promise<Frame[]> {
     module._isoweb_reset_camera();
     module._isoweb_reset_yaw();
     module._isoweb_reset_level();
-
     while (module._isoweb_active_level_index() > 0) module._isoweb_level_down();
 
-    const frames: Frame[] = [];
-    const levelCount = module._isoweb_level_count();
+    const frames: Array<{
+      level: number;
+      yaw: number;
+      width: number;
+      height: number;
+      pixels: Uint8ClampedArray;
+    }> = [];
 
+    const levelCount = module._isoweb_level_count();
     for (let level = 0; level < levelCount; ++level) {
       if (module._isoweb_active_level_index() !== level) {
-        throw new Error(`Could not select level ${level}`);
+        throw new Error(`Could not select bootstrap level ${level}`);
       }
 
       module._isoweb_reset_yaw();
@@ -81,7 +78,6 @@ async function captureStaticScene(page: any): Promise<Frame[]> {
 
       for (let yaw = 0; yaw < 4; ++yaw) {
         module._isoweb_render();
-
         let guard = 0;
         while (module._isoweb_preview_needs_refinement() && guard++ < 2000) {
           module._isoweb_refine_preview(64);
@@ -93,7 +89,9 @@ async function captureStaticScene(page: any): Promise<Frame[]> {
           yaw,
           width: canvas.width,
           height: canvas.height,
-          pixels: Array.from(context.getImageData(0, 0, canvas.width, canvas.height).data)
+          pixels: new Uint8ClampedArray(
+            context.getImageData(0, 0, canvas.width, canvas.height).data
+          )
         });
 
         module._isoweb_rotate_clockwise();
@@ -102,61 +100,123 @@ async function captureStaticScene(page: any): Promise<Frame[]> {
       if (level + 1 < levelCount) module._isoweb_level_up();
     }
 
-    return frames;
+    (globalThis as any).__isowebBootstrapFrames = frames;
+    return frames.length;
   });
 }
 
-function compare(before: Frame[], after: Frame[]): void {
-  if (before.length !== after.length) {
-    throw new Error(`Frame count changed: bootstrap=${before.length}, package=${after.length}`);
-  }
+async function comparePackaged(page: any): Promise<{ frames: number; bytes: number }> {
+  return page.evaluate(() => {
+    const module = (globalThis as any).Module;
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas2D context unavailable.');
 
-  for (let frameIndex = 0; frameIndex < before.length; ++frameIndex) {
-    const a = before[frameIndex];
-    const b = after[frameIndex];
-    if (a.level !== b.level || a.yaw !== b.yaw || a.width !== b.width || a.height !== b.height) {
-      throw new Error(`Frame metadata changed at index ${frameIndex}: ${JSON.stringify({ bootstrap: a, package: b }, ['level','yaw','width','height'])}`);
-    }
+    const baseline = (globalThis as any).__isowebBootstrapFrames as Array<{
+      level: number;
+      yaw: number;
+      width: number;
+      height: number;
+      pixels: Uint8ClampedArray;
+    }> | undefined;
+    if (!baseline?.length) throw new Error('Bootstrap parity frames are missing.');
 
-    let mismatchedChannels = 0;
-    let mismatchedPixels = 0;
-    let maxDelta = 0;
-    let firstMismatch = -1;
+    module._isoweb_set_obstacles_enabled(0);
+    module._isoweb_clear_entities();
+    module._isoweb_reset_zoom();
+    module._isoweb_reset_camera();
+    module._isoweb_reset_yaw();
+    module._isoweb_reset_level();
+    while (module._isoweb_active_level_index() > 0) module._isoweb_level_down();
 
-    for (let pixel = 0; pixel < a.width * a.height; ++pixel) {
-      const base = pixel * 4;
-      let pixelMismatch = false;
-      for (let channel = 0; channel < 4; ++channel) {
-        const index = base + channel;
-        const delta = Math.abs(a.pixels[index] - b.pixels[index]);
-        if (delta === 0) continue;
-        ++mismatchedChannels;
-        pixelMismatch = true;
-        maxDelta = Math.max(maxDelta, delta);
-        if (firstMismatch < 0) firstMismatch = index;
+    const levelCount = module._isoweb_level_count();
+    let frameIndex = 0;
+    let bytes = 0;
+
+    for (let level = 0; level < levelCount; ++level) {
+      if (module._isoweb_active_level_index() !== level) {
+        throw new Error(`Could not select packaged level ${level}`);
       }
-      if (pixelMismatch) ++mismatchedPixels;
+
+      module._isoweb_reset_yaw();
+      module._isoweb_reset_zoom();
+      module._isoweb_reset_camera();
+
+      for (let yaw = 0; yaw < 4; ++yaw) {
+        module._isoweb_render();
+        let guard = 0;
+        while (module._isoweb_preview_needs_refinement() && guard++ < 2000) {
+          module._isoweb_refine_preview(64);
+        }
+        module._isoweb_render();
+
+        const expected = baseline[frameIndex++];
+        if (!expected) throw new Error('Packaged demo produced more frames than bootstrap demo.');
+        if (
+          expected.level !== level || expected.yaw !== yaw ||
+          expected.width !== canvas.width || expected.height !== canvas.height
+        ) {
+          throw new Error(
+            `Frame metadata changed at level ${level}, yaw ${yaw * 90} degrees.`
+          );
+        }
+
+        const actual = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        bytes += actual.length;
+        let mismatchedChannels = 0;
+        let mismatchedPixels = 0;
+        let maxDelta = 0;
+        let firstMismatch = -1;
+
+        for (let pixel = 0; pixel < canvas.width * canvas.height; ++pixel) {
+          const base = pixel * 4;
+          let pixelMismatch = false;
+          for (let channel = 0; channel < 4; ++channel) {
+            const index = base + channel;
+            const delta = Math.abs(expected.pixels[index] - actual[index]);
+            if (delta === 0) continue;
+            ++mismatchedChannels;
+            pixelMismatch = true;
+            maxDelta = Math.max(maxDelta, delta);
+            if (firstMismatch < 0) firstMismatch = index;
+          }
+          if (pixelMismatch) ++mismatchedPixels;
+        }
+
+        if (mismatchedChannels !== 0) {
+          const pixel = Math.floor(firstMismatch / 4);
+          throw new Error(
+            `Packaged demo differs from bootstrap demo at level ${level}, yaw ${yaw * 90} degrees: ` +
+            JSON.stringify({
+              mismatchedChannels,
+              mismatchedPixels,
+              maxDelta,
+              firstMismatch: {
+                x: pixel % canvas.width,
+                y: Math.floor(pixel / canvas.width),
+                channel: firstMismatch % 4,
+                bootstrap: expected.pixels[firstMismatch],
+                package: actual[firstMismatch]
+              }
+            })
+          );
+        }
+
+        module._isoweb_rotate_clockwise();
+      }
+
+      if (level + 1 < levelCount) module._isoweb_level_up();
     }
 
-    if (mismatchedChannels !== 0) {
-      const pixel = Math.floor(firstMismatch / 4);
+    if (frameIndex !== baseline.length) {
       throw new Error(
-        `Packaged demo differs from bootstrap demo at level ${a.level}, yaw ${a.yaw * 90} degrees: ` +
-        JSON.stringify({
-          mismatchedChannels,
-          mismatchedPixels,
-          maxDelta,
-          firstMismatch: {
-            x: pixel % a.width,
-            y: Math.floor(pixel / a.width),
-            channel: firstMismatch % 4,
-            bootstrap: a.pixels[firstMismatch],
-            package: b.pixels[firstMismatch]
-          }
-        })
+        `Packaged demo produced ${frameIndex} frames, bootstrap demo produced ${baseline.length}.`
       );
     }
-  }
+
+    delete (globalThis as any).__isowebBootstrapFrames;
+    return { frames: frameIndex, bytes };
+  });
 }
 
 const browser = await chromium.launch({ headless: true });
@@ -180,7 +240,10 @@ try {
   while (!packageRequested && Date.now() < requestDeadline) await Bun.sleep(10);
   if (!packageRequested) throw new Error('Browser never requested demo.isoworld.');
 
-  const bootstrap = await captureStaticScene(page);
+  const bootstrapFrames = await captureBootstrap(page);
+  if (bootstrapFrames !== 12) {
+    throw new Error(`Expected 12 bootstrap frames, got ${bootstrapFrames}.`);
+  }
 
   releasePackage();
   await page.waitForFunction(
@@ -189,12 +252,10 @@ try {
     { timeout: 30_000 }
   );
 
-  const packaged = await captureStaticScene(page);
-  compare(bootstrap, packaged);
-
+  const result = await comparePackaged(page);
   console.log(
-    `Demo package parity passed: ${bootstrap.length} static frames match exactly ` +
-    '(3 levels x 4 regular yaw angles, all RGBA bytes identical).'
+    `Demo package parity passed: ${result.frames} frames and ${result.bytes} RGBA bytes match exactly ` +
+    '(3 levels x 4 regular yaw angles).'
   );
 } finally {
   releasePackage();
