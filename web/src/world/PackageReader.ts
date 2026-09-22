@@ -1,7 +1,7 @@
 import { strFromU8, unzipSync } from '../../../vendor/fflate/index';
 import type { LevelDocument, LoadedWorldPackage, PackageManifest, WorldDocument } from './documents';
 import type {
-  CompiledLevelDocument, LoadedCompiledWorldPackage, LoadedRuntimeWorldPackage
+  CompiledLevelDocument, CompiledWorldDocument, LoadedCompiledWorldPackage, LoadedRuntimeWorldPackage
 } from './WorldCompiler';
 import {
   validateCompiledLevelDocument, validateCompiledWorldDocument, validateCompiledWorldGraph
