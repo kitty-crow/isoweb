@@ -4,7 +4,7 @@ body.editor-page {
   color: #e8eef5;
   font: 14px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   touch-action: manipulation;
-  overflow: hidden;
+  overflow: auto;
 }
 
 button,
