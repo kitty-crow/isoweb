@@ -335,6 +335,84 @@
           "crouchedHeight": 1.05
         }
       }
+    },
+    {
+      "id": "demo-obstacle-barrier-left",
+      "components": {
+        "transform": {
+          "position": [
+            0,
+            1.9,
+            0
+          ],
+          "forward": [
+            0,
+            1,
+            0
+          ]
+        },
+        "collider": {
+          "type": "box",
+          "minimum": [
+            -0.1,
+            -0.11,
+            0
+          ],
+          "maximum": [
+            0.1,
+            0.11,
+            1.3
+          ],
+          "solid": true,
+          "collisionTags": [
+            "world-behaviour"
+          ],
+          "mustCollideWith": []
+        },
+        "dynamicBody": {
+          "surfaceTextureMode": "tile-world",
+          "textureWorldUnitsPerTile": 0.5
+        }
+      }
+    },
+    {
+      "id": "demo-obstacle-barrier-right",
+      "components": {
+        "transform": {
+          "position": [
+            0,
+            1.9,
+            0
+          ],
+          "forward": [
+            0,
+            1,
+            0
+          ]
+        },
+        "collider": {
+          "type": "box",
+          "minimum": [
+            -0.1,
+            -0.11,
+            0
+          ],
+          "maximum": [
+            0.1,
+            0.11,
+            1.3
+          ],
+          "solid": true,
+          "collisionTags": [
+            "world-behaviour"
+          ],
+          "mustCollideWith": []
+        },
+        "dynamicBody": {
+          "surfaceTextureMode": "tile-world",
+          "textureWorldUnitsPerTile": 0.5
+        }
+      }
     }
   ],
   "lights": [

@@ -2,9 +2,10 @@
 #include <cmath>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "demo/DemoObstacles.hpp"
+#include "engine/world/BehaviourSystem.hpp"
 #include "demo/DemoWorld.hpp"
 #include "engine/character/CharacterSystem.hpp"
 
@@ -52,6 +53,87 @@ float barrierOpeningWidth(
   return rightInner - leftInner;
 }
 
+void configureBehaviours(isoweb::engine::BehaviourSystem& behaviours) {
+  using namespace isoweb::engine;
+  auto box = [](const Vec3& minimum, const Vec3& maximum) {
+    HitBox result;
+    result.minimum = minimum;
+    result.maximum = maximum;
+    return result;
+  };
+  auto entity = [&](const char* id, const char* level, const Vec3& position, const Vec3& forward,
+                    const HitBox& hitBox, SurfaceTextureMode textureMode = SurfaceTextureMode::TileLocal) {
+    DynamicEntityDefinition definition;
+    definition.id = id;
+    definition.worldId = "demo";
+    definition.timelineId = "default";
+    definition.levelId = level;
+    definition.position = position;
+    definition.forward = forward;
+    definition.hitBox = hitBox;
+    definition.textureMode = textureMode;
+    definition.textureWorldUnitsPerTile = 0.5f;
+    definition.collisionTags.push_back("world-behaviour");
+    behaviours.addEntity(definition);
+  };
+
+  entity("demo-obstacle-barrier-left", "middle", {0.0f, 1.90f, 0.0f}, {0.0f, 1.0f, 0.0f},
+         box({-0.10f, -0.11f, 0.0f}, {0.10f, 0.11f, 1.30f}), SurfaceTextureMode::TileWorld);
+  entity("demo-obstacle-barrier-right", "middle", {0.0f, 1.90f, 0.0f}, {0.0f, 1.0f, 0.0f},
+         box({-0.10f, -0.11f, 0.0f}, {0.10f, 0.11f, 1.30f}), SurfaceTextureMode::TileWorld);
+  entity("demo-obstacle-guillotine", "upper", {0.0f, 2.15f, 2.25f}, {0.0f, 1.0f, 0.0f},
+         box({-4.48f, -0.12f, -0.12f}, {4.48f, 0.12f, 0.12f}));
+  entity("demo-obstacle-blade-a", "lower", {2.15f, -3.82f, 0.0f}, {0.0f, 1.0f, 0.0f},
+         box({-0.11f, 0.16f, 0.08f}, {0.11f, 1.08f, 0.28f}));
+  entity("demo-obstacle-blade-b", "lower", {2.15f, -3.82f, 0.0f}, {0.0f, -1.0f, 0.0f},
+         box({-0.11f, 0.16f, 0.08f}, {0.11f, 1.08f, 0.28f}));
+
+  OscillatingGateDefinition gate;
+  gate.leftId = "demo-obstacle-barrier-left";
+  gate.rightId = "demo-obstacle-barrier-right";
+  gate.base = {0.0f, 1.90f, 0.0f};
+  gate.halfSpan = 4.48f;
+  gate.gap = 2.35f;
+  gate.sweep = 2.15f;
+  gate.angularSpeed = 0.24f;
+  gate.halfThickness = 0.11f;
+  gate.height = 1.30f;
+  behaviours.addGate(gate);
+
+  VerticalCycleDefinition guillotine;
+  guillotine.entityId = "demo-obstacle-guillotine";
+  guillotine.base = {0.0f, 2.15f, 0.0f};
+  guillotine.upZ = 2.25f;
+  guillotine.downZ = 0.28f;
+  guillotine.period = 2.60f;
+  guillotine.blockOnSafeContact = true;
+  guillotine.lethalFace = HazardFace::Bottom;
+  guillotine.contactTolerance = 0.028f;
+  behaviours.addVerticalCycle(guillotine);
+
+  for (const auto& item : std::vector<std::pair<std::string, float>>{
+         {"demo-obstacle-blade-a", 1.0f}, {"demo-obstacle-blade-b", -1.0f}}) {
+    RotationDefinition rotation;
+    rotation.entityIds.push_back(item.first);
+    rotation.directionMultipliers.push_back(item.second);
+    rotation.angularSpeed = 2.35f;
+    behaviours.addRotation(rotation);
+  }
+
+  auto hazard = [&](const char* id, HazardFace face) {
+    HazardDefinition definition;
+    definition.entityId = id;
+    definition.face = face;
+    definition.tolerance = 0.028f;
+    behaviours.addHazard(definition);
+  };
+  hazard("demo-obstacle-barrier-left", HazardFace::Right);
+  hazard("demo-obstacle-barrier-right", HazardFace::Left);
+  hazard("demo-obstacle-guillotine", HazardFace::Bottom);
+  hazard("demo-obstacle-blade-a", HazardFace::Any);
+  hazard("demo-obstacle-blade-b", HazardFace::Any);
+}
+
 } // namespace
 
 int main() {
@@ -59,7 +141,8 @@ int main() {
 
   demo::DemoWorld world;
   engine::CharacterSystem characters(world);
-  demo::DemoObstacleSystem obstacles(world);
+  engine::BehaviourSystem obstacles(world);
+  configureBehaviours(obstacles);
 
   if (obstacles.enabled() || obstacles.partCount() != 0) return 1;
 

@@ -285,7 +285,47 @@
       "width": 0.78
     }
   ],
-  "entities": [],
+  "entities": [
+    {
+      "id": "demo-obstacle-guillotine",
+      "components": {
+        "transform": {
+          "position": [
+            0,
+            2.15,
+            2.25
+          ],
+          "forward": [
+            0,
+            1,
+            0
+          ]
+        },
+        "collider": {
+          "type": "box",
+          "minimum": [
+            -4.48,
+            -0.12,
+            -0.12
+          ],
+          "maximum": [
+            4.48,
+            0.12,
+            0.12
+          ],
+          "solid": true,
+          "collisionTags": [
+            "world-behaviour"
+          ],
+          "mustCollideWith": []
+        },
+        "dynamicBody": {
+          "surfaceTextureMode": "tile-local",
+          "textureWorldUnitsPerTile": 0.5
+        }
+      }
+    }
+  ],
   "lights": [
     {
       "id": "upper-light",

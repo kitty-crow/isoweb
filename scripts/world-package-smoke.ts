@@ -16,7 +16,10 @@ if (
   loaded.world.id !== 'demo' || loaded.levels.length !== 3 ||
   loaded.world.settings.defaultLevel !== 'middle' ||
   (loaded.world.connectors ?? []).length !== 2 ||
-  loaded.levels.map(level => level.id).join(',') !== 'lower,middle,upper'
+  (loaded.world.behaviours ?? []).length !== 9 ||
+  loaded.levels.map(level => level.id).join(',') !== 'lower,middle,upper' ||
+  loaded.levels.flatMap(level => level.entities)
+    .filter(entity => 'dynamicBody' in entity.components).length !== 5
 ) throw new Error('World package round-trip changed the demo');
 
 for (const level of levels) {

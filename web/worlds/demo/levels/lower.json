@@ -272,7 +272,86 @@
       "width": 0.78
     }
   ],
-  "entities": [],
+  "entities": [
+    {
+      "id": "demo-obstacle-blade-a",
+      "components": {
+        "transform": {
+          "position": [
+            2.15,
+            -3.82,
+            0
+          ],
+          "forward": [
+            0,
+            1,
+            0
+          ]
+        },
+        "collider": {
+          "type": "box",
+          "minimum": [
+            -0.11,
+            0.16,
+            0.08
+          ],
+          "maximum": [
+            0.11,
+            1.08,
+            0.28
+          ],
+          "solid": true,
+          "collisionTags": [
+            "world-behaviour"
+          ],
+          "mustCollideWith": []
+        },
+        "dynamicBody": {
+          "surfaceTextureMode": "tile-local",
+          "textureWorldUnitsPerTile": 0.5
+        }
+      }
+    },
+    {
+      "id": "demo-obstacle-blade-b",
+      "components": {
+        "transform": {
+          "position": [
+            2.15,
+            -3.82,
+            0
+          ],
+          "forward": [
+            0,
+            -1,
+            0
+          ]
+        },
+        "collider": {
+          "type": "box",
+          "minimum": [
+            -0.11,
+            0.16,
+            0.08
+          ],
+          "maximum": [
+            0.11,
+            1.08,
+            0.28
+          ],
+          "solid": true,
+          "collisionTags": [
+            "world-behaviour"
+          ],
+          "mustCollideWith": []
+        },
+        "dynamicBody": {
+          "surfaceTextureMode": "tile-local",
+          "textureWorldUnitsPerTile": 0.5
+        }
+      }
+    }
+  ],
   "lights": [
     {
       "id": "lower-light",

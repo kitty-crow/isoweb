@@ -5,7 +5,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "demo/DemoObstacles.hpp"
+#include "engine/world/BehaviourSystem.hpp"
 #include "demo/DemoWorld.hpp"
 #include "engine/camera/Camera.hpp"
 #include "engine/character/CharacterSystem.hpp"
@@ -26,7 +26,7 @@ public:
   bool refinePreview(std::size_t maxTiles);
   bool previewNeedsRefinement() const { return renderer_.previewNeedsRefinement(); }
   void tick(float deltaSeconds);
-  bool needsTick() const { return obstacles_.enabled() || characters_.needsTick(); }
+  bool needsTick() const { return behaviours_.enabled() || characters_.needsTick(); }
   void resize(int width, int height);
   void rotateClockwise();
   void rotateCounterClockwise();
@@ -59,7 +59,8 @@ public:
   std::size_t previewPotentialTexelCount() const { return renderer_.previewPotentialTexelCount(); }
 
   void setObstaclesEnabled(bool enabled);
-  bool obstaclesEnabled() const { return obstacles_.enabled(); }
+  bool obstaclesEnabled() const { return behaviours_.enabled(); }
+  engine::BehaviourSystem& behaviours() { return behaviours_; }
 
   bool pointerTap(float x, float y, bool additive);
   bool pointerDoubleTap(float x, float y);
@@ -118,7 +119,7 @@ private:
   engine::Renderer renderer_;
   engine::BrowserPresenter presenter_;
   engine::CharacterSystem characters_;
-  DemoObstacleSystem obstacles_;
+  engine::BehaviourSystem behaviours_;
   std::unordered_map<std::string, engine::EntityLocation> characterSpawns_;
 };
 

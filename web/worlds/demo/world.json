@@ -279,5 +279,94 @@
       ],
       "bidirectional": true
     }
+  ],
+  "behaviours": [
+    {
+      "id": "middle-moving-opening",
+      "type": "oscillating-gate",
+      "leftEntity": "demo-obstacle-barrier-left",
+      "rightEntity": "demo-obstacle-barrier-right",
+      "base": [
+        0,
+        1.9,
+        0
+      ],
+      "halfSpan": 4.48,
+      "gap": 2.35,
+      "sweep": 2.15,
+      "angularSpeed": 0.24,
+      "halfThickness": 0.11,
+      "height": 1.3
+    },
+    {
+      "id": "upper-guillotine-cycle",
+      "type": "vertical-cycle",
+      "entity": "demo-obstacle-guillotine",
+      "base": [
+        0,
+        2.15,
+        0
+      ],
+      "upZ": 2.25,
+      "downZ": 0.28,
+      "period": 2.6,
+      "blockOnSafeContact": true,
+      "lethalFace": "bottom",
+      "contactTolerance": 0.028
+    },
+    {
+      "id": "lower-blade-a-rotation",
+      "type": "rotation",
+      "entity": "demo-obstacle-blade-a",
+      "angularSpeed": 2.35,
+      "directionMultiplier": 1
+    },
+    {
+      "id": "lower-blade-b-rotation",
+      "type": "rotation",
+      "entity": "demo-obstacle-blade-b",
+      "angularSpeed": 2.35,
+      "directionMultiplier": -1
+    },
+    {
+      "id": "middle-left-opening-hazard",
+      "type": "hazard",
+      "entity": "demo-obstacle-barrier-left",
+      "face": "right",
+      "tolerance": 0.028,
+      "action": "respawn"
+    },
+    {
+      "id": "middle-right-opening-hazard",
+      "type": "hazard",
+      "entity": "demo-obstacle-barrier-right",
+      "face": "left",
+      "tolerance": 0.028,
+      "action": "respawn"
+    },
+    {
+      "id": "upper-guillotine-hazard",
+      "type": "hazard",
+      "entity": "demo-obstacle-guillotine",
+      "face": "bottom",
+      "tolerance": 0.028,
+      "action": "respawn"
+    },
+    {
+      "id": "lower-blade-a-hazard",
+      "type": "hazard",
+      "entity": "demo-obstacle-blade-a",
+      "face": "any",
+      "tolerance": 0.028,
+      "action": "respawn"
+    },
+    {
+      "id": "lower-blade-b-hazard",
+      "type": "hazard",
+      "entity": "demo-obstacle-blade-b",
+      "face": "any",
+      "tolerance": 0.028,
+      "action": "respawn"
+    }
   ]
 }

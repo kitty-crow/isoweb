@@ -100,6 +100,9 @@ jobs:
       - name: Smoke-test WASM browser boot
         run: bun run test:runtime
 
+      - name: Prove package-authored dynamic behaviours
+        run: bun run test:package-behaviours
+
       - name: Prove packaged demo matches bootstrap demo exactly
         run: bun run test:demo-package-parity
 

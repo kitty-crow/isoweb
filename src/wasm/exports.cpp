@@ -53,7 +53,150 @@ isoweb::engine::RuntimePrimitiveKind primitiveKindFromInt(int value) {
   }
 }
 
+isoweb::engine::SurfaceTextureMode textureModeFromInt(int value) {
+  using Mode = isoweb::engine::SurfaceTextureMode;
+  switch (value) {
+    case 1: return Mode::TileLocal;
+    case 2: return Mode::TileWorld;
+    default: return Mode::Stretch;
+  }
+}
+
+isoweb::engine::HazardFace hazardFaceFromInt(int value) {
+  using Face = isoweb::engine::HazardFace;
+  switch (value) {
+    case 1: return Face::Left;
+    case 2: return Face::Right;
+    case 3: return Face::Back;
+    case 4: return Face::Front;
+    case 5: return Face::Bottom;
+    case 6: return Face::Top;
+    default: return Face::Any;
+  }
+}
+
 } // namespace
+
+extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_behaviour_clear() {
+  application().behaviours().clearDefinitions();
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_behaviour_add_entity(
+  const char* id,
+  const char* worldId,
+  const char* timelineId,
+  const char* levelId,
+  float x, float y, float z,
+  float forwardX, float forwardY,
+  float minX, float minY, float minZ,
+  float maxX, float maxY, float maxZ,
+  int solid,
+  int textureMode,
+  float textureWorldUnitsPerTile
+) {
+  isoweb::engine::DynamicEntityDefinition entity;
+  entity.id = text(id);
+  entity.worldId = text(worldId);
+  entity.timelineId = text(timelineId);
+  entity.levelId = text(levelId);
+  entity.position = {x, y, z};
+  entity.forward = {forwardX, forwardY, 0.0f};
+  entity.hitBox.minimum = {minX, minY, minZ};
+  entity.hitBox.maximum = {maxX, maxY, maxZ};
+  entity.solid = solid != 0;
+  entity.textureMode = textureModeFromInt(textureMode);
+  entity.textureWorldUnitsPerTile = textureWorldUnitsPerTile;
+  application().behaviours().addEntity(entity);
+  return 1;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_behaviour_add_entity_collision_tag(
+  const char* id,
+  const char* tag
+) {
+  return application().behaviours().addEntityCollisionTag(text(id), text(tag)) ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_behaviour_add_entity_collision_selector(
+  const char* id,
+  const char* selector
+) {
+  return application().behaviours().addEntityCollisionSelector(text(id), text(selector)) ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_behaviour_add_gate(
+  const char* leftId,
+  const char* rightId,
+  float baseX, float baseY, float baseZ,
+  float halfSpan,
+  float gap,
+  float sweep,
+  float angularSpeed,
+  float halfThickness,
+  float height
+) {
+  isoweb::engine::OscillatingGateDefinition gate;
+  gate.leftId = text(leftId);
+  gate.rightId = text(rightId);
+  gate.base = {baseX, baseY, baseZ};
+  gate.halfSpan = halfSpan;
+  gate.gap = gap;
+  gate.sweep = sweep;
+  gate.angularSpeed = angularSpeed;
+  gate.halfThickness = halfThickness;
+  gate.height = height;
+  application().behaviours().addGate(gate);
+  return 1;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_behaviour_add_vertical_cycle(
+  const char* entityId,
+  float baseX, float baseY, float baseZ,
+  float upZ,
+  float downZ,
+  float period,
+  int blockOnSafeContact,
+  int lethalFace,
+  float contactTolerance
+) {
+  isoweb::engine::VerticalCycleDefinition cycle;
+  cycle.entityId = text(entityId);
+  cycle.base = {baseX, baseY, baseZ};
+  cycle.upZ = upZ;
+  cycle.downZ = downZ;
+  cycle.period = period;
+  cycle.blockOnSafeContact = blockOnSafeContact != 0;
+  cycle.lethalFace = hazardFaceFromInt(lethalFace);
+  cycle.contactTolerance = contactTolerance;
+  application().behaviours().addVerticalCycle(cycle);
+  return 1;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_behaviour_add_rotation(
+  const char* entityId,
+  float angularSpeed,
+  float directionMultiplier
+) {
+  isoweb::engine::RotationDefinition rotation;
+  rotation.entityIds.push_back(text(entityId));
+  rotation.directionMultipliers.push_back(directionMultiplier);
+  rotation.angularSpeed = angularSpeed;
+  application().behaviours().addRotation(rotation);
+  return 1;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_behaviour_add_hazard(
+  const char* entityId,
+  int face,
+  float tolerance
+) {
+  isoweb::engine::HazardDefinition hazard;
+  hazard.entityId = text(entityId);
+  hazard.face = hazardFaceFromInt(face);
+  hazard.tolerance = tolerance;
+  application().behaviours().addHazard(hazard);
+  return 1;
+}
 
 extern "C" EMSCRIPTEN_KEEPALIVE void isoweb_world_build_begin(
   int defaultLevelIndex,

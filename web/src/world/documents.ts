@@ -104,18 +104,22 @@ export type DirectionalSprites = {
   right?: SpriteAnimationDefinition;
 };
 
+export type TransformComponentDefinition = { position: Vec3Tuple; forward?: Vec3Tuple };
+
+export type BoxColliderDefinition = {
+  type: 'box';
+  minimum: Vec3Tuple;
+  maximum: Vec3Tuple;
+  solid?: boolean;
+  collisionTags?: string[];
+  mustCollideWith?: string[];
+};
+
 export type CharacterEntityDefinition = {
   id: string;
   components: {
-    transform: { position: Vec3Tuple; forward?: Vec3Tuple };
-    collider?: {
-      type: 'box';
-      minimum: Vec3Tuple;
-      maximum: Vec3Tuple;
-      solid?: boolean;
-      collisionTags?: string[];
-      mustCollideWith?: string[];
-    };
+    transform: TransformComponentDefinition;
+    collider?: BoxColliderDefinition;
     character: {
       npc?: boolean;
       controllable?: boolean;
@@ -130,6 +134,65 @@ export type CharacterEntityDefinition = {
   };
 };
 
+export type DynamicBodyEntityDefinition = {
+  id: string;
+  components: {
+    transform: TransformComponentDefinition;
+    collider: BoxColliderDefinition;
+    dynamicBody: {
+      surfaceTextureMode?: 'stretch' | 'tile-local' | 'tile-world';
+      textureWorldUnitsPerTile?: number;
+    };
+  };
+};
+
+export type EntityDefinition = CharacterEntityDefinition | DynamicBodyEntityDefinition;
+
+export type HazardFaceDefinition =
+  | 'any' | 'left' | 'right' | 'back' | 'front' | 'bottom' | 'top';
+
+export type WorldBehaviourDefinition =
+  | {
+      id: string;
+      type: 'oscillating-gate';
+      leftEntity: string;
+      rightEntity: string;
+      base: Vec3Tuple;
+      halfSpan: number;
+      gap: number;
+      sweep: number;
+      angularSpeed: number;
+      halfThickness: number;
+      height: number;
+    }
+  | {
+      id: string;
+      type: 'vertical-cycle';
+      entity: string;
+      base: Vec3Tuple;
+      upZ: number;
+      downZ: number;
+      period: number;
+      blockOnSafeContact?: boolean;
+      lethalFace?: HazardFaceDefinition;
+      contactTolerance?: number;
+    }
+  | {
+      id: string;
+      type: 'rotation';
+      entity: string;
+      angularSpeed: number;
+      directionMultiplier?: number;
+    }
+  | {
+      id: string;
+      type: 'hazard';
+      entity: string;
+      face?: HazardFaceDefinition;
+      tolerance?: number;
+      action?: 'respawn';
+    };
+
 export type LevelDocument = {
   schemaVersion: number;
   id: string;
@@ -142,7 +205,7 @@ export type LevelDocument = {
   roomConnections?: RoomConnectionDefinition[];
   floorHoles?: FloorHoleDefinition[];
   staircases?: StaircaseDefinition[];
-  entities: CharacterEntityDefinition[];
+  entities: EntityDefinition[];
   lights: PointLightDefinition[];
   spawns: unknown[];
   connectors: unknown[];
@@ -189,7 +252,7 @@ export type WorldDocument = {
   materials: Record<string, MaterialDefinition>;
   prefabs: Record<string, unknown>;
   connectors?: WorldConnectorDefinition[];
-  behaviours?: Record<string, unknown>;
+  behaviours?: WorldBehaviourDefinition[];
   metadata?: Record<string, unknown>;
 };
 
