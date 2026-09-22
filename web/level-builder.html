@@ -19,6 +19,7 @@
       <button id="editor-new" type="button">New</button>
       <button id="editor-open" type="button">Open</button>
       <button id="editor-save" type="button">Save</button>
+      <button id="editor-play" type="button" aria-pressed="false">Play</button>
       <button id="editor-undo" type="button" disabled>Undo</button>
       <button id="editor-redo" type="button" disabled>Redo</button>
       <select id="editor-add-kind" aria-label="Object type to add">
@@ -115,7 +116,16 @@
             </select>
           </label>
         </div>
-        <div id="editor-layout" class="editor-layout" role="application" aria-label="Top-down authoring layout"></div>
+        <div id="editor-layout-shell" class="editor-layout-shell">
+          <div id="editor-layout" class="editor-layout" role="application" aria-label="Top-down authoring layout"></div>
+        </div>
+        <iframe
+          id="editor-runtime-frame"
+          class="editor-runtime-frame"
+          title="IsoWeb runtime play preview"
+          hidden
+          allow="fullscreen"
+        ></iframe>
         <div class="editor-stage-summary">
           <span>Authoring layout only. Play mode will use the real IsoWeb runtime.</span>
           <div id="editor-overview" class="editor-overview" aria-label="Project summary"></div>
