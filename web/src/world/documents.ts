@@ -306,6 +306,12 @@ export type WorldConnectorDefinition = {
 
 export type WorldLevelPlacement = {
   position: Vec3Tuple;
+  /**
+   * Clockwise/counter-clockwise editor controls operate in exact 90° steps.
+   * Keeping composition rotation cardinal preserves axis-aligned room/floor
+   * semantics while allowing a level to be reused at any cardinal orientation.
+   */
+  quarterTurns?: 0 | 1 | 2 | 3;
 };
 
 export type WorldLevelReference = {
