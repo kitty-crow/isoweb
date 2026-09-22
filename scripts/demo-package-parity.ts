@@ -35,6 +35,21 @@ const server = Bun.serve({
   }
 });
 
+const expectedFrames = [
+  {"level":0,"yaw":0,"width":693,"height":520,"sha256":"2a97cd8c7f51ac0fd1df24a29c1f8dd42f6974c92cf45cc3a9282d0bccb46e34"},
+  {"level":0,"yaw":1,"width":693,"height":520,"sha256":"ddda44454e67728deb9e0ff76ce75c89f3fb1d6705d6faa38dbfb477189f4e06"},
+  {"level":0,"yaw":2,"width":693,"height":520,"sha256":"004b4d3f6a8241a3db636c3074bf75c68694ae04645314be4242b93b5744884e"},
+  {"level":0,"yaw":3,"width":693,"height":520,"sha256":"e91fc4277e69e1557023cfdc45156acbd71976676b65d8c6d745dc72605f5a64"},
+  {"level":1,"yaw":0,"width":693,"height":520,"sha256":"caab95cbe9abf28854639a8801762c04589af4bba32e0a193154d4f875008120"},
+  {"level":1,"yaw":1,"width":693,"height":520,"sha256":"ff6eda3bfa3c53a77302377a09a77c8729854fba25744cc82fe254a97e5a2441"},
+  {"level":1,"yaw":2,"width":693,"height":520,"sha256":"395b727cc873eed97aeacb8d3e59edffce08f0b007eae3a87a9ae95a6cf9b8c1"},
+  {"level":1,"yaw":3,"width":693,"height":520,"sha256":"d371022975e6bac5ac85b5250654b168b97ed88917dfbdc3b48bd870466aff83"},
+  {"level":2,"yaw":0,"width":693,"height":520,"sha256":"c920b88cde9f1b9b562d5042c20fcfa3a2b00ba19bbac719c37b279de720d463"},
+  {"level":2,"yaw":1,"width":693,"height":520,"sha256":"90e0ea431544d4d1526f48a547350a3f08042866089b7c607a9e0d877ba78f09"},
+  {"level":2,"yaw":2,"width":693,"height":520,"sha256":"549769c8b8f0587d66857390150842596e5d0d591e0e0421e23732f1d230b737"},
+  {"level":2,"yaw":3,"width":693,"height":520,"sha256":"6671b49968d028a9e457875a12e69978c54c1f78d25b8dc0e46f164c7ffd5cc6"}
+] as const;
+
 const browser = await chromium.launch({ headless: true });
 
 try {
@@ -99,8 +114,23 @@ try {
     return result;
   });
 
-  if (frames.length !== 12) throw new Error(`Expected 12 packaged demo frames, got ${frames.length}.`);
-  console.log('DEMO_PACKAGE_GOLDEN=' + JSON.stringify(frames));
+  if (frames.length !== expectedFrames.length) {
+    throw new Error(`Expected ${expectedFrames.length} packaged demo frames, got ${frames.length}.`);
+  }
+  for (let index = 0; index < expectedFrames.length; ++index) {
+    const expected = expectedFrames[index];
+    const actual = frames[index];
+    if (
+      actual.level !== expected.level || actual.yaw !== expected.yaw ||
+      actual.width !== expected.width || actual.height !== expected.height ||
+      actual.sha256 !== expected.sha256
+    ) {
+      throw new Error(
+        `Packaged demo golden mismatch at frame ${index}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
+      );
+    }
+  }
+  console.log('Demo package golden render passed: 12 exact RGBA hashes match (3 levels x 4 regular yaw angles).');
 } finally {
   await browser.close();
   server.stop(true);
