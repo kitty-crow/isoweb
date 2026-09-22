@@ -117,6 +117,13 @@ extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_behaviour_add_entity_collision_tag(
   return application().behaviours().addEntityCollisionTag(text(id), text(tag)) ? 1 : 0;
 }
 
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_behaviour_add_entity_collision_selector(
+  const char* id,
+  const char* selector
+) {
+  return application().behaviours().addEntityCollisionSelector(text(id), text(selector)) ? 1 : 0;
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_behaviour_add_gate(
   const char* leftId,
   const char* rightId,
