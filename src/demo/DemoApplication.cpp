@@ -31,11 +31,7 @@ DemoApplication::DemoApplication()
     : camera_(engine::CameraConfig(3.25f, 6.15f, 5.50f)),
       renderer_(world_, camera_, controls_),
       characters_(world_),
-      behaviours_(world_) {
-  world_.setLevelLight("lower", {4.20f, -3.20f, 5.60f});
-  world_.setLevelLight("middle", {-3.60f, -4.20f, 6.50f});
-  world_.setLevelLight("upper", {3.80f, 4.40f, 7.20f});
-}
+      behaviours_(world_) {}
 
 
 bool DemoApplication::commitWorldBuild() {
