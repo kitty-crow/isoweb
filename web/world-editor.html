@@ -31,10 +31,12 @@
         <option value="dodecahedron">Dodecahedron</option>
         <option value="icosahedron">Icosahedron</option>
         <option value="room">Room</option>
+        <option value="floor-hole">Floor hole</option>
+        <option value="staircase">Staircase</option>
         <option value="character">Character</option>
         <option value="dynamic-body">Dynamic body</option>
         <option value="spawn">Spawn</option>
-        <option value="connector">Connector</option>
+        <option value="connector">Local path</option>
         <option value="light">Point light</option>
       </select>
       <button id="editor-add" type="button">Add</button>
@@ -68,6 +70,8 @@
               <strong>Structure</strong>
               <button type="button" data-editor-add-kind="ground">Ground</button>
               <button type="button" data-editor-add-kind="room">Room</button>
+              <button type="button" data-editor-add-kind="floor-hole">Floor hole</button>
+              <button type="button" data-editor-add-kind="staircase">Staircase</button>
             </div>
             <div class="editor-palette-group">
               <strong>Geometry</strong>
@@ -81,12 +85,12 @@
             <div class="editor-palette-group">
               <strong>Actors</strong>
               <button type="button" data-editor-add-kind="character">Character</button>
-              <button type="button" data-editor-add-kind="dynamic-body">Object</button>
+              <button type="button" data-editor-add-kind="dynamic-body">Behaviour body</button>
             </div>
             <div class="editor-palette-group">
               <strong>Gameplay</strong>
               <button type="button" data-editor-add-kind="spawn">Spawn</button>
-              <button type="button" data-editor-add-kind="connector">Connector</button>
+              <button type="button" data-editor-add-kind="connector">Local path</button>
               <button type="button" data-editor-add-kind="light">Point light</button>
             </div>
           </div>
@@ -102,8 +106,11 @@
               <option value="entity">Entities</option>
               <option value="geometry">Geometry</option>
               <option value="room">Rooms</option>
+              <option value="floor-hole">Floor holes</option>
+              <option value="staircase">Staircases</option>
+              <option value="room-connection">Doorways</option>
               <option value="spawn">Spawns</option>
-              <option value="connector">Connectors</option>
+              <option value="connector">Local paths</option>
               <option value="light">Lights</option>
               <option value="material">Materials</option>
               <option value="prefab">Prefabs</option>
@@ -128,6 +135,14 @@
               <option value="1">1 m</option>
             </select>
           </label>
+          <div class="editor-room-actions" aria-label="Room doorways">
+            <label>
+              <span>Doorway to</span>
+              <select id="editor-room-target" aria-label="Target room" disabled></select>
+            </label>
+            <button id="editor-room-connect" type="button" disabled>Add doorway</button>
+            <button id="editor-room-disconnect" type="button" disabled>Remove doorway</button>
+          </div>
         </div>
         <div id="editor-layout-shell" class="editor-layout-shell">
           <div id="editor-layout" class="editor-layout" role="application" aria-label="Top-down authoring layout"></div>
