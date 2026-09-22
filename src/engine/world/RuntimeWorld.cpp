@@ -607,10 +607,10 @@ public:
   }
 
   bool overlapsAdditionalStatic(const Object& candidate) const override {
-    // Demo obstacle parts intentionally mount into or span past room boundary
-    // geometry. Their own authored motion defines their legal placement; room
-    // walls still collide normally with players and every other solid entity.
-    if (candidate.hasCollisionTag("demo-obstacle")) return false;
+    // Authored dynamic world bodies may mount into or span room boundary geometry.
+    // Their behaviour owns legal placement; room walls still collide normally
+    // with players and every other solid entity.
+    if (candidate.hasCollisionTag("world-behaviour")) return false;
 
     // Room boundaries are axis-aligned. Reject distant walls against the
     // candidate's conservative world AABB before paying for exact OBB SAT.
