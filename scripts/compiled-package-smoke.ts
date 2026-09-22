@@ -26,10 +26,10 @@ if (manifest.representation !== 'compiled' || manifest.entry !== 'runtime/world.
 
 for (const reference of compiled.world.levels) {
   if (!reference.path.endsWith('.isolevel')) {
-    throw new Error(\`Compiled world level \${reference.id} is not an isolevel package\`);
+    throw new Error(`Compiled world level ${reference.id} is not an isolevel package`);
   }
   const nestedBytes = archive[reference.path];
-  if (!nestedBytes) throw new Error(\`Compiled world is missing nested \${reference.path}\`);
+  if (!nestedBytes) throw new Error(`Compiled world is missing nested ${reference.path}`);
   const nested = unzipSync(nestedBytes);
   const nestedManifest = JSON.parse(strFromU8(nested['manifest.json'])) as PackageManifest;
   if (
@@ -37,7 +37,7 @@ for (const reference of compiled.world.levels) {
     nestedManifest.representation !== 'compiled' ||
     nestedManifest.entry !== 'runtime/level.json'
   ) {
-    throw new Error(\`Nested compiled isolevel \${reference.id} has an invalid manifest\`);
+    throw new Error(`Nested compiled isolevel ${reference.id} has an invalid manifest`);
   }
 }
 
@@ -58,14 +58,14 @@ if (JSON.stringify(freshlyCompiled.levels) !== JSON.stringify(compiled.levels)) 
 }
 
 for (const level of compiled.levels) {
-  const standalone = reader.loadLevelBytes(await bytes(\`web/assets/demo-\${level.id}.isolevel\`));
+  const standalone = reader.loadLevelBytes(await bytes(`web/assets/demo-${level.id}.isolevel`));
   if (!('compiledFormatVersion' in standalone) || JSON.stringify(standalone) !== JSON.stringify(level)) {
-    throw new Error(\`Standalone compiled isolevel \${level.id} differs from the isoworld member\`);
+    throw new Error(`Standalone compiled isolevel ${level.id} differs from the isoworld member`);
   }
 
-  const sourceLevel = reader.loadLevelBytes(await bytes(\`web/assets/demo-\${level.id}-source.isolevel\`));
+  const sourceLevel = reader.loadLevelBytes(await bytes(`web/assets/demo-${level.id}-source.isolevel`));
   if ('compiledFormatVersion' in sourceLevel || sourceLevel.id !== level.id) {
-    throw new Error(\`Source isolevel compatibility artifact \${level.id} is invalid\`);
+    throw new Error(`Source isolevel compatibility artifact ${level.id} is invalid`);
   }
 }
 
