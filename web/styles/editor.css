@@ -216,6 +216,7 @@ select {
 
 .editor-stage-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   min-width: 0;
@@ -248,12 +249,15 @@ select {
 
 .editor-room-actions {
   display: flex;
+  flex: 1 1 320px;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 
 .editor-room-actions label {
+  flex: 1 1 180px;
   min-width: 0;
 }
 
