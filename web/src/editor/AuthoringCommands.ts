@@ -2,12 +2,14 @@ import type {
   CharacterEntityDefinition,
   ConnectorDefinition,
   DynamicBodyEntityDefinition,
+  FloorHoleDefinition,
   GroundRectangle,
   LevelDocument,
   PointLightDefinition,
   PrimitiveGeometryDefinition,
   PrimitiveType,
   RoomDefinition,
+  StaircaseDefinition,
   SpawnDefinition
 } from '../world/documents';
 import { FunctionalCommand, type EditorCommand } from './CommandHistory';
@@ -18,6 +20,8 @@ export type LocalAddKind =
   | 'ground'
   | PrimitiveType
   | 'room'
+  | 'floor-hole'
+  | 'staircase'
   | 'character'
   | 'dynamic-body'
   | 'spawn'
@@ -138,6 +142,33 @@ export function createLocalAddOperation(
     return addArrayItem(level.rooms, item, 'add room', { kind: 'room', id, levelId });
   }
 
+  if (kind === 'floor-hole') {
+    const holes = level.floorHoles ?? (level.floorHoles = []);
+    const id = nextId('floor-hole', holes.map(value => value.id));
+    const item: FloorHoleDefinition = {
+      id,
+      type: 'rectangle',
+      minimum: [px - 0.5, py - 0.5],
+      maximum: [px + 0.5, py + 0.5]
+    };
+    return addArrayItem(holes, item, 'add floor hole', { kind: 'floor-hole', id, levelId });
+  }
+
+  if (kind === 'staircase') {
+    const stairs = level.staircases ?? (level.staircases = []);
+    const id = nextId('staircase', stairs.map(value => value.id));
+    const item: StaircaseDefinition = {
+      id,
+      centreX: px,
+      startY: py - 1,
+      endY: py + 1,
+      startZ: pz,
+      endZ: pz + 2.2,
+      width: 1
+    };
+    return addArrayItem(stairs, item, 'add staircase', { kind: 'staircase', id, levelId });
+  }
+
   if (kind === 'character') {
     const id = nextId('character', level.entities.map(value => value.id));
     const item: CharacterEntityDefinition = {
@@ -213,6 +244,9 @@ function selectedCollection(
     case 'entity': return level.entities;
     case 'geometry': return level.geometry;
     case 'room': return level.rooms;
+    case 'floor-hole': return level.floorHoles;
+    case 'staircase': return level.staircases;
+    case 'room-connection': return level.roomConnections;
     case 'spawn': return level.spawns;
     case 'connector': return level.connectors;
     case 'light': return level.lights;
@@ -252,6 +286,17 @@ export function createDuplicateOperation(
     const transformed = copy as unknown as SpawnDefinition;
     transformed.transform.position[0] += 1;
     transformed.transform.position[1] += 1;
+  } else if ('minimum' in copy && 'maximum' in copy) {
+    const hole = copy as unknown as FloorHoleDefinition;
+    hole.minimum[0] += 1;
+    hole.minimum[1] += 1;
+    hole.maximum[0] += 1;
+    hole.maximum[1] += 1;
+  } else if ('centreX' in copy && 'startY' in copy && 'endY' in copy) {
+    const stair = copy as unknown as StaircaseDefinition;
+    stair.centreX += 1;
+    stair.startY += 1;
+    stair.endY += 1;
   }
 
   return addArrayItem(
@@ -275,6 +320,15 @@ export function createDeleteCommand(
   if (selection.kind === 'entity') {
     const spawn = level.spawns.find(candidate => candidate.entityId === selection.id);
     if (spawn) throw new Error(`Entity ${selection.id} is referenced by spawn ${spawn.id}`);
+  }
+
+  if (selection.kind === 'room') {
+    const connection = level.roomConnections?.find(candidate =>
+      candidate.a.roomId === selection.id || candidate.b.roomId === selection.id
+    );
+    if (connection) {
+      throw new Error(`Room ${selection.id} is referenced by room connection ${connection.id}`);
+    }
   }
 
   const item = collection[index];

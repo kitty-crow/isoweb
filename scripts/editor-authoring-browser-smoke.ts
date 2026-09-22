@@ -40,7 +40,7 @@ try {
   await page.waitForSelector('#editor-layout');
 
   const paletteCount = await page.locator('[data-editor-add-kind]').count();
-  if (paletteCount < 10) throw new Error(`Builder palette is incomplete: ${paletteCount} items`);
+  if (paletteCount < 12) throw new Error(`Builder palette is incomplete: ${paletteCount} items`);
 
   const layout = page.locator('#editor-layout');
   const layoutBox = await layout.boundingBox();
@@ -110,6 +110,38 @@ try {
   const rooms = page.locator('.editor-layout-item[data-kind="room"]');
   if (await rooms.count() < 1) throw new Error('Palette drag/drop did not create a room');
 
+  await page.dragAndDrop(
+    '[data-editor-add-kind="floor-hole"]',
+    '#editor-layout',
+    {
+      targetPosition: {
+        x: Math.round(layoutBox.width * 0.36),
+        y: Math.round(layoutBox.height * 0.32)
+      }
+    }
+  );
+  const floorHole = page.locator('.editor-layout-item[data-kind="floor-hole"][data-selected="true"]');
+  await floorHole.waitFor();
+  if (await floorHole.locator('.editor-layout-resize').count() !== 1) {
+    throw new Error('Selected floor hole does not expose a resize handle');
+  }
+
+  await page.dragAndDrop(
+    '[data-editor-add-kind="staircase"]',
+    '#editor-layout',
+    {
+      targetPosition: {
+        x: Math.round(layoutBox.width * 0.58),
+        y: Math.round(layoutBox.height * 0.68)
+      }
+    }
+  );
+  const staircase = page.locator('.editor-layout-item[data-kind="staircase"][data-selected="true"]');
+  await staircase.waitFor();
+  if (await staircase.locator('.editor-layout-resize').count() !== 1) {
+    throw new Error('Selected staircase does not expose a resize handle');
+  }
+
   await page.locator('[data-editor-add-kind="character"]').click();
   await page.mouse.click(
     layoutBox.x + layoutBox.width * 0.42,
@@ -134,7 +166,7 @@ try {
   }
 
   if (errors.length > 0) throw new Error(`Browser errors:\n${errors.join('\n')}`);
-  console.log('Graphical Level Builder browser smoke passed: palette, placement, move, resize, rotate handle, undo and landscape layout work.');
+  console.log('Graphical Level Builder browser smoke passed: palette placement, rooms, floor holes, stairs, direct move/resize, facing rotation, undo and landscape layout work.');
 } finally {
   await browser.close();
   await server.stop(true);

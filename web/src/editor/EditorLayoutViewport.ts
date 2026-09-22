@@ -1,7 +1,7 @@
 import type {
-  ConnectorDefinition, EntityDefinition, GroundRectangle, LevelDocument,
+  ConnectorDefinition, EntityDefinition, FloorHoleDefinition, GroundRectangle, LevelDocument,
   PointLightDefinition, PrimitiveGeometryDefinition, RoomDefinition, SpawnDefinition,
-  Vec3Tuple
+  StaircaseDefinition, Vec3Tuple
 } from '../world/documents';
 import {
   createLocalAddOperation, selectedLevel, type LocalAddKind
@@ -29,7 +29,9 @@ export class EditorLayoutViewport {
         startX: number;
         startY: number;
         before: Vec3Tuple;
-        ref: Vec3Tuple;
+        readLive: () => Vec3Tuple;
+        applyLive: (value: Vec3Tuple) => void;
+        restore: () => void;
         element: HTMLElement;
       }
     | {
@@ -92,6 +94,12 @@ export class EditorLayoutViewport {
     for (const room of level.rooms ?? []) {
       this.addItem(level, { kind: 'room', id: room.id, levelId: level.id }, room);
     }
+    for (const hole of level.floorHoles ?? []) {
+      this.addItem(level, { kind: 'floor-hole', id: hole.id, levelId: level.id }, hole);
+    }
+    for (const stair of level.staircases ?? []) {
+      this.addItem(level, { kind: 'staircase', id: stair.id, levelId: level.id }, stair);
+    }
     for (const geometry of level.geometry) {
       this.addItem(level, { kind: 'geometry', id: geometry.id, levelId: level.id }, geometry);
     }
@@ -108,8 +116,9 @@ export class EditorLayoutViewport {
       this.addItem(level, { kind: 'light', id: light.id, levelId: level.id }, light);
     }
 
-    if (level.ground.length + (level.rooms?.length ?? 0) + level.geometry.length +
-        level.entities.length + level.spawns.length + level.connectors.length + level.lights.length === 0) {
+    if (level.ground.length + (level.rooms?.length ?? 0) + (level.floorHoles?.length ?? 0) +
+        (level.staircases?.length ?? 0) + level.geometry.length + level.entities.length +
+        level.spawns.length + level.connectors.length + level.lights.length === 0) {
       const empty = document.createElement('p');
       empty.className = 'editor-layout-empty';
       empty.textContent = 'Drag an item from the palette and drop it here.';
@@ -258,6 +267,30 @@ export class EditorLayoutViewport {
         height: room.depth
       };
     }
+    if (selection.kind === 'floor-hole') {
+      const hole = target as FloorHoleDefinition;
+      return {
+        position: [
+          (hole.minimum[0] + hole.maximum[0]) / 2,
+          (hole.minimum[1] + hole.maximum[1]) / 2,
+          0
+        ],
+        width: hole.maximum[0] - hole.minimum[0],
+        height: hole.maximum[1] - hole.minimum[1]
+      };
+    }
+    if (selection.kind === 'staircase') {
+      const stair = target as StaircaseDefinition;
+      return {
+        position: [
+          stair.centreX,
+          (stair.startY + stair.endY) / 2,
+          (stair.startZ + stair.endZ) / 2
+        ],
+        width: stair.width,
+        height: Math.abs(stair.endY - stair.startY)
+      };
+    }
     if (selection.kind === 'geometry') {
       const geometry = target as PrimitiveGeometryDefinition;
       return {
@@ -332,16 +365,19 @@ export class EditorLayoutViewport {
     target: unknown,
     element: HTMLElement
   ): void {
-    const ref = this.positionBinding(selection, target);
-    if (!ref) return;
+    const binding = this.moveBinding(selection, target);
+    if (!binding) return;
     element.setPointerCapture(event.pointerId);
+    const before = binding.read();
     this.dragState = {
       kind: 'move',
       selection,
       startX: event.clientX,
       startY: event.clientY,
-      before: [...ref] as Vec3Tuple,
-      ref,
+      before,
+      readLive: binding.read,
+      applyLive: binding.write,
+      restore: () => binding.write(before),
       element
     };
   }
@@ -395,8 +431,11 @@ export class EditorLayoutViewport {
     if (state.kind === 'move') {
       const dx = (event.clientX - state.startX) / this.scale;
       const dy = -(event.clientY - state.startY) / this.scale;
-      state.ref[0] = this.snap(state.before[0] + dx);
-      state.ref[1] = this.snap(state.before[1] + dy);
+      state.applyLive([
+        this.snap(state.before[0] + dx),
+        this.snap(state.before[1] + dy),
+        state.before[2]
+      ]);
       this.repositionFromSelection(state.selection, state.element);
       return;
     }
@@ -430,13 +469,15 @@ export class EditorLayoutViewport {
     }
 
     if (state.kind === 'move') {
-      const after = [...state.ref] as Vec3Tuple;
-      if (after[0] === state.before[0] && after[1] === state.before[1]) return;
-      state.ref.splice(0, 3, ...state.before);
+      const after = state.readLive();
+      if (after[0] === state.before[0] && after[1] === state.before[1] && after[2] === state.before[2]) {
+        return;
+      }
+      state.restore();
       this.core.execute(new FunctionalCommand(
         `move ${state.selection.kind}`,
-        () => state.ref.splice(0, 3, ...after),
-        () => state.ref.splice(0, 3, ...state.before)
+        () => state.applyLive(after),
+        () => state.applyLive(state.before)
       ));
       this.core.selection.select(state.selection);
       return;
@@ -471,13 +512,97 @@ export class EditorLayoutViewport {
     this.core.selection.select(state.selection);
   }
 
-  private positionBinding(selection: EditorSelection, target: unknown): Vec3Tuple | null {
-    if (selection.kind === 'ground') return (target as GroundRectangle).centre;
-    if (selection.kind === 'room') return (target as RoomDefinition).centre;
-    if (selection.kind === 'geometry') return (target as PrimitiveGeometryDefinition).position;
-    if (selection.kind === 'entity') return (target as EntityDefinition).components.transform.position;
-    if (selection.kind === 'spawn') return (target as SpawnDefinition).transform.position;
-    if (selection.kind === 'light') return (target as PointLightDefinition).position;
+  private moveBinding(
+    selection: EditorSelection,
+    target: unknown
+  ): { read: () => Vec3Tuple; write: (value: Vec3Tuple) => void } | null {
+    const tuple = (ref: Vec3Tuple) => ({
+      read: (): Vec3Tuple => [...ref] as Vec3Tuple,
+      write: (value: Vec3Tuple): void => { ref.splice(0, 3, ...value); }
+    });
+
+    if (selection.kind === 'ground') return tuple((target as GroundRectangle).centre);
+    if (selection.kind === 'room') return tuple((target as RoomDefinition).centre);
+    if (selection.kind === 'geometry') return tuple((target as PrimitiveGeometryDefinition).position);
+    if (selection.kind === 'entity') {
+      return tuple((target as EntityDefinition).components.transform.position);
+    }
+    if (selection.kind === 'spawn') return tuple((target as SpawnDefinition).transform.position);
+    if (selection.kind === 'light') return tuple((target as PointLightDefinition).position);
+
+    if (selection.kind === 'floor-hole') {
+      const hole = target as FloorHoleDefinition;
+      const read = (): Vec3Tuple => [
+        (hole.minimum[0] + hole.maximum[0]) / 2,
+        (hole.minimum[1] + hole.maximum[1]) / 2,
+        0
+      ];
+      return {
+        read,
+        write: value => {
+          const current = read();
+          const dx = value[0] - current[0];
+          const dy = value[1] - current[1];
+          hole.minimum[0] += dx;
+          hole.minimum[1] += dy;
+          hole.maximum[0] += dx;
+          hole.maximum[1] += dy;
+        }
+      };
+    }
+
+    if (selection.kind === 'staircase') {
+      const stair = target as StaircaseDefinition;
+      const read = (): Vec3Tuple => [
+        stair.centreX,
+        (stair.startY + stair.endY) / 2,
+        (stair.startZ + stair.endZ) / 2
+      ];
+      return {
+        read,
+        write: value => {
+          const current = read();
+          const dx = value[0] - current[0];
+          const dy = value[1] - current[1];
+          const dz = value[2] - current[2];
+          stair.centreX += dx;
+          stair.startY += dy;
+          stair.endY += dy;
+          stair.startZ += dz;
+          stair.endZ += dz;
+        }
+      };
+    }
+
+    if (selection.kind === 'connector') {
+      const connector = target as ConnectorDefinition;
+      const read = (): Vec3Tuple => [
+        (connector.fromPosition[0] + connector.toPosition[0]) / 2,
+        (connector.fromPosition[1] + connector.toPosition[1]) / 2,
+        (connector.fromPosition[2] + connector.toPosition[2]) / 2
+      ];
+      return {
+        read,
+        write: value => {
+          const current = read();
+          const dx = value[0] - current[0];
+          const dy = value[1] - current[1];
+          const dz = value[2] - current[2];
+          for (const endpoint of [connector.fromPosition, connector.toPosition]) {
+            endpoint[0] += dx;
+            endpoint[1] += dy;
+            endpoint[2] += dz;
+          }
+          for (const point of connector.forwardTraversal ?? []) {
+            point[0] += dx; point[1] += dy; point[2] += dz;
+          }
+          for (const point of connector.reverseTraversal ?? []) {
+            point[0] += dx; point[1] += dy; point[2] += dz;
+          }
+        }
+      };
+    }
+
     return null;
   }
 
@@ -519,6 +644,39 @@ export class EditorLayoutViewport {
         write: (width, height) => {
           room.width = width;
           room.depth = height;
+        }
+      };
+    }
+    if (selection.kind === 'floor-hole') {
+      const hole = target as FloorHoleDefinition;
+      return {
+        read: () => [
+          hole.maximum[0] - hole.minimum[0],
+          hole.maximum[1] - hole.minimum[1]
+        ],
+        write: (width, height) => {
+          const centreX = (hole.minimum[0] + hole.maximum[0]) / 2;
+          const centreY = (hole.minimum[1] + hole.maximum[1]) / 2;
+          const halfWidth = Math.max(MIN_SIZE, width) / 2;
+          const halfHeight = Math.max(MIN_SIZE, height) / 2;
+          hole.minimum[0] = centreX - halfWidth;
+          hole.maximum[0] = centreX + halfWidth;
+          hole.minimum[1] = centreY - halfHeight;
+          hole.maximum[1] = centreY + halfHeight;
+        }
+      };
+    }
+    if (selection.kind === 'staircase') {
+      const stair = target as StaircaseDefinition;
+      return {
+        read: () => [stair.width, Math.abs(stair.endY - stair.startY)],
+        write: (width, height) => {
+          const centreY = (stair.startY + stair.endY) / 2;
+          const direction = stair.endY >= stair.startY ? 1 : -1;
+          const halfRun = Math.max(MIN_SIZE, height) / 2;
+          stair.width = Math.max(MIN_SIZE, width);
+          stair.startY = centreY - halfRun * direction;
+          stair.endY = centreY + halfRun * direction;
         }
       };
     }
@@ -568,6 +726,8 @@ export class EditorLayoutViewport {
     switch (selection.kind) {
       case 'ground': return level.ground.find(value => value.id === selection.id);
       case 'room': return level.rooms?.find(value => value.id === selection.id);
+      case 'floor-hole': return level.floorHoles?.find(value => value.id === selection.id);
+      case 'staircase': return level.staircases?.find(value => value.id === selection.id);
       case 'geometry': return level.geometry.find(value => value.id === selection.id);
       case 'entity': return level.entities.find(value => value.id === selection.id);
       case 'spawn': return level.spawns.find(value => value.id === selection.id);

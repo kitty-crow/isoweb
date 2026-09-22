@@ -216,6 +216,7 @@ select {
 
 .editor-stage-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   min-width: 0;
@@ -244,6 +245,39 @@ select {
   align-items: center;
   gap: 6px;
   white-space: nowrap;
+}
+
+.editor-room-actions {
+  display: flex;
+  flex: 1 1 320px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.editor-room-actions label {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.editor-room-actions select {
+  max-width: 160px;
+}
+
+.editor-room-actions button {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #3a4856;
+  border-radius: 6px;
+  color: #e8eef5;
+  background: #1d2935;
+  cursor: pointer;
+}
+
+.editor-room-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .editor-stage-toolbar select {
@@ -374,6 +408,28 @@ body[data-editor-mode="play"] .editor-stage-summary > span {
   z-index: 1;
   border: 2px solid #8298aa;
   background: rgba(39, 55, 69, 0.34);
+}
+
+.editor-layout-item[data-kind="floor-hole"] {
+  z-index: 3;
+  border: 2px dashed #aab9c6;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(12, 20, 28, 0.92) 0 6px,
+      rgba(105, 126, 143, 0.42) 6px 10px
+    );
+}
+
+.editor-layout-item[data-kind="staircase"] {
+  z-index: 3;
+  border-color: #9aafbf;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(79, 101, 118, 0.9) 0 5px,
+      rgba(28, 42, 54, 0.9) 5px 9px
+    );
 }
 
 .editor-layout-item[data-kind="geometry"] {
