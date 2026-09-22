@@ -2,6 +2,7 @@ export type Vec3Tuple = [number, number, number];
 
 export type PackageManifest = {
   format: 'isoworld' | 'isolevel';
+  representation?: 'source' | 'compiled';
   schemaVersion: number;
   id: string;
   name?: string;
