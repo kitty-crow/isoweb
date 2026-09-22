@@ -122,6 +122,14 @@
               <option value="1">1 m</option>
             </select>
           </label>
+          <div class="editor-room-actions" aria-label="Room connections">
+            <label>
+              <span>Connect room to</span>
+              <select id="editor-room-target" aria-label="Target room" disabled></select>
+            </label>
+            <button id="editor-room-connect" type="button" disabled>Open wall</button>
+            <button id="editor-room-disconnect" type="button" disabled>Remove opening</button>
+          </div>
         </div>
         <div id="editor-layout-shell" class="editor-layout-shell">
           <div id="editor-layout" class="editor-layout" role="application" aria-label="Top-down authoring layout"></div>
