@@ -192,12 +192,14 @@ export type LoadedSourceWorldPackage = {
   manifest: PackageManifest & { representation?: 'source' };
   world: WorldDocument;
   levels: LevelDocument[];
+  assets: import('./PackageAssets').EmbeddedPackageAssetMap;
 };
 
 export type LoadedCompiledWorldPackage = {
   manifest: PackageManifest & { representation: 'compiled' };
   world: CompiledWorldDocument;
   levels: CompiledLevelDocument[];
+  assets: import('./PackageAssets').EmbeddedPackageAssetMap;
 };
 
 export type LoadedRuntimeWorldPackage = LoadedSourceWorldPackage | LoadedCompiledWorldPackage;
@@ -419,7 +421,8 @@ export class WorldCompiler {
         entry: 'runtime/world.json'
       },
       world: this.compileWorld(source.world, levelPaths),
-      levels: source.levels.map(level => this.compileLevel(level))
+      levels: source.levels.map(level => this.compileLevel(level)),
+      assets: source.assets
     };
   }
 
