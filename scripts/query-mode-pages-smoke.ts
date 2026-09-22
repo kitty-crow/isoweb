@@ -35,13 +35,33 @@ async function inspect(
   configure?: (module: any) => void
 ): Promise<Record<string, any>> {
   const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
+  const errors: string[] = [];
+  const messages: string[] = [];
+  const failed: string[] = [];
+  page.on('pageerror', (error: Error) => errors.push(error.stack || error.message));
+  page.on('console', (message: any) => messages.push(message.type() + ': ' + message.text()));
+  page.on('requestfailed', (request: any) => failed.push(
+    request.url() + ': ' + (request.failure()?.errorText ?? 'failed')
+  ));
   try {
+    console.log('[query-mode] boot ' + (query || '<default>'));
     await page.goto('http://127.0.0.1:' + server.port + '/' + query, { waitUntil: 'domcontentloaded' });
-    await page.waitForFunction(
-      () => document.documentElement.classList.contains('wasm-ready'),
-      undefined,
-      { timeout: 60_000 }
-    );
+    try {
+      await page.waitForFunction(
+        () => document.documentElement.classList.contains('wasm-ready'),
+        undefined,
+        { timeout: 60_000 }
+      );
+    } catch (error) {
+      throw new Error(
+        'Mode ' + (query || '<default>') + ' did not become ready. ' +
+        'url=' + page.url() +
+        ' errors=' + JSON.stringify(errors) +
+        ' requests=' + JSON.stringify(failed) +
+        ' console=' + JSON.stringify(messages.slice(-30)) +
+        ' cause=' + String(error)
+      );
+    }
     if (configure) await page.evaluate(configure, undefined);
     return await page.evaluate(() => {
       const module = (globalThis as any).Module;
