@@ -353,6 +353,37 @@ export class EditorApp {
       if (Array.isArray(transform?.forward)) {
         this.addTupleProperty(root, 'Facing', transform.forward as Vec3Tuple);
       }
+      const collider = components?.collider as IndexedRecord | undefined;
+      if (collider && Array.isArray(collider.minimum) && Array.isArray(collider.maximum)) {
+        const minimum = collider.minimum as Vec3Tuple;
+        const maximum = collider.maximum as Vec3Tuple;
+        const resizeCollider = (axis: 0 | 1 | 2, next: number, label: string): void => {
+          const beforeMin = minimum[axis];
+          const beforeMax = maximum[axis];
+          const centre = (beforeMin + beforeMax) / 2;
+          const half = Math.max(0.125, next / 2);
+          this.core.execute(new FunctionalCommand(
+            `resize collider ${label}`,
+            () => {
+              minimum[axis] = centre - half;
+              maximum[axis] = centre + half;
+            },
+            () => {
+              minimum[axis] = beforeMin;
+              maximum[axis] = beforeMax;
+            }
+          ));
+        };
+        this.addNumberProperty(root, 'Collider width', maximum[0] - minimum[0], value => {
+          resizeCollider(0, Math.max(0.25, value), 'width');
+        });
+        this.addNumberProperty(root, 'Collider depth', maximum[1] - minimum[1], value => {
+          resizeCollider(1, Math.max(0.25, value), 'depth');
+        });
+        this.addNumberProperty(root, 'Collider height', maximum[2] - minimum[2], value => {
+          resizeCollider(2, Math.max(0.25, value), 'height');
+        });
+      }
     }
 
     if (selection.kind === 'spawn') {
