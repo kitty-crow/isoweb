@@ -291,39 +291,6 @@ export class EditorLayoutViewport {
         height: Math.abs(stair.endY - stair.startY)
       };
     }
-    if (selection.kind === 'floor-hole') {
-      const hole = target as FloorHoleDefinition;
-      return {
-        read: () => [
-          hole.maximum[0] - hole.minimum[0],
-          hole.maximum[1] - hole.minimum[1]
-        ],
-        write: (width, height) => {
-          const centreX = (hole.minimum[0] + hole.maximum[0]) / 2;
-          const centreY = (hole.minimum[1] + hole.maximum[1]) / 2;
-          const halfWidth = Math.max(MIN_SIZE, width) / 2;
-          const halfHeight = Math.max(MIN_SIZE, height) / 2;
-          hole.minimum[0] = centreX - halfWidth;
-          hole.maximum[0] = centreX + halfWidth;
-          hole.minimum[1] = centreY - halfHeight;
-          hole.maximum[1] = centreY + halfHeight;
-        }
-      };
-    }
-    if (selection.kind === 'staircase') {
-      const stair = target as StaircaseDefinition;
-      return {
-        read: () => [stair.width, Math.abs(stair.endY - stair.startY)],
-        write: (width, height) => {
-          const centreY = (stair.startY + stair.endY) / 2;
-          const direction = stair.endY >= stair.startY ? 1 : -1;
-          const halfRun = Math.max(MIN_SIZE, height) / 2;
-          stair.width = Math.max(MIN_SIZE, width);
-          stair.startY = centreY - halfRun * direction;
-          stair.endY = centreY + halfRun * direction;
-        }
-      };
-    }
     if (selection.kind === 'geometry') {
       const geometry = target as PrimitiveGeometryDefinition;
       return {
@@ -677,6 +644,39 @@ export class EditorLayoutViewport {
         write: (width, height) => {
           room.width = width;
           room.depth = height;
+        }
+      };
+    }
+    if (selection.kind === 'floor-hole') {
+      const hole = target as FloorHoleDefinition;
+      return {
+        read: () => [
+          hole.maximum[0] - hole.minimum[0],
+          hole.maximum[1] - hole.minimum[1]
+        ],
+        write: (width, height) => {
+          const centreX = (hole.minimum[0] + hole.maximum[0]) / 2;
+          const centreY = (hole.minimum[1] + hole.maximum[1]) / 2;
+          const halfWidth = Math.max(MIN_SIZE, width) / 2;
+          const halfHeight = Math.max(MIN_SIZE, height) / 2;
+          hole.minimum[0] = centreX - halfWidth;
+          hole.maximum[0] = centreX + halfWidth;
+          hole.minimum[1] = centreY - halfHeight;
+          hole.maximum[1] = centreY + halfHeight;
+        }
+      };
+    }
+    if (selection.kind === 'staircase') {
+      const stair = target as StaircaseDefinition;
+      return {
+        read: () => [stair.width, Math.abs(stair.endY - stair.startY)],
+        write: (width, height) => {
+          const centreY = (stair.startY + stair.endY) / 2;
+          const direction = stair.endY >= stair.startY ? 1 : -1;
+          const halfRun = Math.max(MIN_SIZE, height) / 2;
+          stair.width = Math.max(MIN_SIZE, width);
+          stair.startY = centreY - halfRun * direction;
+          stair.endY = centreY + halfRun * direction;
         }
       };
     }
