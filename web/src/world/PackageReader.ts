@@ -17,6 +17,7 @@ import {
 import {
   validateLevelDocument, validateLoadedWorldPackage, validateManifest, validateWorldDocument
 } from './validation';
+import { migrateLevelSource, migrateWorldSource } from './migrations';
 
 const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 128 * 1024 * 1024;
@@ -136,7 +137,7 @@ export class PackageReader {
       return { manifest, level, assets };
     }
 
-    const level = validateLevelDocument(archive.json<LevelDocument>(manifest.entry));
+    const level = validateLevelDocument(migrateLevelSource(archive.json<unknown>(manifest.entry)));
     if (level.id !== manifest.id) throw new Error('Manifest and level ids disagree');
     requireEmbeddedResources(
       collectLevelResourceIds(level),
@@ -187,9 +188,9 @@ export class PackageReader {
       };
     }
 
-    const world = validateWorldDocument(archive.json<WorldDocument>(manifest.entry));
+    const world = validateWorldDocument(migrateWorldSource(archive.json<unknown>(manifest.entry)));
     const levels: LevelDocument[] = world.levels.map(reference => {
-      const level = validateLevelDocument(archive.json<LevelDocument>(reference.path));
+      const level = validateLevelDocument(migrateLevelSource(archive.json<unknown>(reference.path)));
       if (level.id !== reference.id) throw new Error(`Level id mismatch in ${reference.path}`);
       return level;
     });
