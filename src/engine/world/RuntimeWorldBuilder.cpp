@@ -227,10 +227,12 @@ bool RuntimeWorldBuilder::validate(std::string* error) const {
     }
 
     for (const RuntimeStaircase& staircase : level.definition.staircases) {
-      if (!finite(staircase.centreX) || !finite(staircase.startY) ||
-          !finite(staircase.endY) || !finite(staircase.startZ) ||
-          !finite(staircase.endZ) || !finite(staircase.width) ||
-          staircase.width <= 0.0f || staircase.startY == staircase.endY) {
+      if (!finite(staircase.startX) || !finite(staircase.startY) ||
+          !finite(staircase.endX) || !finite(staircase.endY) ||
+          !finite(staircase.startZ) || !finite(staircase.endZ) ||
+          !finite(staircase.width) || staircase.width <= 0.0f ||
+          (staircase.startX == staircase.endX &&
+           staircase.startY == staircase.endY)) {
         return fail(error, "staircase dimensions are invalid");
       }
     }
