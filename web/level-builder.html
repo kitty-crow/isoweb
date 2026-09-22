@@ -36,7 +36,7 @@
         <option value="character">Character</option>
         <option value="dynamic-body">Dynamic body</option>
         <option value="spawn">Spawn</option>
-        <option value="connector">Connector</option>
+        <option value="connector">Local path</option>
         <option value="light">Point light</option>
       </select>
       <button id="editor-add" type="button">Add</button>
@@ -72,12 +72,12 @@
             <div class="editor-palette-group">
               <strong>Actors</strong>
               <button type="button" data-editor-add-kind="character">Character</button>
-              <button type="button" data-editor-add-kind="dynamic-body">Object</button>
+              <button type="button" data-editor-add-kind="dynamic-body">Behaviour body</button>
             </div>
             <div class="editor-palette-group">
               <strong>Gameplay</strong>
               <button type="button" data-editor-add-kind="spawn">Spawn</button>
-              <button type="button" data-editor-add-kind="connector">Connector</button>
+              <button type="button" data-editor-add-kind="connector">Local path</button>
               <button type="button" data-editor-add-kind="light">Point light</button>
             </div>
           </div>
@@ -97,7 +97,7 @@
               <option value="staircase">Staircases</option>
               <option value="room-connection">Room connections</option>
               <option value="spawn">Spawns</option>
-              <option value="connector">Connectors</option>
+              <option value="connector">Local paths</option>
               <option value="light">Lights</option>
               <option value="material">Materials</option>
               <option value="prefab">Prefabs</option>
@@ -124,11 +124,11 @@
           </label>
           <div class="editor-room-actions" aria-label="Room connections">
             <label>
-              <span>Connect room to</span>
+              <span>Doorway to</span>
               <select id="editor-room-target" aria-label="Target room" disabled></select>
             </label>
-            <button id="editor-room-connect" type="button" disabled>Open wall</button>
-            <button id="editor-room-disconnect" type="button" disabled>Remove opening</button>
+            <button id="editor-room-connect" type="button" disabled>Add doorway</button>
+            <button id="editor-room-disconnect" type="button" disabled>Remove doorway</button>
           </div>
         </div>
         <div id="editor-layout-shell" class="editor-layout-shell">
