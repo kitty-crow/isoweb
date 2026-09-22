@@ -7,7 +7,14 @@ import { EditorCore } from './EditorCore';
 import { EditorLayoutViewport } from './EditorLayoutViewport';
 import { EditorPlayPreview } from './EditorPlayPreview';
 import type { EditorSelection, EditorSelectionKind } from './Selection';
-import type { EditableSourceProject } from './SourceProjectIO';
+import type { EditableSourceProject, EditableWorldProject } from './SourceProjectIO';
+import {
+  createDeleteWorldLevelCommand,
+  createDuplicateWorldLevelOperation,
+  createImportWorldLevelOperation,
+  createMoveWorldLevelCommand,
+  createNewWorldLevelOperation
+} from './WorldLevelManager';
 import type { LevelDocument, Vec3Tuple } from '../world/documents';
 
 type IndexedRecord = Record<string, unknown>;
@@ -24,6 +31,7 @@ export class EditorApp {
 
   start(): void {
     this.bindToolbar();
+    this.bindWorldLevelToolbar();
     this.bindHierarchyControls();
     this.layoutViewport = new EditorLayoutViewport(
       this.core,
@@ -134,11 +142,130 @@ export class EditorApp {
     });
   }
 
+  private bindWorldLevelToolbar(): void {
+    if (this.core.kind !== 'world') return;
+
+    const importInput = this.element<HTMLInputElement>('world-level-import-file');
+
+    this.element<HTMLButtonElement>('world-level-new').addEventListener('click', () => {
+      const project = this.core.store.project;
+      if (!project || project.kind !== 'world') return;
+      try {
+        const operation = createNewWorldLevelOperation(project);
+        this.core.execute(operation.command);
+        this.core.selection.select({
+          kind: 'level',
+          id: operation.levelId,
+          levelId: operation.levelId
+        });
+        this.transientProblem = '';
+      } catch (error) {
+        this.captureProblem(error);
+      }
+    });
+
+    this.element<HTMLButtonElement>('world-level-import').addEventListener('click', () => {
+      importInput.value = '';
+      importInput.click();
+    });
+    importInput.addEventListener('change', () => {
+      const file = importInput.files?.[0];
+      if (file) void this.importWorldLevel(file);
+    });
+
+    this.element<HTMLButtonElement>('world-level-duplicate').addEventListener('click', () => {
+      const project = this.worldProject();
+      const levelId = project ? this.selectedWorldLevelId(project) : undefined;
+      if (!project || !levelId) return;
+      try {
+        const operation = createDuplicateWorldLevelOperation(project, levelId);
+        this.core.execute(operation.command);
+        this.core.selection.select({
+          kind: 'level',
+          id: operation.levelId,
+          levelId: operation.levelId
+        });
+        this.transientProblem = '';
+      } catch (error) {
+        this.captureProblem(error);
+      }
+    });
+
+    this.element<HTMLButtonElement>('world-level-delete').addEventListener('click', () => {
+      const project = this.worldProject();
+      const levelId = project ? this.selectedWorldLevelId(project) : undefined;
+      if (!project || !levelId) return;
+      const fallback = project.levels.find(level => level.id !== levelId);
+      try {
+        this.core.execute(createDeleteWorldLevelCommand(project, levelId));
+        if (fallback) {
+          this.core.selection.select({ kind: 'level', id: fallback.id, levelId: fallback.id });
+        }
+        this.transientProblem = '';
+      } catch (error) {
+        this.captureProblem(error);
+      }
+    });
+
+    for (const [id, direction] of [
+      ['world-level-up', -1],
+      ['world-level-down', 1]
+    ] as const) {
+      this.element<HTMLButtonElement>(id).addEventListener('click', () => {
+        const project = this.worldProject();
+        const levelId = project ? this.selectedWorldLevelId(project) : undefined;
+        if (!project || !levelId) return;
+        try {
+          this.core.execute(createMoveWorldLevelCommand(project, levelId, direction));
+          this.core.selection.select({ kind: 'level', id: levelId, levelId });
+          this.transientProblem = '';
+        } catch (error) {
+          this.captureProblem(error);
+        }
+      });
+    }
+  }
+
   private bindHierarchyControls(): void {
     this.element<HTMLInputElement>('editor-hierarchy-search')
       .addEventListener('input', () => this.renderHierarchy());
     this.element<HTMLSelectElement>('editor-hierarchy-filter')
       .addEventListener('change', () => this.renderHierarchy());
+  }
+
+  private async importWorldLevel(file: File): Promise<void> {
+    const project = this.worldProject();
+    if (!project) return;
+    try {
+      const operation = await createImportWorldLevelOperation(project, file);
+      this.core.execute(operation.command);
+      this.core.selection.select({
+        kind: 'level',
+        id: operation.levelId,
+        levelId: operation.levelId
+      });
+      this.transientProblem = '';
+    } catch (error) {
+      this.captureProblem(error);
+    }
+  }
+
+  private worldProject(): EditableWorldProject | null {
+    const project = this.core.store.project;
+    return project?.kind === 'world' ? project : null;
+  }
+
+  private selectedWorldLevelId(project: EditableWorldProject): string | undefined {
+    const selection = this.core.selection.value;
+    const candidate = selection?.levelId ??
+      (selection?.kind === 'level' ? selection.id : undefined) ??
+      project.document.settings.defaultLevel;
+    return project.levels.some(level => level.id === candidate) ? candidate : undefined;
+  }
+
+  private captureProblem(error: unknown): void {
+    this.transientProblem = error instanceof Error ? error.message : String(error);
+    this.renderProblems();
   }
 
   private discardAllowed(): boolean {
@@ -197,12 +324,26 @@ export class EditorApp {
     const canOperate = !!selection && localEditable.has(selection.kind);
     this.element<HTMLButtonElement>('editor-duplicate').disabled = !canOperate;
     this.element<HTMLButtonElement>('editor-delete').disabled = !canOperate;
+    this.renderWorldLevelControls(project);
 
     this.renderHierarchy();
     this.renderInspector();
     this.renderOverview();
     this.layoutViewport?.render();
     this.renderProblems();
+  }
+
+  private renderWorldLevelControls(project: EditableSourceProject): void {
+    if (project.kind !== 'world') return;
+    const levelId = this.selectedWorldLevelId(project);
+    const index = levelId ? project.levels.findIndex(level => level.id === levelId) : -1;
+    const selected = index >= 0;
+    this.element<HTMLButtonElement>('world-level-duplicate').disabled = !selected;
+    this.element<HTMLButtonElement>('world-level-delete').disabled =
+      !selected || project.levels.length <= 1;
+    this.element<HTMLButtonElement>('world-level-up').disabled = !selected || index <= 0;
+    this.element<HTMLButtonElement>('world-level-down').disabled =
+      !selected || index < 0 || index >= project.levels.length - 1;
   }
 
   private renderHierarchy(): void {
@@ -239,7 +380,15 @@ export class EditorApp {
     add(project.document.name || project.document.id, 'project', project.document.id);
     const levels = project.kind === 'level' ? [project.document] : project.levels;
     for (const level of levels) {
-      add(level.name || level.id, 'level', level.id, level.id, 1);
+      const isDefault = project.kind === 'world' &&
+        project.document.settings.defaultLevel === level.id;
+      add(
+        `${isDefault ? '★ ' : ''}${level.name || level.id}`,
+        'level',
+        level.id,
+        level.id,
+        1
+      );
       for (const ground of level.ground) add(ground.id, 'ground', ground.id, level.id, 2);
       for (const entity of level.entities) add(entity.id, 'entity', entity.id, level.id, 2);
       for (const geometry of level.geometry) add(geometry.id, 'geometry', geometry.id, level.id, 2);
