@@ -196,7 +196,8 @@ export function createDuplicateWorldLevelOperation(
     id: level.id,
     path: levelPath(level.id, project.document.levels.map(candidate => candidate.path)),
     placement: {
-      position: [...(sourceReference?.placement?.position ?? [0, 0, 0])] as [number, number, number]
+      position: [...(sourceReference?.placement?.position ?? [0, 0, 0])] as [number, number, number],
+      quarterTurns: sourceReference?.placement?.quarterTurns ?? 0
     }
   };
   const insertIndex = sourceIndex + 1;
