@@ -60,6 +60,9 @@ jobs:
       - name: Test World Editor portals and start level
         run: bun run test:world-editor-connectors
 
+      - name: Test World Editor level composition
+        run: bun run test:world-editor-composition
+
       - name: Compile demo deployment world
         run: bun run compile:demo-world
 
@@ -129,6 +132,9 @@ jobs:
 
       - name: Exercise graphical Level Builder authoring
         run: bun run test:editor-authoring-browser
+
+      - name: Exercise World Editor composition
+        run: bun run test:world-editor-browser
 
       - name: Smoke-test WASM browser boot
         run: bun run test:runtime
