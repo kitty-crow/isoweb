@@ -21,6 +21,7 @@ const MIN_SIZE = 0.25;
 
 export class EditorLayoutViewport {
   private readonly scale = 32;
+  private placementKind: LocalAddKind | null = null;
   private dragState:
     | {
         kind: 'move';
@@ -64,6 +65,7 @@ export class EditorLayoutViewport {
       }
     });
     this.root.addEventListener('drop', event => this.dropPaletteItem(event));
+    this.root.addEventListener('click', event => this.placeArmedItem(event));
     this.root.addEventListener('pointermove', event => this.pointerMove(event));
     this.root.addEventListener('pointerup', event => this.pointerUp(event));
     this.root.addEventListener('pointercancel', event => this.pointerUp(event));
@@ -121,10 +123,13 @@ export class EditorLayoutViewport {
       if (!kind) continue;
       element.draggable = true;
       element.addEventListener('dragstart', event => {
+        this.setPlacementKind(null);
         event.dataTransfer?.setData('application/x-isoweb-add-kind', kind);
         if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy';
       });
-      element.addEventListener('click', () => this.addAt(kind, { x: 0, y: 0 }));
+      element.addEventListener('click', () => {
+        this.setPlacementKind(this.placementKind === kind ? null : kind);
+      });
     }
   }
 
@@ -134,6 +139,26 @@ export class EditorLayoutViewport {
     event.preventDefault();
     const position = this.clientToWorld(event.clientX, event.clientY);
     this.addAt(kind, position);
+    this.setPlacementKind(null);
+  }
+
+  private placeArmedItem(event: MouseEvent): void {
+    const kind = this.placementKind;
+    if (!kind) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('.editor-layout-item')) return;
+    const position = this.clientToWorld(event.clientX, event.clientY);
+    this.addAt(kind, position);
+    this.setPlacementKind(null);
+  }
+
+  private setPlacementKind(kind: LocalAddKind | null): void {
+    this.placementKind = kind;
+    this.root.dataset.placementKind = kind ?? '';
+    for (const element of document.querySelectorAll<HTMLElement>('[data-editor-add-kind]')) {
+      element.dataset.placementActive =
+        kind && element.dataset.editorAddKind === kind ? 'true' : 'false';
+    }
   }
 
   private addAt(kind: LocalAddKind, position: { x: number; y: number }): void {
