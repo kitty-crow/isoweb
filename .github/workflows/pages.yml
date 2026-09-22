@@ -103,7 +103,7 @@ jobs:
       - name: Prove package-authored dynamic behaviours
         run: bun run test:package-behaviours
 
-      - name: Prove packaged demo matches bootstrap demo exactly
+      - name: Prove packaged demo matches render goldens exactly
         run: bun run test:demo-package-parity
 
       - name: Prove WebGL2 presentation parity
