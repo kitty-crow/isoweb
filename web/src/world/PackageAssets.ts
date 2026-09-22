@@ -102,7 +102,7 @@ export function collectLevelResourceIds(level: LevelDocument): Set<string> {
 }
 
 export function collectCompiledLevelResourceIds(level: CompiledLevelDocument): Set<string> {
-  const result = new Set<string>();
+  const result = new Set<string>(level.assets);
   for (const entity of level.entities) {
     if (entity.kind !== 'character') continue;
     for (const sprite of entity.sprites) result.add(sprite.animation.resource);
