@@ -160,6 +160,11 @@ export class PackageReader {
       const world = validateCompiledWorldDocument(
         archive.json<CompiledWorldDocument>(manifest.entry)
       );
+      requireEmbeddedResources(
+        world.assets,
+        assets,
+        `Compiled world package ${world.id}`
+      );
       const levels: CompiledLevelDocument[] = [];
       for (const reference of world.levels) {
         const loaded = this.loadLevelPackageBytes(archive.bytes(reference.path));
