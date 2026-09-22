@@ -25,6 +25,12 @@ export class App {
     const detailedYawMode = browserArgs.get('dyaw') === '1';
     const obstaclesEnabled = browserArgs.get('obstacles') === '1';
     const statsEnabled = browserArgs.has('stats') && browserArgs.get('stats') !== '0';
+    const worldArgument = browserArgs.get('world');
+    const worldUrl = worldArgument === 'source'
+      ? new URL('assets/demo-source.isoworld', document.baseURI).toString()
+      : worldArgument
+        ? new URL(worldArgument, document.baseURI).toString()
+        : undefined;
 
     controls.bind();
     wheel.bind();
@@ -45,7 +51,7 @@ export class App {
     });
 
     const stateLoader = new WorldStateLoader(this.module);
-    void stateLoader.load()
+    void stateLoader.load(worldUrl)
       .then(() => {
         this.module._isoweb_set_obstacles_enabled(obstaclesEnabled ? 1 : 0);
         document.documentElement.classList.add('world-ready');

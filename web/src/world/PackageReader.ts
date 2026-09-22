@@ -1,5 +1,11 @@
 import { strFromU8, unzipSync } from '../../../vendor/fflate/index';
 import type { LevelDocument, LoadedWorldPackage, PackageManifest, WorldDocument } from './documents';
+import type {
+  CompiledLevelDocument, CompiledWorldDocument, LoadedCompiledWorldPackage, LoadedRuntimeWorldPackage
+} from './WorldCompiler';
+import {
+  validateCompiledLevelDocument, validateCompiledWorldDocument, validateCompiledWorldGraph
+} from './compiledValidation';
 import { validateLevelDocument, validateLoadedWorldPackage, validateManifest, validateWorldDocument } from './validation';
 
 const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
@@ -56,10 +62,16 @@ function inspectZip(bytes: Uint8Array): void {
 
 class Archive {
   constructor(private readonly files: Record<string, Uint8Array>) {}
-  json<T>(path: string): T {
+
+  bytes(path: string): Uint8Array {
     safePath(path);
     const bytes = this.files[path];
     if (!bytes) throw new Error(`Package entry not found: ${path}`);
+    return bytes;
+  }
+
+  json<T>(path: string): T {
+    const bytes = this.bytes(path);
     if (bytes.byteLength > MAX_JSON_BYTES) throw new Error(`JSON entry too large: ${path}`);
     try { return JSON.parse(strFromU8(bytes)) as T; }
     catch (error) { throw new Error(`Invalid JSON in ${path}: ${String(error)}`); }
@@ -77,33 +89,58 @@ export class PackageReader {
     return source;
   }
 
-  async loadLevel(source: string | Blob | Uint8Array): Promise<LevelDocument> {
+  async loadLevel(source: string | Blob | Uint8Array): Promise<LevelDocument | CompiledLevelDocument> {
     return this.loadLevelBytes(await this.bytes(source, 'level'));
   }
 
-  loadLevelBytes(bytes: Uint8Array): LevelDocument {
+  loadLevelBytes(bytes: Uint8Array): LevelDocument | CompiledLevelDocument {
     inspectZip(bytes);
     const archive = new Archive(unzipSync(bytes));
     const manifest = validateManifest(archive.json<PackageManifest>('manifest.json'), 'isolevel');
+    if (manifest.representation === 'compiled') {
+      const level = validateCompiledLevelDocument(archive.json<CompiledLevelDocument>(manifest.entry));
+      if (level.id !== manifest.id) throw new Error('Manifest and compiled level ids disagree');
+      return level;
+    }
     const level = validateLevelDocument(archive.json<LevelDocument>(manifest.entry));
     if (level.id !== manifest.id) throw new Error('Manifest and level ids disagree');
     return level;
   }
 
-  async loadWorld(source: string | Blob | Uint8Array): Promise<LoadedWorldPackage> {
+  async loadWorld(source: string | Blob | Uint8Array): Promise<LoadedRuntimeWorldPackage> {
     return this.loadWorldBytes(await this.bytes(source, 'world'));
   }
 
-  loadWorldBytes(bytes: Uint8Array): LoadedWorldPackage {
+  loadWorldBytes(bytes: Uint8Array): LoadedRuntimeWorldPackage {
     inspectZip(bytes);
     const archive = new Archive(unzipSync(bytes));
     const manifest = validateManifest(archive.json<PackageManifest>('manifest.json'), 'isoworld');
+
+    if (manifest.representation === 'compiled') {
+      const world = validateCompiledWorldDocument(archive.json<CompiledWorldDocument>(manifest.entry));
+      const levels = world.levels.map(reference => {
+        const level = this.loadLevelBytes(archive.bytes(reference.path));
+        if (!('compiledFormatVersion' in level)) {
+          throw new Error(`Compiled world references source isolevel ${reference.path}`);
+        }
+        if (level.id !== reference.id) throw new Error(`Compiled level id mismatch in ${reference.path}`);
+        return level;
+      });
+      validateCompiledWorldGraph(world, levels);
+      if (world.id !== manifest.id) throw new Error('Manifest and compiled world ids disagree');
+      return { manifest: manifest as LoadedCompiledWorldPackage['manifest'], world, levels };
+    }
+
     const world = validateWorldDocument(archive.json<WorldDocument>(manifest.entry));
     const levels: LevelDocument[] = world.levels.map(reference => {
       const level = validateLevelDocument(archive.json<LevelDocument>(reference.path));
       if (level.id !== reference.id) throw new Error(`Level id mismatch in ${reference.path}`);
       return level;
     });
-    return validateLoadedWorldPackage({ manifest, world, levels });
+    return validateLoadedWorldPackage({
+      manifest: manifest as LoadedWorldPackage['manifest'],
+      world,
+      levels
+    });
   }
 }

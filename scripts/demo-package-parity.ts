@@ -50,18 +50,15 @@ const expectedFrames = [
   {"level":2,"yaw":3,"width":693,"height":520,"sha256":"6671b49968d028a9e457875a12e69978c54c1f78d25b8dc0e46f164c7ffd5cc6"}
 ] as const;
 
-const browser = await chromium.launch({ headless: true });
-
-try {
-  const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
-  await page.goto(`http://127.0.0.1:${server.port}/?webgl=0`, { waitUntil: 'domcontentloaded' });
+async function capture(page: any, suffix: string) {
+  await page.goto(`http://127.0.0.1:${server.port}/?webgl=0${suffix}`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(
     () => document.documentElement.classList.contains('world-ready'),
     undefined,
     { timeout: 45_000 }
   );
 
-  const frames = await page.evaluate(async () => {
+  return page.evaluate(async () => {
     const module = (globalThis as any).Module;
     const canvas = document.getElementById('canvas') as HTMLCanvasElement;
     const context = canvas.getContext('2d');
@@ -79,10 +76,7 @@ try {
     const levelCount = module._isoweb_level_count();
 
     for (let level = 0; level < levelCount; ++level) {
-      if (module._isoweb_active_level_index() !== level) {
-        throw new Error(`Could not select packaged level ${level}`);
-      }
-
+      if (module._isoweb_active_level_index() !== level) throw new Error(`Could not select level ${level}`);
       module._isoweb_reset_yaw();
       module._isoweb_reset_zoom();
       module._isoweb_reset_camera();
@@ -104,18 +98,18 @@ try {
           .map(value => value.toString(16).padStart(2, '0'))
           .join('');
         result.push({ level, yaw, width: canvas.width, height: canvas.height, sha256 });
-
         module._isoweb_rotate_clockwise();
       }
 
       if (level + 1 < levelCount) module._isoweb_level_up();
     }
-
     return result;
   });
+}
 
+function assertGolden(label: string, frames: Array<{ level: number; yaw: number; width: number; height: number; sha256: string }>) {
   if (frames.length !== expectedFrames.length) {
-    throw new Error(`Expected ${expectedFrames.length} packaged demo frames, got ${frames.length}.`);
+    throw new Error(`${label}: expected ${expectedFrames.length} frames, got ${frames.length}`);
   }
   for (let index = 0; index < expectedFrames.length; ++index) {
     const expected = expectedFrames[index];
@@ -126,11 +120,28 @@ try {
       actual.sha256 !== expected.sha256
     ) {
       throw new Error(
-        `Packaged demo golden mismatch at frame ${index}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
+        `${label}: golden mismatch at frame ${index}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
       );
     }
   }
-  console.log('Demo package golden render passed: 12 exact RGBA hashes match (3 levels x 4 regular yaw angles).');
+}
+
+const browser = await chromium.launch({ headless: true });
+try {
+  const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
+  const compiledFrames = await capture(page, '');
+  assertGolden('compiled demo.isoworld', compiledFrames);
+
+  const sourceFrames = await capture(page, '&world=source');
+  assertGolden('source demo-source.isoworld', sourceFrames);
+
+  if (JSON.stringify(compiledFrames) !== JSON.stringify(sourceFrames)) {
+    throw new Error('Compiled and source package renders diverged');
+  }
+
+  console.log(
+    'Demo package render passed: compiled deployment and source compatibility paths both match 12 exact RGBA goldens.'
+  );
 } finally {
   await browser.close();
   server.stop(true);

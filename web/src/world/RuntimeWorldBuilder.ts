@@ -1,53 +1,59 @@
 import type { IsowebModule } from '../runtime';
-import type {
-  CharacterEntityDefinition, DirectionalSprites, DynamicBodyEntityDefinition, EntityDefinition,
-  LevelDocument, LoadedWorldPackage, MaterialDefinition, PrimitiveType, Vec3Tuple,
-  WorldBehaviourDefinition
-} from './documents';
+import {
+  WorldCompiler,
+  type CompiledBehaviour,
+  type CompiledCharacterEntity,
+  type CompiledDynamicEntity,
+  type CompiledLevelDocument,
+  type CompiledWorldDocument,
+  type LoadedCompiledWorldPackage,
+  type LoadedRuntimeWorldPackage
+} from './WorldCompiler';
 
 type CCallArgType = 'number' | 'string' | 'array';
-const ROOM_SIDE = { north: 0, south: 1, east: 2, west: 3 } as const;
-const PRIMITIVE_KIND: Record<PrimitiveType, number> = {
-  cube: 0, sphere: 1, cone: 2, pyramid: 3, dodecahedron: 4, icosahedron: 5
-};
-const FACING: Record<keyof DirectionalSprites, number> = { front: 0, back: 1, left: 2, right: 3 };
-const TEXTURE_MODE = { stretch: 0, 'tile-local': 1, 'tile-world': 2 } as const;
-const HAZARD_FACE = { any: 0, left: 1, right: 2, back: 3, front: 4, bottom: 5, top: 6 } as const;
 
 export class RuntimeWorldBuilder {
+  private readonly compiler = new WorldCompiler();
+
   constructor(private readonly module: IsowebModule) {}
 
-  build(packageData: LoadedWorldPackage): Set<string> {
+  build(packageData: LoadedRuntimeWorldPackage): Set<string> {
+    const compiled: LoadedCompiledWorldPackage =
+      packageData.manifest.representation === 'compiled'
+        ? packageData
+        : this.compiler.compilePackage(packageData);
+
+    return this.buildCompiled(compiled);
+  }
+
+  private buildCompiled(packageData: LoadedCompiledWorldPackage): Set<string> {
     const { world, levels } = packageData;
-    const defaultLevelIndex = levels.findIndex(level => level.id === world.settings.defaultLevel);
-    if (defaultLevelIndex < 0) throw new Error(`Default level ${world.settings.defaultLevel} is missing`);
     this.callVoid('isoweb_world_build_begin', ['number','number','number'], [
-      defaultLevelIndex,
-      world.settings.lowerLevelPreviewDepth ?? 0,
-      world.settings.lowerPreviewResolutionScale ?? 0.25
+      world.defaultLevelIndex,
+      world.lowerLevelPreviewDepth,
+      world.lowerPreviewResolutionScale
     ]);
 
     try {
       levels.forEach((level, index) => this.stageLevel(index, level));
-      for (const connector of world.connectors ?? []) {
+      for (const connector of world.connectors) {
         const index = this.callNumber(
           'isoweb_world_build_add_connector',
           ['string','string','string','string','number','number','number','number','number','number','number'],
           [
             connector.id, connector.type, connector.fromLevel, connector.toLevel,
-            ...connector.fromPosition, ...connector.toPosition,
-            connector.bidirectional === false ? 0 : 1
+            ...connector.fromPosition, ...connector.toPosition, connector.bidirectional
           ]
         );
         if (index < 0) throw new Error(`Runtime rejected connector ${connector.id}`);
-        for (const sample of connector.forwardTraversal ?? []) {
+        for (const sample of connector.forwardTraversal) {
           this.requireCall(
             'isoweb_world_build_add_connector_forward_sample',
             ['number','number','number','number'], [index, ...sample],
             `connector ${connector.id} forward traversal`
           );
         }
-        for (const sample of connector.reverseTraversal ?? []) {
+        for (const sample of connector.reverseTraversal) {
           this.requireCall(
             'isoweb_world_build_add_connector_reverse_sample',
             ['number','number','number','number'], [index, ...sample],
@@ -63,27 +69,24 @@ export class RuntimeWorldBuilder {
       throw error;
     }
 
-    this.applyEngineDefaults(packageData);
+    this.applyEngineDefaults(world);
     this.callVoid('isoweb_behaviour_clear', [], []);
+
     const resources = new Set<string>();
     for (const level of levels) {
       for (const entity of level.entities) {
-        if (this.isCharacter(entity)) this.applyCharacter(world.id, level.id, entity, resources);
-        else this.applyDynamicBody(world.id, level.id, entity);
+        if (entity.kind === 'character') {
+          this.applyCharacter(world.id, level.id, entity, resources);
+        } else {
+          this.applyDynamicBody(world.id, level.id, entity);
+        }
       }
     }
-    for (const behaviour of world.behaviours ?? []) this.applyBehaviour(behaviour);
+    for (const behaviour of world.behaviours) this.applyBehaviour(behaviour);
     return resources;
   }
 
-  private stageLevel(levelIndex: number, level: LevelDocument): void {
-    const materials = level.localMaterials;
-    const floorDark = this.material(materials, level.settings.floorDarkMaterial, level.id);
-    const floorLight = this.material(materials, level.settings.floorLightMaterial, level.id);
-    const wall = this.material(materials, level.settings.wallMaterial, level.id);
-    const light = level.lights.find(candidate => candidate.enabled !== false && candidate.type === 'point');
-    if (!light) throw new Error(`Level ${level.id} has no enabled point light`);
-
+  private stageLevel(levelIndex: number, level: CompiledLevelDocument): void {
     const nativeIndex = this.callNumber(
       'isoweb_world_build_add_level',
       [
@@ -92,9 +95,8 @@ export class RuntimeWorldBuilder {
         'number','number','number', 'number','number','number'
       ],
       [
-        level.id, ...level.viewOrigin, ...light.position,
-        ...floorDark.baseColour, ...floorLight.baseColour, ...wall.baseColour,
-        ...level.settings.boundsFocus
+        level.id, ...level.viewOrigin, ...level.lightPosition,
+        ...level.floorDark, ...level.floorLight, ...level.wallColour, ...level.boundsFocus
       ]
     );
     if (nativeIndex !== levelIndex) {
@@ -105,88 +107,85 @@ export class RuntimeWorldBuilder {
       this.requireCall(
         'isoweb_world_build_add_ground',
         ['number','number','number','number','number','number','number'],
-        [levelIndex, ...ground.centre, ground.size[0], ground.size[1], ground.walkable === false ? 0 : 1],
-        `ground ${ground.id}`
+        [levelIndex, ...ground.centre, ground.width, ground.depth, ground.walkable],
+        `compiled ground in ${level.id}`
       );
     }
-    for (const room of level.rooms ?? []) {
+    for (const room of level.rooms) {
       this.requireCall(
         'isoweb_world_build_add_room',
         ['number','string','number','number','number','number','number','number','number'],
-        [levelIndex, room.id, room.centre[0], room.centre[1], room.floorZ, room.width, room.depth, room.wallHeight, room.wallThickness],
-        `room ${room.id}`
+        [
+          levelIndex, room.id, room.centreX, room.centreY, room.floorZ,
+          room.width, room.depth, room.wallHeight, room.wallThickness
+        ],
+        `compiled room ${room.id}`
       );
     }
-    for (const connection of level.roomConnections ?? []) {
+    for (const connection of level.roomConnections) {
       this.requireCall(
         'isoweb_world_build_add_room_connection',
         ['number','string','string','number','number','number','string','number','number','number','number'],
         [
           levelIndex, connection.id,
-          connection.a.roomId, ROOM_SIDE[connection.a.side], connection.a.offset ?? 0, connection.a.width,
-          connection.b.roomId, ROOM_SIDE[connection.b.side], connection.b.offset ?? 0, connection.b.width,
-          connection.openPassage === false ? 0 : 1
+          connection.a.roomId, connection.a.side, connection.a.offset, connection.a.width,
+          connection.b.roomId, connection.b.side, connection.b.offset, connection.b.width,
+          connection.openPassage
         ],
-        `room connection ${connection.id}`
+        `compiled room connection ${connection.id}`
       );
     }
-    for (const primitive of level.geometry) {
-      const material = this.material(materials, primitive.material, level.id);
+    for (const primitive of level.primitives) {
       this.requireCall(
         'isoweb_world_build_add_primitive',
         ['number','number','number','number','number','number','number','number','number','number','number'],
         [
-          levelIndex, PRIMITIVE_KIND[primitive.type], ...primitive.position,
-          primitive.size, primitive.height ?? 0, ...material.baseColour,
-          primitive.solid === false ? 0 : 1
+          levelIndex, primitive.kind, ...primitive.position, primitive.size, primitive.height,
+          ...primitive.colour, primitive.solid
         ],
-        `primitive ${primitive.id}`
+        `compiled primitive in ${level.id}`
       );
     }
-    for (const hole of level.floorHoles ?? []) {
+    for (const hole of level.floorHoles) {
       this.requireCall(
         'isoweb_world_build_add_floor_hole',
         ['number','number','number','number','number'],
-        [levelIndex, hole.minimum[0], hole.maximum[0], hole.minimum[1], hole.maximum[1]],
-        `floor hole ${hole.id}`
+        [levelIndex, hole.minimumX, hole.maximumX, hole.minimumY, hole.maximumY],
+        `compiled floor hole in ${level.id}`
       );
     }
-    for (const stair of level.staircases ?? []) {
+    for (const stair of level.staircases) {
       this.requireCall(
         'isoweb_world_build_add_staircase',
         ['number','number','number','number','number','number','number'],
-        [levelIndex, stair.centreX, stair.startY, stair.endY, stair.startZ, stair.endZ, stair.width],
-        `staircase ${stair.id}`
+        [
+          levelIndex, stair.centreX, stair.startY, stair.endY,
+          stair.startZ, stair.endZ, stair.width
+        ],
+        `compiled staircase in ${level.id}`
       );
     }
   }
 
-  private material(materials: Record<string, MaterialDefinition>, id: string, levelId: string): MaterialDefinition {
-    const material = materials[id];
-    if (!material) throw new Error(`Level ${levelId} references missing material ${id}`);
-    return material;
+  private applyEngineDefaults(world: CompiledWorldDocument): void {
+    const engine = world.engine;
+    if (typeof engine.baseMovementSpeed === 'number') {
+      this.module._isoweb_set_base_movement_speed(engine.baseMovementSpeed);
+    }
+    if (typeof engine.selectionMode === 'number') {
+      this.module._isoweb_set_selection_mode(engine.selectionMode);
+    }
+    if (engine.selectionTint) {
+      this.module._isoweb_set_selection_style(
+        engine.selectionTint[0],
+        engine.selectionTint[1],
+        engine.selectionTint[2],
+        engine.selectionStrength ?? 0.45
+      );
+    }
   }
 
-  private applyEngineDefaults(packageData: LoadedWorldPackage): void {
-    const engine = packageData.world.settings.engine;
-    if (!engine) return;
-    if (typeof engine.baseMovementSpeed === 'number') this.module._isoweb_set_base_movement_speed(engine.baseMovementSpeed);
-    const selection = engine.selection;
-    if (!selection) return;
-    this.module._isoweb_set_selection_mode(selection.mode === 'single' ? 1 : 0);
-    const tint = selection.tint ?? [0.20, 0.48, 1.0];
-    this.module._isoweb_set_selection_style(tint[0], tint[1], tint[2], selection.strength ?? 0.45);
-  }
-
-  private isCharacter(entity: EntityDefinition): entity is CharacterEntityDefinition {
-    return 'character' in entity.components;
-  }
-
-  private applyDynamicBody(worldId: string, levelId: string, entity: DynamicBodyEntityDefinition): void {
-    const transform = entity.components.transform;
-    const collider = entity.components.collider;
-    const body = entity.components.dynamicBody;
-    const forward = transform.forward ?? [0, 1, 0];
+  private applyDynamicBody(worldId: string, levelId: string, entity: CompiledDynamicEntity): void {
     this.requireCall(
       'isoweb_behaviour_add_entity',
       [
@@ -197,31 +196,29 @@ export class RuntimeWorldBuilder {
       ],
       [
         entity.id, worldId, 'default', levelId,
-        ...transform.position, forward[0], forward[1],
-        ...collider.minimum, ...collider.maximum,
-        collider.solid === false ? 0 : 1,
-        TEXTURE_MODE[body.surfaceTextureMode ?? 'tile-local'],
-        body.textureWorldUnitsPerTile ?? 1
+        ...entity.position, ...entity.forward,
+        ...entity.hitBoxMinimum, ...entity.hitBoxMaximum,
+        entity.solid, entity.textureMode, entity.textureWorldUnitsPerTile
       ],
-      `dynamic entity ${entity.id}`
+      `compiled dynamic entity ${entity.id}`
     );
-    for (const tag of collider.collisionTags ?? []) {
+    for (const tag of entity.collisionTags) {
       this.requireCall(
         'isoweb_behaviour_add_entity_collision_tag',
         ['string','string'], [entity.id, tag],
-        `dynamic entity ${entity.id} collision tag`
+        `compiled dynamic entity ${entity.id} collision tag`
       );
     }
-    for (const selector of collider.mustCollideWith ?? []) {
+    for (const selector of entity.mustCollideWith) {
       this.requireCall(
         'isoweb_behaviour_add_entity_collision_selector',
         ['string','string'], [entity.id, selector],
-        `dynamic entity ${entity.id} collision selector`
+        `compiled dynamic entity ${entity.id} collision selector`
       );
     }
   }
 
-  private applyBehaviour(behaviour: WorldBehaviourDefinition): void {
+  private applyBehaviour(behaviour: CompiledBehaviour): void {
     switch (behaviour.type) {
       case 'oscillating-gate':
         this.requireCall(
@@ -232,7 +229,7 @@ export class RuntimeWorldBuilder {
             behaviour.halfSpan, behaviour.gap, behaviour.sweep, behaviour.angularSpeed,
             behaviour.halfThickness, behaviour.height
           ],
-          `behaviour ${behaviour.id}`
+          `compiled behaviour ${behaviour.id}`
         );
         return;
       case 'vertical-cycle':
@@ -241,108 +238,94 @@ export class RuntimeWorldBuilder {
           ['string','number','number','number','number','number','number','number','number','number'],
           [
             behaviour.entity, ...behaviour.base, behaviour.upZ, behaviour.downZ, behaviour.period,
-            behaviour.blockOnSafeContact === true ? 1 : 0,
-            HAZARD_FACE[behaviour.lethalFace ?? 'bottom'],
-            behaviour.contactTolerance ?? 0.028
+            behaviour.blockOnSafeContact, behaviour.lethalFace, behaviour.contactTolerance
           ],
-          `behaviour ${behaviour.id}`
+          `compiled behaviour ${behaviour.id}`
         );
         return;
       case 'rotation':
         this.requireCall(
           'isoweb_behaviour_add_rotation',
           ['string','number','number'],
-          [behaviour.entity, behaviour.angularSpeed, behaviour.directionMultiplier ?? 1],
-          `behaviour ${behaviour.id}`
+          [behaviour.entity, behaviour.angularSpeed, behaviour.directionMultiplier],
+          `compiled behaviour ${behaviour.id}`
         );
         return;
       case 'hazard':
         this.requireCall(
           'isoweb_behaviour_add_hazard',
           ['string','number','number'],
-          [behaviour.entity, HAZARD_FACE[behaviour.face ?? 'any'], behaviour.tolerance ?? 0.028],
-          `behaviour ${behaviour.id}`
+          [behaviour.entity, behaviour.face, behaviour.tolerance],
+          `compiled behaviour ${behaviour.id}`
         );
         return;
     }
   }
 
   private applyCharacter(
-    worldId: string, levelId: string, entity: CharacterEntityDefinition, resources: Set<string>
+    worldId: string,
+    levelId: string,
+    entity: CompiledCharacterEntity,
+    resources: Set<string>
   ): void {
-    const transform = entity.components.transform;
     if (!this.callNumber(
       'isoweb_create_character',
       ['string','string','string','string','number','number','number'],
-      [entity.id, worldId, 'default', levelId, ...transform.position]
-    )) throw new Error(`Runtime rejected Character ${entity.id}`);
+      [entity.id, worldId, 'default', levelId, ...entity.position]
+    )) throw new Error(`Runtime rejected compiled Character ${entity.id}`);
 
-    const forward = transform.forward ?? [0, 1, 0];
     this.requireCall(
       'isoweb_set_character_forward', ['string','number','number'],
-      [entity.id, forward[0], forward[1]], `Character ${entity.id} forward`
+      [entity.id, ...entity.forward], `compiled Character ${entity.id} forward`
     );
-
-    const collider = entity.components.collider ?? {
-      type: 'box' as const, minimum: [-0.25,-0.15,0] as Vec3Tuple,
-      maximum: [0.25,0.15,1.70] as Vec3Tuple, solid: true
-    };
     this.requireCall(
       'isoweb_set_character_hitbox',
       ['string','number','number','number','number','number','number'],
-      [entity.id, ...collider.minimum, ...collider.maximum], `Character ${entity.id} hitbox`
+      [entity.id, ...entity.hitBoxMinimum, ...entity.hitBoxMaximum],
+      `compiled Character ${entity.id} hitbox`
     );
-
-    const character = entity.components.character;
     this.requireCall(
       'isoweb_set_character_flags', ['string','number','number','number'],
-      [entity.id, collider.solid === false ? 0 : 1, character.npc === true ? 1 : 0, character.controllable === false ? 0 : 1],
-      `Character ${entity.id} flags`
+      [entity.id, entity.solid, entity.npc, entity.controllable],
+      `compiled Character ${entity.id} flags`
     );
     this.requireCall(
       'isoweb_set_character_speed', ['string','number'],
-      [entity.id, character.movementSpeedMultiplier ?? 1], `Character ${entity.id} speed`
+      [entity.id, entity.movementSpeedMultiplier], `compiled Character ${entity.id} speed`
     );
     this.requireCall(
       'isoweb_set_character_crouched_height', ['string','number'],
-      [entity.id, character.crouchedHeight ?? 0], `Character ${entity.id} crouched height`
+      [entity.id, entity.crouchedHeight], `compiled Character ${entity.id} crouched height`
     );
     this.requireCall(
       'isoweb_clear_character_collision_filters', ['string'], [entity.id],
-      `Character ${entity.id} collision filters`
+      `compiled Character ${entity.id} collision filters`
     );
-    for (const tag of collider.collisionTags ?? []) {
-      this.requireCall('isoweb_add_character_collision_tag', ['string','string'], [entity.id, tag], `Character ${entity.id} collision tag`);
+    for (const tag of entity.collisionTags) {
+      this.requireCall(
+        'isoweb_add_character_collision_tag', ['string','string'], [entity.id, tag],
+        `compiled Character ${entity.id} collision tag`
+      );
     }
-    for (const selector of collider.mustCollideWith ?? []) {
-      this.requireCall('isoweb_add_character_must_collide_with', ['string','string'], [entity.id, selector], `Character ${entity.id} collision selector`);
+    for (const selector of entity.mustCollideWith) {
+      this.requireCall(
+        'isoweb_add_character_must_collide_with', ['string','string'], [entity.id, selector],
+        `compiled Character ${entity.id} collision selector`
+      );
     }
 
-    this.applyDirectionalSprites(entity.id, 0, '', character.sprites?.still, resources);
-    this.applyDirectionalSprites(entity.id, 1, '', character.sprites?.moving, resources);
-    for (const [action, sprites] of Object.entries(character.sprites?.actions ?? {})) {
-      this.applyDirectionalSprites(entity.id, 2, action, sprites, resources);
-    }
-  }
-
-  private applyDirectionalSprites(
-    id: string, state: number, action: string, sprites: DirectionalSprites | undefined, resources: Set<string>
-  ): void {
-    if (!sprites) return;
-    for (const facing of Object.keys(FACING) as Array<keyof DirectionalSprites>) {
-      const animation = sprites[facing];
-      if (!animation?.resource) continue;
+    for (const binding of entity.sprites) {
+      const animation = binding.animation;
       resources.add(animation.resource);
       this.requireCall(
         'isoweb_set_character_sprite',
         ['string','number','string','number','string','number','number','number','number','number','number','number'],
         [
-          id, state, action, FACING[facing], animation.resource,
-          animation.frameCount ?? 1, animation.columns ?? animation.frameCount ?? 1,
-          animation.rows ?? 1, animation.fps ?? 6, animation.worldWidth ?? 0,
-          animation.worldHeight ?? 0, animation.loop === false ? 0 : 1
+          entity.id, binding.state, binding.action, binding.facing, animation.resource,
+          animation.frameCount, animation.columns, animation.rows, animation.fps,
+          animation.worldWidth, animation.worldHeight, animation.loop ? 1 : 0
         ],
-        `Character ${id} sprite ${facing}`
+        `compiled Character ${entity.id} sprite`
       );
     }
   }
@@ -350,9 +333,11 @@ export class RuntimeWorldBuilder {
   private callNumber(ident: string, argTypes: CCallArgType[], args: unknown[]): number {
     return Number(this.module.ccall(ident, 'number', argTypes, args));
   }
+
   private callVoid(ident: string, argTypes: CCallArgType[], args: unknown[]): void {
     this.module.ccall(ident, null, argTypes, args);
   }
+
   private requireCall(ident: string, argTypes: CCallArgType[], args: unknown[], label: string): void {
     if (!this.callNumber(ident, argTypes, args)) throw new Error(`Runtime rejected ${label}`);
   }

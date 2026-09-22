@@ -39,11 +39,17 @@ jobs:
       - name: Check Pages configuration
         run: bun run check
 
-      - name: Test world package round-trip and safety
+      - name: Test source world package round-trip and safety
         run: bun run test:world-package
 
+      - name: Compile demo deployment world
+        run: bun run compile:demo-world
+
+      - name: Test compiled world package pipeline
+        run: bun run test:compiled-package
+
       - name: Build static site
-        run: bun run build
+        run: bun run build:site && bun run build:web
 
       - name: Test world-object and character systems
         run: bun run test:hitboxes

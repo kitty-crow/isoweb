@@ -19,6 +19,10 @@ function object(value: unknown, label: string): Record<string, unknown> {
 export function validateManifest(value: unknown, expected: PackageManifest['format']): PackageManifest {
   const manifest = object(value, 'manifest');
   if (manifest.format !== expected) throw new Error(`Expected ${expected} package`);
+  if (manifest.representation !== undefined &&
+      manifest.representation !== 'source' && manifest.representation !== 'compiled') {
+    throw new Error(`Unsupported package representation ${String(manifest.representation)}`);
+  }
   if (manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
     throw new Error(`Unsupported manifest schema version ${String(manifest.schemaVersion)}`);
   }

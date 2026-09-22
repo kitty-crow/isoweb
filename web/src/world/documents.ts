@@ -2,6 +2,7 @@ export type Vec3Tuple = [number, number, number];
 
 export type PackageManifest = {
   format: 'isoworld' | 'isolevel';
+  representation?: 'source' | 'compiled';
   schemaVersion: number;
   id: string;
   name?: string;
@@ -257,7 +258,7 @@ export type WorldDocument = {
 };
 
 export type LoadedWorldPackage = {
-  manifest: PackageManifest;
+  manifest: PackageManifest & { representation?: 'source' };
   world: WorldDocument;
   levels: LevelDocument[];
 };
