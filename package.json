@@ -4,7 +4,7 @@
   "scripts": {
     "check": "bun vendor/pages/src/cli.ts check pages.config.ts",
     "build:site": "bun vendor/pages/src/cli.ts build pages.config.ts",
-    "build:web": "bun build web/src/bootstrap.ts --outdir site/assets --target browser --format iife && mkdir -p site/styles site/assets && cp web/styles.css site/styles.css && cp web/styles/*.css site/styles/ && cp -R web/assets/. site/assets/",
+    "build:web": "bun build web/src/bootstrap.ts web/src/modeLoader.ts --outdir site/assets --target browser --format iife && mkdir -p site/styles site/assets && cp web/styles.css site/styles.css && cp web/styles/*.css site/styles/ && cp web/coi-serviceworker.js site/coi-serviceworker.js && cp -R web/assets/. site/assets/",
     "build": "bun run compile:demo-world && bun run build:site && bun run build:web",
     "build:wasm": "bash scripts/build-wasm.sh",
     "check:emscripten-bridge": "bun scripts/check-emscripten-bridge.ts",
@@ -37,6 +37,7 @@
     "test:demo-package-parity": "bun scripts/demo-package-parity.ts",
     "test:package-behaviours": "bun scripts/package-behaviour-smoke.ts",
     "compile:demo-world": "bun scripts/compile-demo-worker.ts",
-    "test:compiled-package": "bun scripts/compiled-package-smoke.ts"
+    "test:compiled-package": "bun scripts/compiled-package-smoke.ts",
+    "test:query-modes": "bun scripts/query-mode-smoke.ts"
   }
 }
