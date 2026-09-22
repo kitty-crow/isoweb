@@ -412,7 +412,12 @@ export class WorldCompiler {
     };
   }
 
-  compilePackage(source: { manifest: PackageManifest; world: WorldDocument; levels: LevelDocument[] }): LoadedCompiledWorldPackage {
+  compilePackage(source: {
+    manifest: PackageManifest;
+    world: WorldDocument;
+    levels: LevelDocument[];
+    assets: import('./PackageAssets').EmbeddedPackageAssetMap;
+  }): LoadedCompiledWorldPackage {
     const levelPaths = new Map(source.world.levels.map(reference => [reference.id, `levels/${reference.id}.isolevel`]));
     return {
       manifest: {
