@@ -75,11 +75,14 @@ lower.entities.push({
   }
 });
 
+lower.settings.boundsFocus = [1, 0, 0];
+
 const duplicate = createDuplicateWorldLevelOperation(project, lower.id);
 core.execute(duplicate.command);
 const upperId = duplicate.levelId;
 const upper = project.levels.find(level => level.id === upperId)!;
 upper.name = 'Upper';
+upper.settings.boundsFocus = [-1, 2, 0];
 
 core.execute(createSetLevelPlacementCommand(project, lower.id, [10, 20, 3]));
 core.execute(createRotateLevelCommand(project, lower.id, 1));
