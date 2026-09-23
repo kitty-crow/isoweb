@@ -1,0 +1,34 @@
+name: Clean render patch backups
+
+on:
+  push:
+    branches:
+      - perf/render-pipeline-parity
+    paths:
+      - .github/workflows/cleanup-render-orig.yml
+
+permissions:
+  contents: write
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/render-pipeline-parity
+          fetch-depth: 0
+      - name: Remove patch backup files
+        run: |
+          set -euo pipefail
+          find . -type f -name '*.orig' -print -delete
+          rm .github/workflows/cleanup-render-orig.yml
+          git diff --check
+      - name: Commit cleanup
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Remove render patch backup files"
+          git push origin HEAD:perf/render-pipeline-parity
