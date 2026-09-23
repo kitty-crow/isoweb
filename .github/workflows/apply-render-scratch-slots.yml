@@ -1,0 +1,23 @@
+name: Apply persistent render scratch slots
+
+on:
+  push:
+    branches:
+      - perf/render-pipeline-parity
+    paths:
+      - .github/workflows/apply-render-scratch-slots.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/render-pipeline-parity
+      - name: Apply source changes
+        run: python scripts/apply-render-scratch-slots.py
+      - name: Commit source changes
+        run: git config user.name 'github-actions[bot]' && git config user.email '41898282+github-actions[bot]@users.noreply.github.com' && git add src/engine/world/IWorld.hpp src/engine/world/World.hpp src/engine/world/World.cpp src/engine/render/Renderer.cpp && git rm scripts/apply-render-scratch-slots.py .github/workflows/apply-render-scratch-slots.yml && git commit -m 'Use persistent per-worker render scratch slots' && git push origin HEAD:perf/render-pipeline-parity
