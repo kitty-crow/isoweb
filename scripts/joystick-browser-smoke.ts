@@ -158,6 +158,9 @@ try {
 
   console.log('[joystick-browser] pan centre disc continuously without rebuilding static world');
   const buildsBeforePan = await page.evaluate(() => (globalThis as any).Module._isoweb_static_cache_build_count());
+  const retainedPansBefore = await page.evaluate(() =>
+    (globalThis as any).Module._isoweb_pan_scene_reuse_count()
+  );
   await drag('#reset-camera', 32, 0, 360);
   const pannedStatus = await status();
   const panMatch = pannedStatus.match(/pan X (-?\d+(?:\.\d+)?); Y (-?\d+(?:\.\d+)?)/);
@@ -167,6 +170,65 @@ try {
   const buildsAfterPan = await page.evaluate(() => (globalThis as any).Module._isoweb_static_cache_build_count());
   if (buildsAfterPan !== buildsBeforePan) {
     throw new Error(`Continuous pan rebuilt the full static world: ${buildsBeforePan} -> ${buildsAfterPan}`);
+  }
+  const panParity = await page.evaluate(() => {
+    const module = (globalThis as any).Module;
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+    if (!canvas) throw new Error('Canvas missing for retained-pan parity.');
+    const originalPresent = (globalThis as any).isowebPresent;
+    if (typeof originalPresent !== 'function') throw new Error('Renderer presenter hook is missing.');
+    let captured: Uint8Array | null = null;
+    (globalThis as any).isowebPresent = (...args: any[]) => {
+      const heap = args[0] as Uint8Array;
+      const pointer = args[1] as number;
+      const width = args[2] as number;
+      const height = args[3] as number;
+      const bytes = new Uint8Array(width * height * 4);
+      bytes.set(new Uint8Array(heap.buffer, heap.byteOffset + pointer, bytes.length));
+      captured = bytes;
+      return originalPresent(...args);
+    };
+
+    const retainedCount = module._isoweb_pan_scene_reuse_count();
+    let retained: Uint8Array;
+    let full: Uint8Array;
+    try {
+      // Re-present the already-retained scene without changing camera/world state.
+      module._isoweb_render();
+      if (!captured) throw new Error('Retained renderer frame was not captured.');
+      retained = captured;
+      captured = null;
+
+      // Force a full scene recomposition while retaining the already-shifted
+      // static sample cache. This isolates retained-frame correctness from the
+      // older static pan-cache translation and proves the optimisation itself
+      // changes no rendered byte.
+      module._isoweb_resize(canvas.width, canvas.height);
+      module._isoweb_render();
+      if (!captured) throw new Error('Full-compositor renderer frame was not captured.');
+      full = captured;
+    } finally {
+      (globalThis as any).isowebPresent = originalPresent;
+    }
+    let mismatches = 0;
+    let firstMismatch = -1;
+    let maximumDelta = 0;
+    for (let index = 0; index < retained.length; ++index) {
+      const delta = Math.abs(retained[index] - full[index]);
+      if (delta === 0) continue;
+      ++mismatches;
+      if (firstMismatch < 0) firstMismatch = index;
+      maximumDelta = Math.max(maximumDelta, delta);
+    }
+    return { retainedCount, mismatches, firstMismatch, maximumDelta };
+  });
+  if (panParity.retainedCount <= retainedPansBefore) {
+    throw new Error(
+      `Camera pan did not use retained scene reuse: ${retainedPansBefore} -> ${panParity.retainedCount}`
+    );
+  }
+  if (panParity.mismatches !== 0) {
+    throw new Error(`Retained pan differs from full compositor pass: ${JSON.stringify(panParity)}`);
   }
   await page.locator('#reset-camera').click();
   await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('pan X 0.00; Y 0.00'));

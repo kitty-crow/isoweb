@@ -99,6 +99,9 @@ class WebGl2FrameBackend implements FrameBackend {
   private pendingTimerQuery: WebGLQuery | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
+    // Do not vendor-filter adapters. WebGL2 must work with whatever GPU the
+    // browser exposes, whether integrated/unified or discrete: Apple Silicon,
+    // Intel/AMD integrated graphics, and discrete AMD/NVIDIA are all valid.
     const gl = canvas.getContext('webgl2', {
       alpha: false,
       antialias: false,

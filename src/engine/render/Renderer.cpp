@@ -123,6 +123,124 @@ bool Renderer::previewCacheMatches(const PreviewCacheKey& key) const {
     previewCacheKey_.revision == key.revision;
 }
 
+bool Renderer::previewCacheMatchesExceptPan(const PreviewCacheKey& key) const {
+  return previewCacheValid_ &&
+    previewCacheKey_.width == key.width &&
+    previewCacheKey_.height == key.height &&
+    previewCacheKey_.level == key.level &&
+    previewCacheKey_.yawStep == key.yawStep &&
+    previewCacheKey_.zoomPreset == key.zoomPreset &&
+    std::fabs(previewCacheKey_.viewHeight - key.viewHeight) <= 1e-6f &&
+    previewCacheKey_.revision == key.revision;
+}
+
+bool Renderer::calculatePanPixelShift(
+  const StaticCacheKey& key,
+  const Vec3& right,
+  const Vec3& up,
+  float viewWidth,
+  float viewHeight,
+  int& sourceShiftX,
+  int& sourceShiftY
+) const {
+  sourceShiftX = 0;
+  sourceShiftY = 0;
+  if (!staticCacheMatchesExceptPan(key) || viewWidth <= 0.0f || viewHeight <= 0.0f) return false;
+  if (staticCacheKey_.panX == key.panX && staticCacheKey_.panY == key.panY) return false;
+
+  const Vec3 panDelta(
+    key.panX - staticCacheKey_.panX,
+    key.panY - staticCacheKey_.panY,
+    0.0f
+  );
+  const float sourceShiftXFloat = dot(panDelta, right) * frameWidth_ / viewWidth;
+  const float sourceShiftYFloat = -dot(panDelta, up) * frameHeight_ / viewHeight;
+  sourceShiftX = static_cast<int>(std::lround(sourceShiftXFloat));
+  sourceShiftY = static_cast<int>(std::lround(sourceShiftYFloat));
+
+  if (
+    std::fabs(sourceShiftXFloat - sourceShiftX) > PAN_SHIFT_EPSILON ||
+    std::fabs(sourceShiftYFloat - sourceShiftY) > PAN_SHIFT_EPSILON
+  ) return false;
+  if (sourceShiftX == 0 && sourceShiftY == 0) return false;
+  if (std::abs(sourceShiftX) >= frameWidth_ || std::abs(sourceShiftY) >= frameHeight_) return false;
+  return true;
+}
+
+bool Renderer::shiftPreviewCacheForPan(
+  const PreviewCacheKey& key,
+  int sourceShiftX,
+  int sourceShiftY
+) {
+  if (!previewCacheMatchesExceptPan(key) || previewWidth_ <= 0 || previewHeight_ <= 0) return false;
+  const std::size_t required = static_cast<std::size_t>(previewWidth_) * previewHeight_;
+  if (previewSamples_.size() != required) return false;
+
+  const float previewShiftXFloat =
+    static_cast<float>(sourceShiftX) * static_cast<float>(previewWidth_) / frameWidth_;
+  const float previewShiftYFloat =
+    static_cast<float>(sourceShiftY) * static_cast<float>(previewHeight_) / frameHeight_;
+  const int previewShiftX = static_cast<int>(std::lround(previewShiftXFloat));
+  const int previewShiftY = static_cast<int>(std::lround(previewShiftYFloat));
+  if (
+    std::fabs(previewShiftXFloat - previewShiftX) > PAN_SHIFT_EPSILON ||
+    std::fabs(previewShiftYFloat - previewShiftY) > PAN_SHIFT_EPSILON ||
+    std::abs(previewShiftX) >= previewWidth_ ||
+    std::abs(previewShiftY) >= previewHeight_
+  ) return false;
+
+  const int destinationX0 = std::max(0, -previewShiftX);
+  const int destinationX1 = std::min(previewWidth_, previewWidth_ - previewShiftX);
+  const int destinationY0 = std::max(0, -previewShiftY);
+  const int destinationY1 = std::min(previewHeight_, previewHeight_ - previewShiftY);
+  if (destinationX0 >= destinationX1 || destinationY0 >= destinationY1) return false;
+
+  const std::size_t rowCount = static_cast<std::size_t>(destinationX1 - destinationX0);
+  const auto moveRow = [&](int destinationY) {
+    const int sourceY = destinationY + previewShiftY;
+    const std::size_t destinationIndex =
+      static_cast<std::size_t>(destinationY) * previewWidth_ + destinationX0;
+    const std::size_t sourceIndex =
+      static_cast<std::size_t>(sourceY) * previewWidth_ + destinationX0 + previewShiftX;
+    std::memmove(
+      previewSamples_.data() + destinationIndex,
+      previewSamples_.data() + sourceIndex,
+      rowCount * sizeof(PreviewSample)
+    );
+  };
+  if (previewShiftY >= 0) {
+    for (int y = destinationY0; y < destinationY1; ++y) moveRow(y);
+  } else {
+    for (int y = destinationY1 - 1; y >= destinationY0; --y) moveRow(y);
+  }
+
+  const auto invalidate = [&](int x, int y) {
+    previewSamples_[static_cast<std::size_t>(y) * previewWidth_ + x] = PreviewSample();
+  };
+  for (int y = 0; y < previewHeight_; ++y) {
+    if (y < destinationY0 || y >= destinationY1) {
+      for (int x = 0; x < previewWidth_; ++x) invalidate(x, y);
+      continue;
+    }
+    for (int x = 0; x < destinationX0; ++x) invalidate(x, y);
+    for (int x = destinationX1; x < previewWidth_; ++x) invalidate(x, y);
+  }
+
+  previewDemand_.assign(required, 0);
+  previewTileDemand_.assign(
+    static_cast<std::size_t>(previewTilesX_) * previewTilesY_,
+    0
+  );
+  coarsePreviewSamples_.clear();
+  previewCoarseSampleCount_ = 0;
+  previewDemandedTexelCount_ = 0;
+  previewRefineCursor_ = 0;
+  previewIdleFrames_ = PREVIEW_IDLE_DELAY_FRAMES;
+  previewCacheKey_ = key;
+  previewCacheValid_ = true;
+  return true;
+}
+
 bool Renderer::shiftStaticCacheForPan(
   const StaticCacheKey& key,
   const Vec3& forward,
@@ -132,31 +250,17 @@ bool Renderer::shiftStaticCacheForPan(
   float viewHeight,
   const WorldBounds& bounds
 ) {
-  if (!staticCacheMatchesExceptPan(key) || viewWidth <= 0.0f || viewHeight <= 0.0f) return false;
-  if (staticCacheKey_.panX == key.panX && staticCacheKey_.panY == key.panY) return true;
+  int sourceShiftX = 0;
+  int sourceShiftY = 0;
+  if (!calculatePanPixelShift(
+        key, right, up, viewWidth, viewHeight, sourceShiftX, sourceShiftY
+      )) return false;
 
   const Vec3 panDelta(
     key.panX - staticCacheKey_.panX,
     key.panY - staticCacheKey_.panY,
     0.0f
   );
-  const float sourceShiftXFloat = dot(panDelta, right) * frameWidth_ / viewWidth;
-  const float sourceShiftYFloat = -dot(panDelta, up) * frameHeight_ / viewHeight;
-  const int sourceShiftX = static_cast<int>(std::lround(sourceShiftXFloat));
-  const int sourceShiftY = static_cast<int>(std::lround(sourceShiftYFloat));
-
-  // Camera::pan accumulates motion in renderer-pixel space, so normal
-  // interactive pan deltas land exactly on this grid. Refuse cache shifting if
-  // another caller changes pan by an arbitrary sub-pixel amount: correctness
-  // wins and the normal full static rebuild is used instead.
-  if (
-    std::fabs(sourceShiftXFloat - sourceShiftX) > PAN_SHIFT_EPSILON ||
-    std::fabs(sourceShiftYFloat - sourceShiftY) > PAN_SHIFT_EPSILON
-  ) {
-    return false;
-  }
-  if (sourceShiftX == 0 && sourceShiftY == 0) return false;
-  if (std::abs(sourceShiftX) >= frameWidth_ || std::abs(sourceShiftY) >= frameHeight_) return false;
 
   const int destinationX0 = std::max(0, -sourceShiftX);
   const int destinationX1 = std::min(frameWidth_, frameWidth_ - sourceShiftX);
@@ -264,6 +368,50 @@ bool Renderer::shiftStaticCacheForPan(
         }
       }
     }
+  }
+
+  if (
+    damageHistoryValid_ &&
+    sceneRgba_.size() == static_cast<std::size_t>(frameWidth_) * frameHeight_ * 4
+  ) {
+    const std::size_t bytesPerPixel = 4;
+    const std::size_t rowByteCount =
+      static_cast<std::size_t>(destinationX1 - destinationX0) * bytesPerPixel;
+    const auto moveSceneRow = [&](int destinationY) {
+      const int sourceY = destinationY + sourceShiftY;
+      const std::size_t destinationIndex =
+        (static_cast<std::size_t>(destinationY) * frameWidth_ + destinationX0) * bytesPerPixel;
+      const std::size_t sourceIndex =
+        (static_cast<std::size_t>(sourceY) * frameWidth_ + destinationX0 + sourceShiftX) * bytesPerPixel;
+      std::memmove(
+        sceneRgba_.data() + destinationIndex,
+        sceneRgba_.data() + sourceIndex,
+        rowByteCount
+      );
+    };
+    if (sourceShiftY >= 0) {
+      for (int y = destinationY0; y < destinationY1; ++y) moveSceneRow(y);
+    } else {
+      for (int y = destinationY1 - 1; y >= destinationY0; --y) moveSceneRow(y);
+    }
+
+    std::vector<DamageRect> shiftedDamage;
+    shiftedDamage.reserve(previousDamageRects_.size());
+    for (const DamageRect& previous : previousDamageRects_) {
+      DamageRect shifted;
+      shifted.minimumX = std::max(0, previous.minimumX - sourceShiftX);
+      shifted.maximumX = std::min(frameWidth_, previous.maximumX - sourceShiftX);
+      shifted.minimumY = std::max(0, previous.minimumY - sourceShiftY);
+      shifted.maximumY = std::min(frameHeight_, previous.maximumY - sourceShiftY);
+      if (shifted.minimumX < shifted.maximumX && shifted.minimumY < shifted.maximumY) {
+        shiftedDamage.push_back(shifted);
+      }
+    }
+    previousDamageRects_.swap(shiftedDamage);
+    panSceneReuseValid_ = true;
+    panSourceShiftX_ = sourceShiftX;
+    panSourceShiftY_ = sourceShiftY;
+    ++panSceneReuseCount_;
   }
 
   staticCacheKey_ = key;
@@ -419,6 +567,9 @@ void Renderer::render() {
   ensureFrame();
   lastRenderThreadCount_ = 1;
   lastRenderHelperRows_ = 0;
+  panSceneReuseValid_ = false;
+  panSourceShiftX_ = 0;
+  panSourceShiftY_ = 0;
 
   const WorldBounds& visibleBounds = world_.bounds();
   const WorldBounds& bounds = world_.cameraBounds();
@@ -453,6 +604,32 @@ void Renderer::render() {
   );
 
   world_.prepareRenderFrame(forward);
+
+  const std::size_t pixelCount =
+    static_cast<std::size_t>(frameWidth_) * static_cast<std::size_t>(frameHeight_);
+  const bool useStaticCache =
+    world_.supportsStaticSampleCache() && pixelCount <= MAX_STATIC_CACHE_PIXELS;
+  StaticCacheKey nextStaticKey;
+  nextStaticKey.width = frameWidth_;
+  nextStaticKey.height = frameHeight_;
+  nextStaticKey.level = world_.activeLevelIndex();
+  nextStaticKey.yawStep = camera_.yawStep();
+  nextStaticKey.zoomPreset = camera_.zoomPreset();
+  nextStaticKey.panX = camera_.panX();
+  nextStaticKey.panY = camera_.panY();
+  nextStaticKey.viewHeight = height;
+
+  int prospectivePanShiftX = 0;
+  int prospectivePanShiftY = 0;
+  const bool prospectivePanShift = useStaticCache && calculatePanPixelShift(
+    nextStaticKey,
+    right,
+    up,
+    width,
+    height,
+    prospectivePanShiftX,
+    prospectivePanShiftY
+  );
 
   // Lower previews are progressive and demand-driven. The normal high-detail cache
   // is not synchronously rebuilt when camera state changes. Instead the frame
@@ -497,8 +674,14 @@ void Renderer::render() {
     const std::size_t tileCount = static_cast<std::size_t>(previewTilesX_) * previewTilesY_;
     const bool resetPreviewCache =
       !previewCacheMatches(nextPreviewKey) || previewSamples_.size() != required;
-    previewFrameChanged = resetPreviewCache;
-    if (resetPreviewCache) {
+    const bool shiftedPreviewCache =
+      resetPreviewCache &&
+      prospectivePanShift &&
+      shiftPreviewCacheForPan(
+        nextPreviewKey, prospectivePanShiftX, prospectivePanShiftY
+      );
+    previewFrameChanged = resetPreviewCache && !shiftedPreviewCache;
+    if (previewFrameChanged) {
       previewSamples_.assign(required, PreviewSample());
       previewDemand_.assign(required, 0);
       previewTileDemand_.assign(tileCount, 0);
@@ -550,23 +733,6 @@ void Renderer::render() {
     previewDemandedTexelCount_ = 0;
   }
 
-  const std::size_t pixelCount =
-    static_cast<std::size_t>(frameWidth_) * static_cast<std::size_t>(frameHeight_);
-  const bool useStaticCache =
-    world_.supportsStaticSampleCache() && pixelCount <= MAX_STATIC_CACHE_PIXELS;
-  StaticCacheKey nextStaticKey;
-  nextStaticKey.width = frameWidth_;
-  nextStaticKey.height = frameHeight_;
-  nextStaticKey.level = world_.activeLevelIndex();
-  nextStaticKey.yawStep = camera_.yawStep();
-  nextStaticKey.zoomPreset = camera_.zoomPreset();
-  nextStaticKey.panX = camera_.panX();
-  nextStaticKey.panY = camera_.panY();
-  nextStaticKey.viewHeight = height;
-
-  const bool staticFrameChanged =
-    !useStaticCache || !staticCacheMatches(nextStaticKey);
-
   if (useStaticCache) {
     const std::size_t sampleCount = pixelCount * 4;
     if (staticSamples_.size() != sampleCount) {
@@ -580,6 +746,8 @@ void Renderer::render() {
     staticCacheValid_ = false;
   }
 
+  const bool staticFrameChanged =
+    !useStaticCache || !staticCacheMatches(nextStaticKey);
   const bool rebuildStaticCache = useStaticCache && !staticCacheMatches(nextStaticKey);
 
   const bool fullSceneRender =
@@ -834,6 +1002,32 @@ void Renderer::render() {
     }
   }
 
+  if (panSceneReuseValid_ && useStaticCache) {
+    Vec3 refillRowOrigin = cornerOrigin;
+    for (int y = 0; y < frameHeight_; ++y) {
+      Vec3 pixelOrigin = refillRowOrigin;
+      const float backgroundY[2] = {
+        (static_cast<float>(y) + 0.25f) * inverseFrameHeight,
+        (static_cast<float>(y) + 0.75f) * inverseFrameHeight
+      };
+      std::size_t pixelIndex = static_cast<std::size_t>(y) * frameWidth_;
+      for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
+        for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+          StaticSample& sample = staticSamples_[pixelIndex * 4 + sampleIndex];
+          if (sample.environmentDistance >= 0.0f) continue;
+          const Ray ray{pixelOrigin + sampleOffsets[sampleIndex], forward};
+          sample.colour = world_.sampleEnvironment(
+            ray,
+            backgroundY[sampleIndex >> 1],
+            sample.environmentDistance
+          );
+        }
+        pixelOrigin = pixelOrigin + rightStep;
+      }
+      refillRowOrigin = refillRowOrigin + downStep;
+    }
+  }
+
   // Resolve lower-preview discovery before runtime compositing. The previous
   // implementation lazily filled coarse preview cells and demand masks from
   // inside the per-sample loop, which made the moving-frame compositor unsafe
@@ -846,10 +1040,15 @@ void Renderer::render() {
     previewWidth_ == 0 ||
     (useStaticCache && previewWidth_ > 0 && coarsePreviewWidth_ > 0);
 #else
-  // Keep the single-thread/reference renderer in the original lazy preview
-  // evaluation order. Pre-resolution exists only to make preview state immutable
-  // before pthread workers fan out.
-  const bool previewPreparedReadOnly = false;
+  // Keep the ordinary single-thread/reference renderer in the original lazy
+  // evaluation order. Exact retained pan reuse is the one exception: shifted
+  // preview samples and fresh coarse fallback must be resolved before selecting
+  // which translated pixels can remain untouched.
+  const bool previewPreparedReadOnly =
+    panSceneReuseValid_ &&
+    useStaticCache &&
+    previewWidth_ > 0 &&
+    coarsePreviewWidth_ > 0;
 #endif
 
   if (previewPreparedReadOnly && previewWidth_ > 0 && useStaticCache && coarsePreviewWidth_ > 0) {
@@ -1007,6 +1206,76 @@ void Renderer::render() {
   } else {
     for (const DamageRect& rect : previousDamageRects_) markDamage(rect);
     for (const DamageRect& rect : currentDamageRects_) markDamage(rect);
+
+    if (panSceneReuseValid_) {
+      const int destinationX0 = std::max(0, -panSourceShiftX_);
+      const int destinationX1 = std::min(frameWidth_, frameWidth_ - panSourceShiftX_);
+      const int destinationY0 = std::max(0, -panSourceShiftY_);
+      const int destinationY1 = std::min(frameHeight_, frameHeight_ - panSourceShiftY_);
+
+      if (destinationY0 > 0) markDamage({0, 0, frameWidth_, destinationY0});
+      if (destinationY1 < frameHeight_) {
+        markDamage({0, destinationY1, frameWidth_, frameHeight_});
+      }
+      if (destinationX0 > 0 && destinationY0 < destinationY1) {
+        markDamage({0, destinationY0, destinationX0, destinationY1});
+      }
+      if (destinationX1 < frameWidth_ && destinationY0 < destinationY1) {
+        markDamage({destinationX1, destinationY0, frameWidth_, destinationY1});
+      }
+
+      // Reused geometry is an exact screen translation. The only overlapping
+      // pixels that can change are misses whose background is screen-anchored,
+      // or lower-preview pixels whose translated high-detail sample is not yet
+      // valid and therefore must use the freshly prepared coarse fallback.
+      for (int y = destinationY0; y < destinationY1; ++y) {
+        const int previewY = previewHeight_ > 0
+          ? std::min(previewHeight_ - 1, y * previewHeight_ / frameHeight_)
+          : 0;
+        for (int x = destinationX0; x < destinationX1; ++x) {
+          const std::size_t pixelIndex =
+            static_cast<std::size_t>(y) * frameWidth_ + static_cast<std::size_t>(x);
+          bool missesEnvironment = false;
+          for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+            if (staticSamples_[pixelIndex * 4 + sampleIndex].environmentDistance >= NO_HIT_DISTANCE) {
+              missesEnvironment = true;
+              break;
+            }
+          }
+          if (!missesEnvironment) continue;
+
+          bool translatedPreviewExact = false;
+          if (previewWidth_ > 0 && previewHeight_ > 0) {
+            const int previewX = std::min(
+              previewWidth_ - 1,
+              x * previewWidth_ / frameWidth_
+            );
+            const PreviewSample& preview = previewSamples_[
+              static_cast<std::size_t>(previewY) * previewWidth_ + previewX
+            ];
+            translatedPreviewExact = preview.valid && preview.found;
+            if (!preview.valid) {
+              dirtyMinimumX_[static_cast<std::size_t>(y)] = std::min(
+                dirtyMinimumX_[static_cast<std::size_t>(y)], x
+              );
+              dirtyMaximumX_[static_cast<std::size_t>(y)] = std::max(
+                dirtyMaximumX_[static_cast<std::size_t>(y)], x + 1
+              );
+              continue;
+            }
+          }
+
+          if (panSourceShiftY_ != 0 && !translatedPreviewExact) {
+            dirtyMinimumX_[static_cast<std::size_t>(y)] = std::min(
+              dirtyMinimumX_[static_cast<std::size_t>(y)], x
+            );
+            dirtyMaximumX_[static_cast<std::size_t>(y)] = std::max(
+              dirtyMaximumX_[static_cast<std::size_t>(y)], x + 1
+            );
+          }
+        }
+      }
+    }
   }
 
   // frame_ contains controls from the preceding presented frame. Retained/damage
