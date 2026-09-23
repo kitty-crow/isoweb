@@ -1,0 +1,30 @@
+name: Fix render array include
+
+on:
+  push:
+    branches:
+      - perf/render-pipeline-parity
+    paths:
+      - .github/workflows/fix-render-array-include.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/render-pipeline-parity
+      - name: Add required array include
+        run: |
+          python -c "from pathlib import Path; p=Path('src/engine/world/World.cpp'); s=p.read_text(); old='#include <algorithm>\n#include <cmath>'; assert old in s; p.write_text(s.replace(old, '#include <algorithm>\n#include <array>\n#include <cmath>', 1))"
+      - name: Commit correction
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/engine/world/World.cpp
+          git rm .github/workflows/fix-render-array-include.yml
+          git commit -m 'Fix stack-local render scratch include'
+          git push origin HEAD:perf/render-pipeline-parity
