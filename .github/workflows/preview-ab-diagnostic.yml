@@ -1,0 +1,107 @@
+name: Preview A/B diagnostic
+
+on:
+  push:
+    branches:
+      - perf/render-pipeline-parity
+    paths:
+      - .preview-ab-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout optimised branch
+        uses: actions/checkout@v4
+        with:
+          ref: perf/render-pipeline-parity
+          path: perf
+          submodules: recursive
+          fetch-depth: 0
+      - name: Checkout main reference
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+          submodules: recursive
+          fetch-depth: 1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.15
+      - name: Build both reference and optimised renderers
+        run: |
+          for tree in main perf; do
+            cd "$GITHUB_WORKSPACE/$tree"
+            npm pkg set devDependencies.playwright=1.62.1
+            bun install
+            bun run compile:demo-world
+            bun run build:site
+            bun run build:web
+            bun run build:wasm
+          done
+          cd "$GITHUB_WORKSPACE/perf"
+          bunx playwright install --with-deps chromium
+      - name: Create focused frame-4 diagnostic
+        run: |
+          cat > "$GITHUB_WORKSPACE/perf/scripts/preview-ab-runtime.ts" <<'EOF'
+          import { chromium } from 'playwright';
+          import { extname, normalize } from 'node:path';
+          const roots = [
+            { label: 'main', root: `${process.env.GITHUB_WORKSPACE}/main/site` },
+            { label: 'perf', root: `${process.env.GITHUB_WORKSPACE}/perf/site` }
+          ];
+          const mime: Record<string,string> = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webp':'image/webp','.wasm':'application/wasm'};
+          const browser = await chromium.launch({headless:true});
+          for (const item of roots) {
+            const server = Bun.serve({port:0, async fetch(request) {
+              const url = new URL(request.url); let pathname = decodeURIComponent(url.pathname);
+              if (pathname === '/') pathname = '/index.html';
+              if (pathname === '/favicon.ico') return new Response(null,{status:204});
+              const relative = normalize(pathname).replace(/^[/\\]+/,'');
+              const file = Bun.file(`${item.root}/${relative}`);
+              if (!(await file.exists())) return new Response('Not found',{status:404});
+              return new Response(file,{headers:{'Content-Type':mime[extname(relative)] ?? 'application/octet-stream'}});
+            }});
+            const page = await browser.newPage({viewport:{width:960,height:720}});
+            await page.goto(`http://127.0.0.1:${server.port}/?presentation=canvas2d`,{waitUntil:'domcontentloaded'});
+            await page.waitForFunction(() => document.documentElement.classList.contains('world-ready'),undefined,{timeout:45000});
+            const diag = await page.evaluate(async () => {
+              const m=(globalThis as any).Module; const canvas=document.getElementById('canvas') as HTMLCanvasElement; const c=canvas.getContext('2d')!;
+              m._isoweb_set_obstacles_enabled(0); m._isoweb_clear_entities(); m._isoweb_reset_zoom(); m._isoweb_reset_camera(); m._isoweb_reset_yaw(); m._isoweb_reset_level();
+              while(m._isoweb_active_level_index()>0)m._isoweb_level_down();
+              m._isoweb_level_up();
+              const hash=async()=>{const p=c.getImageData(0,0,canvas.width,canvas.height).data; const d=await crypto.subtle.digest('SHA-256',p.buffer.slice(p.byteOffset,p.byteOffset+p.byteLength)); return Array.from(new Uint8Array(d)).map(v=>v.toString(16).padStart(2,'0')).join('');};
+              const stats=()=>({coarse:m._isoweb_preview_coarse_sample_count(),refined:m._isoweb_preview_refined_sample_count(),demanded:m._isoweb_preview_demanded_texel_count(),potential:m._isoweb_preview_potential_texel_count(),needs:m._isoweb_preview_needs_refinement()});
+              m._isoweb_render(); const preHash=await hash(); const preStats=stats();
+              let guard=0, refineTrue=0; while(m._isoweb_preview_needs_refinement() && guard++<2000){ if(m._isoweb_refine_preview(64)) ++refineTrue; }
+              const afterLoopHash=await hash(); const afterLoopStats=stats();
+              m._isoweb_render(); const finalHash=await hash(); const finalStats=stats();
+              m._isoweb_set_render_thread_limit(1); m._isoweb_render(); const forcedFullHash=await hash(); const forcedFullStats=stats();
+              return {width:canvas.width,height:canvas.height,preHash,preStats,guard,refineTrue,afterLoopHash,afterLoopStats,finalHash,finalStats,forcedFullHash,forcedFullStats};
+            });
+            console.log(`PREVIEW_AB ${item.label} ${JSON.stringify(diag)}`);
+            await page.close(); server.stop(true);
+          }
+          await browser.close();
+          EOF
+      - name: Run A/B diagnostic
+        working-directory: perf
+        run: bun scripts/preview-ab-runtime.ts
+      - name: Clean diagnostic files from branch
+        if: always()
+        working-directory: perf
+        run: |
+          git config user.name "kitty"
+          git config user.email "141717449+kitty-crow@users.noreply.github.com"
+          rm -f scripts/preview-ab-runtime.ts
+          git rm -f .github/workflows/preview-ab-diagnostic.yml .preview-ab-trigger || true
+          if ! git diff --cached --quiet; then
+            git commit -m "Clean preview A/B diagnostic scaffolding"
+            git push origin HEAD:perf/render-pipeline-parity
+          fi
