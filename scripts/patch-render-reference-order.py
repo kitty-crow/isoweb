@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Triggered after the workflow definition exists so GitHub can execute it.
 path = Path("src/engine/render/Renderer.cpp")
 text = path.read_text()
 
