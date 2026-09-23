@@ -76,6 +76,7 @@ void Renderer::setRenderThreadLimit(int limit) {
 void Renderer::resize(int width, int height) {
   frameWidth_ = std::max(160, std::min(1600, width));
   frameHeight_ = std::max(160, std::min(1600, height));
+  damageHistoryValid_ = false;
 }
 
 std::uint8_t Renderer::toByte(float value) {
@@ -280,6 +281,7 @@ void Renderer::ensureFrame() {
 
   const std::size_t required = static_cast<std::size_t>(frameWidth_) * frameHeight_ * 4;
   if (rgba_.size() != required) rgba_.resize(required);
+  if (sceneRgba_.size() != required) sceneRgba_.resize(required);
 }
 
 Ray Renderer::rayForPixel(float px, float py) const {
@@ -409,11 +411,14 @@ bool Renderer::refinePreview(std::size_t maxTiles) {
     }
   }
 
+  if (changed) ++previewVisualRevision_;
   return changed;
 }
 
 void Renderer::render() {
   ensureFrame();
+  lastRenderThreadCount_ = 1;
+  lastRenderHelperRows_ = 0;
 
   const WorldBounds& visibleBounds = world_.bounds();
   const WorldBounds& bounds = world_.cameraBounds();
@@ -458,8 +463,10 @@ void Renderer::render() {
   previewHeight_ = 0;
   coarsePreviewWidth_ = 0;
   coarsePreviewHeight_ = 0;
-  previewCoarseSampleCount_ = 0;
-  previewDemandedTexelCount_ = 0;
+  // Demand/coarse counters describe the currently retained preview state.
+  // Do not erase them until we know this frame will actually rediscover the
+  // preview. A retained dynamic-only frame must keep refinement schedulable.
+  bool previewFrameChanged = false;
   if (world_.supportsLowDetailLowerPreview()) {
     float previewScale = std::max(0.0625f, std::min(1.0f, world_.lowerPreviewResolutionScale()));
     const double requestedPreviewPixels =
@@ -488,7 +495,10 @@ void Renderer::render() {
 
     const std::size_t required = static_cast<std::size_t>(previewWidth_) * previewHeight_;
     const std::size_t tileCount = static_cast<std::size_t>(previewTilesX_) * previewTilesY_;
-    if (!previewCacheMatches(nextPreviewKey) || previewSamples_.size() != required) {
+    const bool resetPreviewCache =
+      !previewCacheMatches(nextPreviewKey) || previewSamples_.size() != required;
+    previewFrameChanged = resetPreviewCache;
+    if (resetPreviewCache) {
       previewSamples_.assign(required, PreviewSample());
       previewDemand_.assign(required, 0);
       previewTileDemand_.assign(tileCount, 0);
@@ -496,9 +506,6 @@ void Renderer::render() {
       previewCacheValid_ = true;
       previewRefineCursor_ = 0;
       previewIdleFrames_ = PREVIEW_IDLE_DELAY_FRAMES;
-    } else {
-      std::fill(previewDemand_.begin(), previewDemand_.end(), 0);
-      std::fill(previewTileDemand_.begin(), previewTileDemand_.end(), 0);
     }
 
     const float previewStepX = width / static_cast<float>(previewWidth_);
@@ -527,11 +534,11 @@ void Renderer::render() {
       1,
       static_cast<int>(std::ceil(frameHeight_ * coarsePreviewScale))
     );
-    coarsePreviewSamples_.assign(
-      static_cast<std::size_t>(coarsePreviewWidth_) * coarsePreviewHeight_,
-      PreviewSample()
-    );
+    // Allocation/reset is deferred until fullSceneRender is known below.
+    // Retained frames can safely reuse this exact coarse cache because the
+    // preview key/revision and camera are unchanged.
   } else {
+    previewFrameChanged = previewCacheValid_;
     previewTilesX_ = 0;
     previewTilesY_ = 0;
     previewCacheValid_ = false;
@@ -539,6 +546,8 @@ void Renderer::render() {
     previewDemand_.clear();
     previewTileDemand_.clear();
     coarsePreviewSamples_.clear();
+    previewCoarseSampleCount_ = 0;
+    previewDemandedTexelCount_ = 0;
   }
 
   const std::size_t pixelCount =
@@ -555,6 +564,9 @@ void Renderer::render() {
   nextStaticKey.panY = camera_.panY();
   nextStaticKey.viewHeight = height;
 
+  const bool staticFrameChanged =
+    !useStaticCache || !staticCacheMatches(nextStaticKey);
+
   if (useStaticCache) {
     const std::size_t sampleCount = pixelCount * 4;
     if (staticSamples_.size() != sampleCount) {
@@ -569,6 +581,28 @@ void Renderer::render() {
   }
 
   const bool rebuildStaticCache = useStaticCache && !staticCacheMatches(nextStaticKey);
+
+  const bool fullSceneRender =
+    !useStaticCache ||
+    staticFrameChanged ||
+    previewFrameChanged ||
+    previewVisualRevision_ != lastRenderedPreviewRevision_ ||
+    !damageHistoryValid_;
+
+  if (previewWidth_ > 0) {
+    const std::size_t coarseRequired =
+      static_cast<std::size_t>(coarsePreviewWidth_) * coarsePreviewHeight_;
+    if (fullSceneRender) {
+      std::fill(previewDemand_.begin(), previewDemand_.end(), 0);
+      std::fill(previewTileDemand_.begin(), previewTileDemand_.end(), 0);
+      previewCoarseSampleCount_ = 0;
+      previewDemandedTexelCount_ = 0;
+      coarsePreviewSamples_.assign(coarseRequired, PreviewSample());
+    } else if (coarsePreviewSamples_.size() != coarseRequired) {
+      coarsePreviewSamples_.assign(coarseRequired, PreviewSample());
+    }
+  }
+
   const float inverseFrameWidth = 1.0f / static_cast<float>(frameWidth_);
   const float inverseFrameHeight = 1.0f / static_cast<float>(frameHeight_);
   const Vec3 rightStep = right * (width * inverseFrameWidth);
@@ -800,132 +834,421 @@ void Renderer::render() {
     }
   }
 
-  Vec3 rowOrigin = cornerOrigin;
-  std::size_t pixelIndex = 0;
-  for (int y = 0; y < frameHeight_; ++y) {
-    Vec3 pixelOrigin = rowOrigin;
-    const float backgroundY[2] = {
-      (static_cast<float>(y) + 0.25f) * inverseFrameHeight,
-      (static_cast<float>(y) + 0.75f) * inverseFrameHeight
-    };
-    const int previewY = previewHeight_ > 0
-      ? std::min(previewHeight_ - 1, y * previewHeight_ / frameHeight_)
-      : 0;
-    const int coarsePreviewY = coarsePreviewHeight_ > 0
-      ? std::min(coarsePreviewHeight_ - 1, y * coarsePreviewHeight_ / frameHeight_)
-      : 0;
-    std::uint8_t* frameRow = reinterpret_cast<std::uint8_t*>(
-      &dsr::image_accessPixel(frame_, 0, y)
-    );
+  // Resolve lower-preview discovery before runtime compositing. The previous
+  // implementation lazily filled coarse preview cells and demand masks from
+  // inside the per-sample loop, which made the moving-frame compositor unsafe
+  // to thread whenever stacked-level preview was enabled. Static hit distances
+  // already tell us exactly which pixels expose a lower level, so discover the
+  // same coarse cells and demand bits once, serially, then make the hot pass
+  // read-only. No preview colour/sample position changes.
+#ifdef ISOWEB_ENABLE_RENDER_THREADS
+  const bool previewPreparedReadOnly =
+    previewWidth_ == 0 ||
+    (useStaticCache && previewWidth_ > 0 && coarsePreviewWidth_ > 0);
+#else
+  // Keep the single-thread/reference renderer in the original lazy preview
+  // evaluation order. Pre-resolution exists only to make preview state immutable
+  // before pthread workers fan out.
+  const bool previewPreparedReadOnly = false;
+#endif
 
-    for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
-      PreviewSample* previewForPixel = nullptr;
-      std::size_t previewIndex = 0;
-      int previewX = 0;
-      if (previewWidth_ > 0 && previewHeight_ > 0) {
-        previewX = std::min(previewWidth_ - 1, x * previewWidth_ / frameWidth_);
-        previewIndex = static_cast<std::size_t>(previewY) * previewWidth_ + previewX;
-        previewForPixel = &previewSamples_[previewIndex];
-      }
+  if (previewPreparedReadOnly && previewWidth_ > 0 && useStaticCache && coarsePreviewWidth_ > 0) {
+    std::vector<std::uint8_t> coarseNeeded(coarsePreviewSamples_.size(), 0);
 
-      PreviewSample* coarseForPixel = nullptr;
-      if (coarsePreviewWidth_ > 0 && coarsePreviewHeight_ > 0) {
-        const int coarsePreviewX = std::min(
+    for (int y = 0; y < frameHeight_; ++y) {
+      const int previewY = std::min(previewHeight_ - 1, y * previewHeight_ / frameHeight_);
+      const int coarseY = std::min(
+        coarsePreviewHeight_ - 1,
+        y * coarsePreviewHeight_ / frameHeight_
+      );
+      for (int x = 0; x < frameWidth_; ++x) {
+        const std::size_t pixelIndex =
+          static_cast<std::size_t>(y) * frameWidth_ + static_cast<std::size_t>(x);
+        bool exposesPreview = false;
+        for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+          if (staticSamples_[pixelIndex * 4 + sampleIndex].environmentDistance >= NO_HIT_DISTANCE) {
+            exposesPreview = true;
+            break;
+          }
+        }
+        if (!exposesPreview) continue;
+
+        const int previewX = std::min(previewWidth_ - 1, x * previewWidth_ / frameWidth_);
+        const std::size_t previewIndex =
+          static_cast<std::size_t>(previewY) * previewWidth_ + previewX;
+        if (previewSamples_[previewIndex].valid) continue;
+
+        const int coarseX = std::min(
           coarsePreviewWidth_ - 1,
           x * coarsePreviewWidth_ / frameWidth_
         );
-        coarseForPixel = &coarsePreviewSamples_[
-          static_cast<std::size_t>(coarsePreviewY) * coarsePreviewWidth_ + coarsePreviewX
-        ];
+        const std::size_t coarseIndex =
+          static_cast<std::size_t>(coarseY) * coarsePreviewWidth_ + coarseX;
+        if (!coarsePreviewSamples_[coarseIndex].valid) coarseNeeded[coarseIndex] = 1;
+      }
+    }
+
+    const float coarseStepX = width / static_cast<float>(coarsePreviewWidth_);
+    const float coarseStepY = height / static_cast<float>(coarsePreviewHeight_);
+    for (std::size_t coarseIndex = 0; coarseIndex < coarseNeeded.size(); ++coarseIndex) {
+      if (!coarseNeeded[coarseIndex]) continue;
+      PreviewSample& sample = coarsePreviewSamples_[coarseIndex];
+      const int coarseX = static_cast<int>(coarseIndex % coarsePreviewWidth_);
+      const int coarseY = static_cast<int>(coarseIndex / coarsePreviewWidth_);
+      const Vec3 coarseOrigin =
+        focus - forward * originDistance - right * (width * 0.5f) + up * (height * 0.5f) +
+        right * (coarseStepX * (static_cast<float>(coarseX) + 0.5f)) +
+        up * (-coarseStepY * (static_cast<float>(coarseY) + 0.5f));
+      sample.found = world_.sampleLowDetailLowerPreview(
+        {coarseOrigin, forward},
+        sample.colour
+      );
+      sample.valid = true;
+      ++previewCoarseSampleCount_;
+    }
+
+    // Demand is per preview texel/tile, not per supersample. Marking once when
+    // any of the four exact static samples misses produces the same set as the
+    // old in-loop writes while avoiding cross-worker mutation.
+    for (int y = 0; y < frameHeight_; ++y) {
+      const int previewY = std::min(previewHeight_ - 1, y * previewHeight_ / frameHeight_);
+      const int coarseY = std::min(
+        coarsePreviewHeight_ - 1,
+        y * coarsePreviewHeight_ / frameHeight_
+      );
+      for (int x = 0; x < frameWidth_; ++x) {
+        const std::size_t pixelIndex =
+          static_cast<std::size_t>(y) * frameWidth_ + static_cast<std::size_t>(x);
+        bool exposesPreview = false;
+        for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+          if (staticSamples_[pixelIndex * 4 + sampleIndex].environmentDistance >= NO_HIT_DISTANCE) {
+            exposesPreview = true;
+            break;
+          }
+        }
+        if (!exposesPreview) continue;
+
+        const int previewX = std::min(previewWidth_ - 1, x * previewWidth_ / frameWidth_);
+        const std::size_t previewIndex =
+          static_cast<std::size_t>(previewY) * previewWidth_ + previewX;
+        const PreviewSample* displayPreview = previewSamples_[previewIndex].valid
+          ? &previewSamples_[previewIndex]
+          : nullptr;
+        if (!displayPreview) {
+          const int coarseX = std::min(
+            coarsePreviewWidth_ - 1,
+            x * coarsePreviewWidth_ / frameWidth_
+          );
+          const PreviewSample& coarse = coarsePreviewSamples_[
+            static_cast<std::size_t>(coarseY) * coarsePreviewWidth_ + coarseX
+          ];
+          if (coarse.valid && coarse.found) displayPreview = &coarse;
+        }
+        if (!displayPreview || !displayPreview->found) continue;
+
+        if (!previewDemand_[previewIndex]) {
+          previewDemand_[previewIndex] = 1;
+          ++previewDemandedTexelCount_;
+        }
+        const std::size_t tileX = static_cast<std::size_t>(previewX / PREVIEW_TILE_SIZE);
+        const std::size_t tileY = static_cast<std::size_t>(previewY / PREVIEW_TILE_SIZE);
+        previewTileDemand_[tileY * static_cast<std::size_t>(previewTilesX_) + tileX] = 1;
+      }
+    }
+  }
+
+  // Project exact runtime damage conservatively into the orthographic frame.
+  // When static/cache/preview state is unchanged, every pixel outside current
+  // and previous dynamic bounds is already the exact desired pixel from the
+  // preceding frame. Reusing it avoids the full-screen four-sample compositor.
+  world_.collectRuntimeDamageBounds(runtimeDamageBounds_);
+  currentDamageRects_.clear();
+  currentDamageRects_.reserve(runtimeDamageBounds_.size());
+  const float pixelsPerWorldX = static_cast<float>(frameWidth_) / width;
+  const float pixelsPerWorldY = static_cast<float>(frameHeight_) / height;
+
+  for (const RuntimeDamageBound& bound : runtimeDamageBounds_) {
+    if (bound.radius < 0.0f) continue;
+    const Vec3 delta = bound.centre - focus;
+    const float centreX =
+      (0.5f + dot(delta, right) / width) * static_cast<float>(frameWidth_);
+    const float centreY =
+      (0.5f - dot(delta, up) / height) * static_cast<float>(frameHeight_);
+    const float radiusX = bound.radius * pixelsPerWorldX + 3.0f;
+    const float radiusY = bound.radius * pixelsPerWorldY + 3.0f;
+    DamageRect rect;
+    rect.minimumX = std::max(0, static_cast<int>(std::floor(centreX - radiusX)));
+    rect.maximumX = std::min(frameWidth_, static_cast<int>(std::ceil(centreX + radiusX)) + 1);
+    rect.minimumY = std::max(0, static_cast<int>(std::floor(centreY - radiusY)));
+    rect.maximumY = std::min(frameHeight_, static_cast<int>(std::ceil(centreY + radiusY)) + 1);
+    if (rect.minimumX < rect.maximumX && rect.minimumY < rect.maximumY) {
+      currentDamageRects_.push_back(rect);
+    }
+  }
+
+  dirtyMinimumX_.assign(static_cast<std::size_t>(frameHeight_), frameWidth_);
+  dirtyMaximumX_.assign(static_cast<std::size_t>(frameHeight_), 0);
+  const auto markDamage = [&](const DamageRect& rect) {
+    for (int y = rect.minimumY; y < rect.maximumY; ++y) {
+      dirtyMinimumX_[static_cast<std::size_t>(y)] = std::min(
+        dirtyMinimumX_[static_cast<std::size_t>(y)],
+        rect.minimumX
+      );
+      dirtyMaximumX_[static_cast<std::size_t>(y)] = std::max(
+        dirtyMaximumX_[static_cast<std::size_t>(y)],
+        rect.maximumX
+      );
+    }
+  };
+
+  if (fullSceneRender) {
+    std::fill(dirtyMinimumX_.begin(), dirtyMinimumX_.end(), 0);
+    std::fill(dirtyMaximumX_.begin(), dirtyMaximumX_.end(), frameWidth_);
+  } else {
+    for (const DamageRect& rect : previousDamageRects_) markDamage(rect);
+    for (const DamageRect& rect : currentDamageRects_) markDamage(rect);
+  }
+
+  // frame_ contains controls from the preceding presented frame. Retained/damage
+  // rendering must start from the clean scene, otherwise semi-transparent control
+  // sprites are blended repeatedly and dirty regions can partially erase them.
+  // Restoring a contiguous RGBA buffer is deliberately cheap compared with the
+  // four exact ray samples avoided for every clean pixel.
+  if (!fullSceneRender && sceneRgba_.size() == pixelCount * 4) {
+    const std::size_t sceneRowBytes = static_cast<std::size_t>(frameWidth_) * 4;
+    for (int y = 0; y < frameHeight_; ++y) {
+      std::uint8_t* destination = reinterpret_cast<std::uint8_t*>(
+        &dsr::image_accessPixel(frame_, 0, y)
+      );
+      std::memcpy(
+        destination,
+        sceneRgba_.data() + static_cast<std::size_t>(y) * sceneRowBytes,
+        sceneRowBytes
+      );
+    }
+  }
+
+  // Runtime compositing, gamma conversion and framebuffer writes are independent
+  // per row once preview mutation is out of the equation. Thread the hot path
+  // as well as static-cache construction so moving Characters can actually use
+  // the pthread build. Replaying downStep to yBegin preserves the serial
+  // floating-point ray origins exactly, just like sampleStaticRows above.
+  const auto renderRows = [&](int yBegin, int yEnd, std::size_t workerSlot) {
+    Vec3 rowOrigin = cornerOrigin;
+    for (int row = 0; row < yBegin; ++row) {
+      rowOrigin = rowOrigin + downStep;
+    }
+
+    for (int y = yBegin; y < yEnd; ++y) {
+      const int xBegin = dirtyMinimumX_[static_cast<std::size_t>(y)];
+      const int xEnd = dirtyMaximumX_[static_cast<std::size_t>(y)];
+      if (xBegin >= xEnd) {
+        rowOrigin = rowOrigin + downStep;
+        continue;
       }
 
-      Vec3 colour;
-      for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
-        const Ray ray{pixelOrigin + sampleOffsets[sampleIndex], forward};
-        const float sampleBackgroundY = backgroundY[sampleIndex >> 1];
+      Vec3 pixelOrigin = rowOrigin;
+      for (int skippedX = 0; skippedX < xBegin; ++skippedX) {
+        pixelOrigin = pixelOrigin + rightStep;
+      }
+      std::size_t pixelIndex =
+        static_cast<std::size_t>(y) * static_cast<std::size_t>(frameWidth_) +
+        static_cast<std::size_t>(xBegin);
+      const float backgroundY[2] = {
+        (static_cast<float>(y) + 0.25f) * inverseFrameHeight,
+        (static_cast<float>(y) + 0.75f) * inverseFrameHeight
+      };
+      const int previewY = previewHeight_ > 0
+        ? std::min(previewHeight_ - 1, y * previewHeight_ / frameHeight_)
+        : 0;
+      const int coarsePreviewY = coarsePreviewHeight_ > 0
+        ? std::min(coarsePreviewHeight_ - 1, y * coarsePreviewHeight_ / frameHeight_)
+        : 0;
+      std::uint8_t* frameRow = reinterpret_cast<std::uint8_t*>(
+        &dsr::image_accessPixel(frame_, 0, y)
+      );
 
-        Vec3 environmentColour;
-        float environmentDistance = std::numeric_limits<float>::max();
-        if (useStaticCache) {
-          StaticSample& staticSample = staticSamples_[pixelIndex * 4 + sampleIndex];
-          if (staticSample.environmentDistance < 0.0f) {
-            staticSample.colour = world_.sampleEnvironment(
+      for (int x = xBegin; x < xEnd; ++x, ++pixelIndex) {
+        PreviewSample* previewForPixel = nullptr;
+        std::size_t previewIndex = 0;
+        int previewX = 0;
+        if (previewWidth_ > 0 && previewHeight_ > 0) {
+          previewX = std::min(previewWidth_ - 1, x * previewWidth_ / frameWidth_);
+          previewIndex = static_cast<std::size_t>(previewY) * previewWidth_ + previewX;
+          previewForPixel = &previewSamples_[previewIndex];
+        }
+
+        PreviewSample* coarseForPixel = nullptr;
+        if (coarsePreviewWidth_ > 0 && coarsePreviewHeight_ > 0) {
+          const int coarsePreviewX = std::min(
+            coarsePreviewWidth_ - 1,
+            x * coarsePreviewWidth_ / frameWidth_
+          );
+          coarseForPixel = &coarsePreviewSamples_[
+            static_cast<std::size_t>(coarsePreviewY) * coarsePreviewWidth_ + coarsePreviewX
+          ];
+        }
+
+        Vec3 colour;
+        for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+          const Ray ray{pixelOrigin + sampleOffsets[sampleIndex], forward};
+          const float sampleBackgroundY = backgroundY[sampleIndex >> 1];
+
+          Vec3 environmentColour;
+          float environmentDistance = std::numeric_limits<float>::max();
+          if (useStaticCache) {
+            StaticSample& staticSample = staticSamples_[pixelIndex * 4 + sampleIndex];
+            if (staticSample.environmentDistance < 0.0f) {
+              staticSample.colour = world_.sampleEnvironment(
+                ray,
+                sampleBackgroundY,
+                staticSample.environmentDistance
+              );
+            }
+            environmentColour = staticSample.colour;
+            environmentDistance = staticSample.environmentDistance;
+          } else {
+            environmentColour = world_.sampleEnvironment(
               ray,
               sampleBackgroundY,
-              staticSample.environmentDistance
+              environmentDistance
             );
           }
-          environmentColour = staticSample.colour;
-          environmentDistance = staticSample.environmentDistance;
-        } else {
-          environmentColour = world_.sampleEnvironment(
+
+          if (environmentDistance >= NO_HIT_DISTANCE && previewForPixel) {
+            const PreviewSample* displayPreview = previewForPixel->valid ? previewForPixel : nullptr;
+            if (!displayPreview && coarseForPixel) {
+              if (!coarseForPixel->valid && !previewPreparedReadOnly) {
+                const int coarseIndex = static_cast<int>(coarseForPixel - coarsePreviewSamples_.data());
+                const int coarseX = coarseIndex % coarsePreviewWidth_;
+                const int coarseY = coarseIndex / coarsePreviewWidth_;
+                const float coarseStepX = width / static_cast<float>(coarsePreviewWidth_);
+                const float coarseStepY = height / static_cast<float>(coarsePreviewHeight_);
+                const Vec3 coarseOrigin =
+                  focus - forward * originDistance - right * (width * 0.5f) + up * (height * 0.5f) +
+                  right * (coarseStepX * (static_cast<float>(coarseX) + 0.5f)) +
+                  up * (-coarseStepY * (static_cast<float>(coarseY) + 0.5f));
+                coarseForPixel->found = world_.sampleLowDetailLowerPreview(
+                  {coarseOrigin, forward},
+                  coarseForPixel->colour
+                );
+                coarseForPixel->valid = true;
+                ++previewCoarseSampleCount_;
+              }
+              displayPreview = coarseForPixel->valid && coarseForPixel->found
+                ? coarseForPixel
+                : nullptr;
+            }
+
+            if (displayPreview && displayPreview->found) {
+              environmentColour = displayPreview->colour;
+              if (!previewPreparedReadOnly) {
+                if (!previewDemand_[previewIndex]) {
+                  previewDemand_[previewIndex] = 1;
+                  ++previewDemandedTexelCount_;
+                }
+                const std::size_t tileX = static_cast<std::size_t>(previewX / PREVIEW_TILE_SIZE);
+                const std::size_t tileY = static_cast<std::size_t>(previewY / PREVIEW_TILE_SIZE);
+                previewTileDemand_[tileY * static_cast<std::size_t>(previewTilesX_) + tileX] = 1;
+              }
+            }
+          }
+
+          colour = colour + world_.compositeRuntimeForWorker(
             ray,
-            sampleBackgroundY,
-            environmentDistance
+            environmentColour,
+            environmentDistance,
+            workerSlot
           );
         }
+        colour = colour * 0.25f;
 
-        if (environmentDistance >= NO_HIT_DISTANCE && previewForPixel) {
-          const PreviewSample* displayPreview = previewForPixel->valid ? previewForPixel : nullptr;
-          if (!displayPreview && coarseForPixel) {
-            if (!coarseForPixel->valid) {
-              const int coarseIndex = static_cast<int>(coarseForPixel - coarsePreviewSamples_.data());
-              const int coarseX = coarseIndex % coarsePreviewWidth_;
-              const int coarseY = coarseIndex / coarsePreviewWidth_;
-              const float coarseStepX = width / static_cast<float>(coarsePreviewWidth_);
-              const float coarseStepY = height / static_cast<float>(coarsePreviewHeight_);
-              const Vec3 coarseOrigin =
-                focus - forward * originDistance - right * (width * 0.5f) + up * (height * 0.5f) +
-                right * (coarseStepX * (static_cast<float>(coarseX) + 0.5f)) +
-                up * (-coarseStepY * (static_cast<float>(coarseY) + 0.5f));
-              coarseForPixel->found = world_.sampleLowDetailLowerPreview(
-                {coarseOrigin, forward},
-                coarseForPixel->colour
-              );
-              coarseForPixel->valid = true;
-              ++previewCoarseSampleCount_;
-            }
-            displayPreview = coarseForPixel->found ? coarseForPixel : nullptr;
-          }
-
-          // Only genuinely exposed lower-preview texels enter the background
-          // refinement queue. Active-level coverage never gets preview work;
-          // sampleLowDetailLowerPreview itself stops at the first lower level,
-          // so deeper floors covered by a nearer preview level are never sampled.
-          if (displayPreview && displayPreview->found) {
-            environmentColour = displayPreview->colour;
-            if (!previewDemand_[previewIndex]) {
-              previewDemand_[previewIndex] = 1;
-              ++previewDemandedTexelCount_;
-            }
-            const std::size_t tileX = static_cast<std::size_t>(previewX / PREVIEW_TILE_SIZE);
-            const std::size_t tileY = static_cast<std::size_t>(previewY / PREVIEW_TILE_SIZE);
-            previewTileDemand_[tileY * static_cast<std::size_t>(previewTilesX_) + tileX] = 1;
-          }
-        }
-
-        colour = colour + world_.compositeRuntime(
-          ray,
-          environmentColour,
-          environmentDistance
-        );
+        const std::size_t offset = static_cast<std::size_t>(x) * 4;
+        frameRow[offset] = toByte(colour.x);
+        frameRow[offset + 1] = toByte(colour.y);
+        frameRow[offset + 2] = toByte(colour.z);
+        frameRow[offset + 3] = 255;
+        pixelOrigin = pixelOrigin + rightStep;
       }
-      colour = colour * 0.25f;
-
-      const std::size_t offset = static_cast<std::size_t>(x) * 4;
-      frameRow[offset] = toByte(colour.x);
-      frameRow[offset + 1] = toByte(colour.y);
-      frameRow[offset + 2] = toByte(colour.z);
-      frameRow[offset + 3] = 255;
-      pixelOrigin = pixelOrigin + rightStep;
+      rowOrigin = rowOrigin + downStep;
     }
-    rowOrigin = rowOrigin + downStep;
+  };
+
+#ifdef ISOWEB_ENABLE_RENDER_THREADS
+  // The IsoWeb preview path above is now immutable during compositing, so
+  // stacked-level scenes can use the same pthread row fan-out as ordinary
+  // active-level animation. Generic worlds without exact static cache distances
+  // retain the serial lazy-preview fallback.
+  const bool parallelComposite =
+    world_.runtimeCompositeThreadSafe() &&
+    previewPreparedReadOnly &&
+    renderThreadLimit_ > 1;
+
+  if (parallelComposite) {
+    const unsigned int reportedThreads = std::thread::hardware_concurrency();
+    const int availableThreads = static_cast<int>(reportedThreads == 0 ? 2 : reportedThreads);
+    int renderThreads = std::max(1, std::min(renderThreadLimit_, availableThreads));
+    renderThreads = std::min(renderThreads, frameHeight_);
+
+    if (renderThreads > 1) {
+      std::vector<int> completedRows(static_cast<std::size_t>(renderThreads), 0);
+      std::vector<std::thread> helpers;
+      helpers.reserve(static_cast<std::size_t>(renderThreads - 1));
+
+      for (int worker = 1; worker < renderThreads; ++worker) {
+        const int yBegin = frameHeight_ * worker / renderThreads;
+        const int yEnd = frameHeight_ * (worker + 1) / renderThreads;
+        helpers.emplace_back([&, worker, yBegin, yEnd]() {
+          renderRows(yBegin, yEnd, static_cast<std::size_t>(worker));
+          completedRows[static_cast<std::size_t>(worker)] = yEnd - yBegin;
+        });
+      }
+
+      const int mainEnd = frameHeight_ / renderThreads;
+      renderRows(0, mainEnd, 0);
+      completedRows[0] = mainEnd;
+
+      for (std::thread& helper : helpers) helper.join();
+
+      int compositeHelperRows = 0;
+      for (int worker = 1; worker < renderThreads; ++worker) {
+        compositeHelperRows += completedRows[static_cast<std::size_t>(worker)];
+      }
+      lastRenderThreadCount_ = std::max(lastRenderThreadCount_, renderThreads);
+      lastRenderHelperRows_ = std::max(lastRenderHelperRows_, compositeHelperRows);
+    } else {
+      renderRows(0, frameHeight_, 0);
+    }
+  } else {
+    renderRows(0, frameHeight_, 0);
   }
+#else
+  renderRows(0, frameHeight_, 0);
+#endif
 
   if (rebuildStaticCache) {
     staticCacheKey_ = nextStaticKey;
     staticCacheValid_ = true;
     ++staticCacheBuildCount_;
+  }
+
+  previousDamageRects_ = currentDamageRects_;
+  damageHistoryValid_ = true;
+  lastRenderedPreviewRevision_ = previewVisualRevision_;
+
+  // Snapshot the exact scene before UI/control sprites are drawn. The next
+  // retained frame restores from this copy, updates only damaged scene pixels,
+  // then applies controls exactly once.
+  const std::size_t sceneRowBytes = static_cast<std::size_t>(frameWidth_) * 4;
+  for (int y = 0; y < frameHeight_; ++y) {
+    const std::uint8_t* source = reinterpret_cast<const std::uint8_t*>(
+      &dsr::image_accessPixel(frame_, 0, y)
+    );
+    std::memcpy(
+      sceneRgba_.data() + static_cast<std::size_t>(y) * sceneRowBytes,
+      source,
+      sceneRowBytes
+    );
   }
 
   LevelControlState levelState;

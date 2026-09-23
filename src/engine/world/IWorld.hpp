@@ -19,6 +19,11 @@ struct WorldBounds {
   std::vector<Vec3> points;
 };
 
+struct RuntimeDamageBound {
+  Vec3 centre;
+  float radius = 0.0f;
+};
+
 class IWorld {
 public:
   virtual ~IWorld() = default;
@@ -66,6 +71,30 @@ public:
   ) const {
     return environmentColour;
   }
+
+  // Threaded renderers may assign a stable worker slot so a world can keep
+  // reusable per-worker scratch without TLS lookups or per-ray construction.
+  // Worlds that do not need scratch simply delegate to the normal compositor.
+  virtual Vec3 compositeRuntimeForWorker(
+    const Ray& ray,
+    const Vec3& environmentColour,
+    float environmentDistance,
+    std::size_t
+  ) const {
+    return compositeRuntime(ray, environmentColour, environmentDistance);
+  }
+
+  // Conservative world-space bounds covering every pixel that runtime
+  // compositing may alter. Renderers may use these only to skip pixels whose
+  // previous scene value is already exact. Empty means no dynamic damage.
+  virtual void collectRuntimeDamageBounds(std::vector<RuntimeDamageBound>& output) const {
+    output.clear();
+  }
+
+  // Parallel frame compositing is opt-in. Worlds returning true promise that
+  // compositeRuntime() and any lazy static sample refill are safe when called
+  // concurrently for disjoint pixels after prepareRenderFrame().
+  virtual bool runtimeCompositeThreadSafe() const { return false; }
 
   // Called once immediately before a render pass. Worlds can use this to cache
   // frame-invariant entity projection/presentation state out of the ray loop.

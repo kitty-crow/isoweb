@@ -332,7 +332,9 @@ void main() {
   int outputX = int(floor(gl_FragCoord.x));
   int sampleIndex = outputX & 3;
   int pixelX = outputX >> 2;
-  int pixelY = uFrameHeight - 1 - int(floor(gl_FragCoord.y));
+  // Keep framebuffer row order identical to WASM row order. readPixels returns
+  // framebuffer row zero first, so this removes the old CPU row-reversal copy.
+  int pixelY = int(floor(gl_FragCoord.y));
 
   float sampleY = sampleIndex < 2 ? 0.25 : 0.75;
   vec3 pixelOrigin = texelFetch(uRayOrigins, ivec2(pixelX, pixelY), 0).xyz;
@@ -562,10 +564,12 @@ export class WebGlStaticTracer {
       heap.byteOffset + scenePointer,
       sceneFloatCount
     );
-    // WebGL implementations are not required to accept SharedArrayBuffer
-    // views. The descriptor is tiny compared with the framebuffer, so keep
-    // this upload browser-owned on every static rebuild.
-    const scene = new Float32Array(rawScene);
+    const usesSharedMemory =
+      typeof SharedArrayBuffer === 'function' &&
+      heap.buffer instanceof SharedArrayBuffer;
+    // Ordinary WASM memory is already a valid WebGL BufferSource. Only copy
+    // pthread SharedArrayBuffer views, which some WebGL implementations reject.
+    const scene = usesSharedMemory ? new Float32Array(rawScene) : rawScene;
 
     const header = scene.subarray(0, 8);
     const visualCount = Math.round(header[1]);
@@ -601,7 +605,7 @@ export class WebGlStaticTracer {
       heap.byteOffset + rayOriginsPointer,
       width * height * 4
     );
-    const rayOrigins = new Float32Array(rawRayOrigins);
+    const rayOrigins = usesSharedMemory ? new Float32Array(rawRayOrigins) : rawRayOrigins;
     gl.bindTexture(gl.TEXTURE_2D, this.rayOriginsTexture);
     gl.texImage2D(
       gl.TEXTURE_2D,
@@ -665,6 +669,18 @@ export class WebGlStaticTracer {
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
 
+    const outputFloatCount = width * height * 16;
+    // StaticSample is four float32 values. Preserve the GPU-computed IEEE-754
+    // bit patterns exactly through a Uint32 view of WASM memory. Ordinary
+    // ArrayBuffer-backed WASM can receive readPixels directly; pthread shared
+    // memory keeps the browser-owned staging buffer for compatibility.
+    const target = new Uint32Array(
+      heap.buffer,
+      heap.byteOffset + outputPointer,
+      outputFloatCount
+    );
+    const readback = usesSharedMemory ? this.resultBuffer : target;
+
     const started = performance.now();
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.readPixels(
@@ -674,26 +690,11 @@ export class WebGlStaticTracer {
       height,
       gl.RGBA_INTEGER,
       gl.UNSIGNED_INT,
-      this.resultBuffer
+      readback
     );
     window.isowebLastGpuStaticMilliseconds = performance.now() - started;
 
-    const outputFloatCount = width * height * 16;
-    // StaticSample is four float32 values. Preserve the GPU-computed IEEE-754
-    // bit patterns exactly by copying through a Uint32 view of WASM memory.
-    const target = new Uint32Array(
-      heap.buffer,
-      heap.byteOffset + outputPointer,
-      outputFloatCount
-    );
-    const rowFloatCount = outputWidth * 4;
-    for (let y = 0; y < height; ++y) {
-      const sourceStart = (height - 1 - y) * rowFloatCount;
-      target.set(
-        this.resultBuffer.subarray(sourceStart, sourceStart + rowFloatCount),
-        y * rowFloatCount
-      );
-    }
+    if (readback !== target) target.set(readback);
 
     window.isowebGpuStaticTraceCount = (window.isowebGpuStaticTraceCount ?? 0) + 1;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);

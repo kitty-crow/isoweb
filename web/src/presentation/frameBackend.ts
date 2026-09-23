@@ -94,6 +94,7 @@ class WebGl2FrameBackend implements FrameBackend {
   private textureWidth = 0;
   private textureHeight = 0;
   private sharedCopy: Uint8Array | null = null;
+  private sharedUploadSupported: boolean | null = null;
   private readonly timerExtension: any;
   private pendingTimerQuery: WebGLQuery | null = null;
 
@@ -195,20 +196,9 @@ class WebGl2FrameBackend implements FrameBackend {
       byteLength
     );
 
-    // Some WebGL implementations reject SharedArrayBuffer-backed views at the
-    // upload boundary. Reuse one ordinary ArrayBuffer in pthread builds rather
-    // than allocating a fresh frame copy each presentation.
-    let upload: Uint8Array = source;
-    if (
+    const usesSharedMemory =
       typeof SharedArrayBuffer === 'function' &&
-      heap.buffer instanceof SharedArrayBuffer
-    ) {
-      if (!this.sharedCopy || this.sharedCopy.byteLength !== byteLength) {
-        this.sharedCopy = new Uint8Array(byteLength);
-      }
-      this.sharedCopy.set(source);
-      upload = this.sharedCopy;
-    }
+      heap.buffer instanceof SharedArrayBuffer;
 
     gl.viewport(0, 0, width, height);
     gl.bindVertexArray(this.vao);
@@ -216,33 +206,75 @@ class WebGl2FrameBackend implements FrameBackend {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
 
-    if (this.textureWidth !== width || this.textureHeight !== height) {
-      gl.texImage2D(
-        gl.TEXTURE_2D,
-        0,
-        gl.RGBA8,
-        width,
-        height,
-        0,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
-        upload
-      );
-      this.textureWidth = width;
-      this.textureHeight = height;
-      window.isowebFrameGpuBytes = byteLength;
+    const uploadPixels = (pixels: Uint8Array): void => {
+      if (this.textureWidth !== width || this.textureHeight !== height) {
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA8,
+          width,
+          height,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          pixels
+        );
+        this.textureWidth = width;
+        this.textureHeight = height;
+        window.isowebFrameGpuBytes = byteLength;
+      } else {
+        gl.texSubImage2D(
+          gl.TEXTURE_2D,
+          0,
+          0,
+          0,
+          width,
+          height,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          pixels
+        );
+      }
+    };
+
+    // WebGL2 allows shared ArrayBuffer views for pixel upload. Probe once and
+    // remove a full-frame CPU copy when the implementation accepts it; retain
+    // the existing reusable ordinary ArrayBuffer fallback for older bindings.
+    if (usesSharedMemory) {
+      let directUploadSucceeded = false;
+      if (this.sharedUploadSupported !== false) {
+        try {
+          // WebGL reports many invalid BufferSource combinations through the
+          // error flag rather than by throwing. Clear stale errors only for the
+          // one-time probe, then verify that the direct shared upload really
+          // succeeded before remembering support.
+          if (this.sharedUploadSupported === null) {
+            while (gl.getError() !== gl.NO_ERROR) { /* drain */ }
+          }
+          uploadPixels(source);
+          if (this.sharedUploadSupported === null) {
+            this.sharedUploadSupported = gl.getError() === gl.NO_ERROR;
+          }
+          directUploadSucceeded = this.sharedUploadSupported === true;
+        } catch {
+          this.sharedUploadSupported = false;
+        }
+      }
+
+      if (!directUploadSucceeded) {
+        // A failed texImage2D probe may have advanced our bookkeeping even
+        // though WebGL rejected the source. Force the fallback to allocate the
+        // texture again with an ordinary ArrayBuffer-backed view.
+        this.textureWidth = 0;
+        this.textureHeight = 0;
+        if (!this.sharedCopy || this.sharedCopy.byteLength !== byteLength) {
+          this.sharedCopy = new Uint8Array(byteLength);
+        }
+        this.sharedCopy.set(source);
+        uploadPixels(this.sharedCopy);
+      }
     } else {
-      gl.texSubImage2D(
-        gl.TEXTURE_2D,
-        0,
-        0,
-        0,
-        width,
-        height,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
-        upload
-      );
+      uploadPixels(source);
     }
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);

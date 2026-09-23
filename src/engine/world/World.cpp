@@ -1,6 +1,7 @@
 #include "engine/world/World.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -694,6 +695,11 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
     entry.selected = characterSystem_ && characterSystem_->isSelected(character->id);
     entry.previewOverlay = previewOverlayCharacter;
 
+    const Vec3 proxyHalf = entry.proxy.hitBox.halfExtent();
+    entry.broadphaseCentre = entry.proxy.localToWorld(entry.proxy.hitBox.centre());
+    entry.broadphaseRadiusSquared =
+      dot(proxyHalf, proxyHalf) * 1.0001f + 1.0e-6f;
+
     if (character->hasArtwork() && runtimeSpritePlaneValid_) {
       bool implicitMirror = false;
       const SpriteAnimation* animation = character->currentSpriteAnimation(&implicitMirror);
@@ -721,6 +727,9 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
         };
         entry.spriteInverseWidth = 1.0f / width;
         entry.spriteInverseHeight = 1.0f / height;
+        entry.broadphaseCentre = entry.spriteCentre;
+        entry.broadphaseRadiusSquared =
+          (width * width + height * height) * 0.25f * 1.0001f + 1.0e-6f;
       }
     }
 
@@ -730,11 +739,49 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
   // Lower-preview geometry is static. Characters and destination feedback are
   // composited separately at full screen resolution, so their motion does not
   // invalidate or restart progressive floor refinement.
-  runtimeSampleScratch_.clear();
-  if (runtimeSampleScratch_.capacity() < runtimeRenderEntries_.size()) {
-    runtimeSampleScratch_.reserve(runtimeRenderEntries_.size());
-  }
+  buildRuntimeRenderBins(viewDirection);
   runtimeRenderCachePrepared_ = true;
+}
+
+void World::collectRuntimeDamageBounds(std::vector<RuntimeDamageBound>& output) const {
+  output.clear();
+  output.reserve(
+    runtimeRenderEntries_.size() +
+    destinationFeedbackMarkers_.size() +
+    lowDetailPreviewMarkers_.size()
+  );
+
+  for (const RuntimeRenderEntry& entry : runtimeRenderEntries_) {
+    RuntimeDamageBound bound;
+    bound.centre = entry.broadphaseCentre;
+    bound.radius = std::sqrt(std::max(0.0f, entry.broadphaseRadiusSquared));
+    output.push_back(bound);
+  }
+
+  const auto markerRadius = [](float minimumX, float maximumX, float minimumY, float maximumY) {
+    const float halfX = std::max(std::fabs(minimumX), std::fabs(maximumX));
+    const float halfY = std::max(std::fabs(minimumY), std::fabs(maximumY));
+    return std::sqrt(halfX * halfX + halfY * halfY) + 0.08f;
+  };
+
+  for (const DestinationFeedbackMarker& marker : destinationFeedbackMarkers_) {
+    RuntimeDamageBound bound;
+    bound.centre = {marker.position.x, marker.position.y, marker.floorZ};
+    bound.radius = markerRadius(
+      marker.minimumX, marker.maximumX, marker.minimumY, marker.maximumY
+    );
+    output.push_back(bound);
+  }
+
+  for (const LowDetailPreviewMarker& marker : lowDetailPreviewMarkers_) {
+    RuntimeDamageBound bound;
+    const Vec3 offset = levelOffsetInActiveView(marker.levelIndex);
+    bound.centre = marker.position + offset;
+    bound.radius = markerRadius(
+      marker.minimumX, marker.maximumX, marker.minimumY, marker.maximumY
+    ) + 0.08f;
+    output.push_back(bound);
+  }
 }
 
 bool World::setLevelLight(
@@ -922,7 +969,8 @@ Vec3 World::sample(const Ray& ray, float backgroundY) const {
     ray,
     environmentColour,
     environmentHitDistance,
-    runtimeFound
+    runtimeFound,
+    0
   );
   return runtimeFound ? runtime : environmentColour;
 }
@@ -990,7 +1038,8 @@ Vec3 World::sampleRuntimeEntities(
   const Ray& ray,
   const Vec3& environmentColour,
   float environmentHitDistance,
-  bool& found
+  bool& found,
+  std::size_t workerSlot
 ) const {
   if (!runtimeRenderCachePrepared_) prepareRenderFrame(ray.direction);
 
@@ -1057,13 +1106,64 @@ Vec3 World::sampleRuntimeEntities(
     }
   }
 
-  std::vector<RuntimeSample>& samples = runtimeSampleScratch_;
-  samples.clear();
+  // Reuse one scratch arena per renderer worker. This keeps the ordinary
+  // <=8-overlap path allocation-free without a TLS lookup or constructing
+  // containers for every supersample ray. Slots are disjoint during pthread
+  // row rendering; callers outside the renderer use slot zero.
+  const std::size_t safeWorkerSlot = std::min(
+    workerSlot,
+    runtimeScratchSlots_.size() - 1
+  );
+  RuntimeScratch& scratch = runtimeScratchSlots_[safeWorkerSlot];
+  auto& localSamples = scratch.localSamples;
+  auto& overflowSamples = scratch.overflowSamples;
+  std::size_t localSampleCount = 0;
+  overflowSamples.clear();
+  const auto appendSample = [&](const RuntimeSample& value) {
+    if (overflowSamples.empty() && localSampleCount < localSamples.size()) {
+      localSamples[localSampleCount++] = value;
+      return;
+    }
+    if (overflowSamples.empty()) {
+      if (overflowSamples.capacity() < runtimeRenderEntries_.size()) {
+        overflowSamples.reserve(std::max<std::size_t>(
+          runtimeRenderEntries_.size(),
+          localSamples.size() + 1
+        ));
+      }
+      overflowSamples.insert(
+        overflowSamples.end(),
+        localSamples.begin(),
+        localSamples.begin() + static_cast<std::ptrdiff_t>(localSampleCount)
+      );
+    }
+    overflowSamples.push_back(value);
+  };
 
-  for (const RuntimeRenderEntry& entry : runtimeRenderEntries_) {
+  const float rayDirectionLengthSquared = dot(ray.direction, ray.direction);
+  const float inverseRayDirectionLengthSquared =
+    rayDirectionLengthSquared > 1.0e-14f ? 1.0f / rayDirectionLengthSquared : 0.0f;
+
+  for (std::size_t entryIndex : runtimeCandidateIndices(ray)) {
+    const RuntimeRenderEntry& entry = runtimeRenderEntries_[entryIndex];
     const Character* character = entry.character;
     if (!character) continue;
     if (entry.previewOverlay && (!visiblePreviewResolved || entry.levelIndex != visiblePreviewLevel)) continue;
+
+    // Reject almost every screen ray with a conservative sphere before paying
+    // for sprite-plane, atlas, proxy-face or lighting work. This tests distance
+    // to the infinite ray line only, so it may admit extra rays but can never
+    // reject a genuine Character intersection.
+    if (entry.broadphaseRadiusSquared > 0.0f && inverseRayDirectionLengthSquared > 0.0f) {
+      const Vec3 toCentre = entry.broadphaseCentre - ray.origin;
+      const float projection = dot(toCentre, ray.direction);
+      const float perpendicularSquared = std::max(
+        0.0f,
+        dot(toCentre, toCentre) -
+          projection * projection * inverseRayDirectionLengthSquared
+      );
+      if (perpendicularSquared > entry.broadphaseRadiusSquared) continue;
+    }
 
     RuntimeSample sample;
 
@@ -1098,7 +1198,7 @@ Vec3 World::sampleRuntimeEntities(
                 sample.point - entry.viewOffset
               );
             }
-            samples.push_back(sample);
+            appendSample(sample);
           }
         }
       }
@@ -1126,24 +1226,40 @@ Vec3 World::sampleRuntimeEntities(
         sample.colour
       );
     }
-    samples.push_back(sample);
+    appendSample(sample);
   }
 
-  if (samples.empty()) {
+  if (localSampleCount == 0 && overflowSamples.empty()) {
     found = destinationFound || previewDestinationFound;
     return found ? compositedEnvironment : Vec3();
   }
 
-  if (samples.size() > 1) {
-    std::sort(samples.begin(), samples.end(), [](const RuntimeSample& a, const RuntimeSample& b) {
-      return a.distance > b.distance;
-    });
+  const auto fartherFirst = [](const RuntimeSample& a, const RuntimeSample& b) {
+    return a.distance > b.distance;
+  };
+  if (!overflowSamples.empty()) {
+    if (overflowSamples.size() > 1) {
+      std::sort(overflowSamples.begin(), overflowSamples.end(), fartherFirst);
+    }
+  } else if (localSampleCount > 1) {
+    std::sort(
+      localSamples.begin(),
+      localSamples.begin() + static_cast<std::ptrdiff_t>(localSampleCount),
+      fartherFirst
+    );
   }
 
   Vec3 colour = compositedEnvironment;
-  for (const RuntimeSample& sample : samples) {
+  const auto compositeSample = [&](const RuntimeSample& sample) {
     const float alpha = std::max(0.0f, std::min(1.0f, sample.alpha));
     colour = sample.colour * alpha + colour * (1.0f - alpha);
+  };
+  if (!overflowSamples.empty()) {
+    for (const RuntimeSample& sample : overflowSamples) compositeSample(sample);
+  } else {
+    for (std::size_t index = 0; index < localSampleCount; ++index) {
+      compositeSample(localSamples[index]);
+    }
   }
   found = true;
   return colour;
