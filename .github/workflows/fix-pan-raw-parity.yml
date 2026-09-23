@@ -1,0 +1,76 @@
+name: Fix raw pan parity capture
+
+on:
+  push:
+    branches:
+      - fix/pan-retention-and-gpu-selection
+    paths:
+      - scripts/.fix-pan-raw-parity
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/pan-retention-and-gpu-selection
+      - name: Capture renderer bytes before presentation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/joystick-browser-smoke.ts')
+          text = path.read_text()
+          parity = text.index('  const panParity = await page.evaluate(() => {')
+          start = text.index('    const read = (): Uint8Array => {\n', parity)
+          end = text.index('    let mismatches = 0;\n', start)
+          replacement = '\n'.join([
+              "    const originalPresent = (globalThis as any).isowebPresent;",
+              "    if (typeof originalPresent !== 'function') throw new Error('Renderer presenter hook is missing.');",
+              '    let captured: Uint8Array | null = null;',
+              '    (globalThis as any).isowebPresent = (...args: any[]) => {',
+              '      const heap = args[0] as Uint8Array;',
+              '      const pointer = args[1] as number;',
+              '      const width = args[2] as number;',
+              '      const height = args[3] as number;',
+              '      const bytes = new Uint8Array(width * height * 4);',
+              '      bytes.set(new Uint8Array(heap.buffer, heap.byteOffset + pointer, bytes.length));',
+              '      captured = bytes;',
+              '      return originalPresent(...args);',
+              '    };',
+              '',
+              '    const retainedCount = module._isoweb_pan_scene_reuse_count();',
+              '    let retained: Uint8Array;',
+              '    let full: Uint8Array;',
+              '    try {',
+              '      // Re-present the already-retained scene without changing camera/world state.',
+              '      module._isoweb_render();',
+              "      if (!captured) throw new Error('Retained renderer frame was not captured.');",
+              '      retained = captured;',
+              '      captured = null;',
+              '',
+              '      // Invalidate the static cache and redraw the exact same state from scratch.',
+              '      module._isoweb_set_render_thread_limit(1);',
+              '      module._isoweb_render();',
+              "      if (!captured) throw new Error('Forced-full renderer frame was not captured.');",
+              '      full = captured;',
+              '    } finally {',
+              '      (globalThis as any).isowebPresent = originalPresent;',
+              '    }',
+              ''
+          ])
+          path.write_text(text[:start] + replacement + text[end:])
+          PY
+      - name: Commit clean parity capture fix
+        shell: bash
+        run: |
+          rm -f scripts/.fix-pan-raw-parity .github/workflows/fix-pan-raw-parity.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Compare pan parity from renderer WASM bytes"
+          git push origin HEAD:fix/pan-retention-and-gpu-selection
