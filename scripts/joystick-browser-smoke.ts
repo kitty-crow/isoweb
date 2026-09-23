@@ -175,16 +175,23 @@ try {
     const module = (globalThis as any).Module;
     const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
     if (!canvas) throw new Error('Canvas missing for retained-pan parity.');
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Canvas2D missing for retained-pan parity.');
+    const read = (): Uint8Array => {
+      const gl = canvas.getContext('webgl2');
+      if (gl) {
+        const pixels = new Uint8Array(canvas.width * canvas.height * 4);
+        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return pixels;
+      }
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('No readable canvas context for retained-pan parity.');
+      return new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
+    };
     const retainedCount = module._isoweb_pan_scene_reuse_count();
-    const retained = new Uint8ClampedArray(
-      context.getImageData(0, 0, canvas.width, canvas.height).data
-    );
+    const retained = read();
 
     module._isoweb_set_render_thread_limit(1);
     module._isoweb_render();
-    const full = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const full = read();
     let mismatches = 0;
     let firstMismatch = -1;
     let maximumDelta = 0;
