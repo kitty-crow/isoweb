@@ -72,19 +72,27 @@ async function inspect(
           return [key, value];
         })
       );
+      const performanceWithMemory = performance as Performance & {
+        memory?: unknown;
+        measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }>;
+      };
       return {
         backend: module._isoweb_last_static_render_backend(),
         threads: module._isoweb_last_render_thread_count(),
         panel: Boolean(panel),
         rows,
-        note: panel?.querySelector('.stats-note')?.textContent ?? ''
+        hasStatsNote: Boolean(panel?.querySelector('.stats-note')),
+        memoryCapabilities: {
+          modern: typeof performanceWithMemory.measureUserAgentSpecificMemory === 'function',
+          legacy: Boolean(performanceWithMemory.memory),
+          isolated: crossOriginIsolated
+        }
       };
     });
   } finally {
     await page.close();
   }
 }
-
 
 async function inspectNarrowHorizontalScroll(): Promise<Record<string, unknown>> {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -207,8 +215,30 @@ try {
         throw new Error(`${name}: missing ${required}: ${JSON.stringify(result)}`);
       }
     }
-    if (!String(result.note).includes('per-core utilisation')) {
-      throw new Error(`${name}: browser limitation disclosure missing`);
+    if (!rows.RAM.includes('WASM')) {
+      throw new Error(`${name}: RAM diagnostics lost directly measurable WASM memory: ${JSON.stringify(result)}`);
+    }
+    if (rows.RAM.includes('JS heap unavailable')) {
+      throw new Error(`${name}: obsolete JS heap unavailable state leaked into RAM diagnostics: ${JSON.stringify(result)}`);
+    }
+    if (result.hasStatsNote) {
+      throw new Error(`${name}: removed browser sandbox disclaimer is still present`);
+    }
+
+    const memoryCapabilities = result.memoryCapabilities as {
+      modern: boolean;
+      legacy: boolean;
+      isolated: boolean;
+    };
+    if (memoryCapabilities.legacy && !rows.RAM.includes(' JS')) {
+      throw new Error(`${name}: legacy JS heap API is available but unused: ${JSON.stringify(result)}`);
+    }
+    if (
+      !memoryCapabilities.legacy &&
+      !rows.RAM.includes(' page') &&
+      !rows.RAM.includes('browser heap not exposed')
+    ) {
+      throw new Error(`${name}: unsupported browser memory state is mislabeled: ${JSON.stringify(result)}`);
     }
   }
 
@@ -272,7 +302,7 @@ try {
   }
 
   console.log(
-    'Stats overlay passed on root query modes with requested/actual runtime reporting, plus narrow scrolling and control-safe minimise/restore.'
+    'Stats overlay passed on root query modes with non-blocking memory telemetry, requested/actual runtime reporting, plus narrow scrolling and control-safe minimise/restore.'
   );
 } finally {
   await browser.close();
