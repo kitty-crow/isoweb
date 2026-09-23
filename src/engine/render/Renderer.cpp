@@ -841,7 +841,7 @@ void Renderer::render() {
   // as well as static-cache construction so moving Characters can actually use
   // the pthread build. Replaying downStep to yBegin preserves the serial
   // floating-point ray origins exactly, just like sampleStaticRows above.
-  const auto renderRows = [&](int yBegin, int yEnd) {
+  const auto renderRows = [&](int yBegin, int yEnd, std::size_t workerSlot) {
     Vec3 rowOrigin = cornerOrigin;
     for (int row = 0; row < yBegin; ++row) {
       rowOrigin = rowOrigin + downStep;
@@ -951,10 +951,11 @@ void Renderer::render() {
             }
           }
 
-          colour = colour + world_.compositeRuntime(
+          colour = colour + world_.compositeRuntimeForWorker(
             ray,
             environmentColour,
-            environmentDistance
+            environmentDistance,
+            workerSlot
           );
         }
         colour = colour * 0.25f;
@@ -995,13 +996,13 @@ void Renderer::render() {
         const int yBegin = frameHeight_ * worker / renderThreads;
         const int yEnd = frameHeight_ * (worker + 1) / renderThreads;
         helpers.emplace_back([&, worker, yBegin, yEnd]() {
-          renderRows(yBegin, yEnd);
+          renderRows(yBegin, yEnd, static_cast<std::size_t>(worker));
           completedRows[static_cast<std::size_t>(worker)] = yEnd - yBegin;
         });
       }
 
       const int mainEnd = frameHeight_ / renderThreads;
-      renderRows(0, mainEnd);
+      renderRows(0, mainEnd, 0);
       completedRows[0] = mainEnd;
 
       for (std::thread& helper : helpers) helper.join();
@@ -1013,13 +1014,13 @@ void Renderer::render() {
       lastRenderThreadCount_ = std::max(lastRenderThreadCount_, renderThreads);
       lastRenderHelperRows_ = std::max(lastRenderHelperRows_, compositeHelperRows);
     } else {
-      renderRows(0, frameHeight_);
+      renderRows(0, frameHeight_, 0);
     }
   } else {
-    renderRows(0, frameHeight_);
+    renderRows(0, frameHeight_, 0);
   }
 #else
-  renderRows(0, frameHeight_);
+  renderRows(0, frameHeight_, 0);
 #endif
 
   if (rebuildStaticCache) {

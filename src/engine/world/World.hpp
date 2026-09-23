@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -127,6 +128,15 @@ public:
     const Vec3& environmentColour,
     float environmentDistance
   ) const override {
+    return compositeRuntimeForWorker(ray, environmentColour, environmentDistance, 0);
+  }
+
+  Vec3 compositeRuntimeForWorker(
+    const Ray& ray,
+    const Vec3& environmentColour,
+    float environmentDistance,
+    std::size_t workerSlot
+  ) const override {
     // Renderer always prepares the frame first. Destination acknowledgements
     // live in this dynamic layer too, so an off-view Character may still leave
     // its destination footprint visible on the currently rendered endpoint.
@@ -143,7 +153,8 @@ public:
       ray,
       environmentColour,
       environmentDistance,
-      found
+      found,
+      workerSlot
     );
     return found ? runtime : environmentColour;
   }
@@ -275,6 +286,11 @@ private:
     float alpha = 1.0f;
   };
 
+  struct RuntimeScratch {
+    std::array<RuntimeSample, 8> localSamples;
+    std::vector<RuntimeSample> overflowSamples;
+  };
+
   struct RuntimeRenderEntry {
     const Character* character = nullptr;
     Vec3 renderPosition;
@@ -365,7 +381,8 @@ private:
     const Ray& ray,
     const Vec3& environmentColour,
     float environmentDistance,
-    bool& found
+    bool& found,
+    std::size_t workerSlot
   ) const;
   float runtimeLightVisibility(std::size_t levelIndex, const Vec3& point) const;
   Vec3 shadeRuntimeSurface(
@@ -393,6 +410,9 @@ private:
   const CharacterSystem* characterSystem_ = nullptr;
   const CollisionPolicy* collisionPolicy_ = nullptr;
 
+  // Renderer currently caps at six helpers. Eight persistent scratch
+  // slots leave headroom while keeping the hot ray path allocation-free.
+  mutable std::array<RuntimeScratch, 8> runtimeScratchSlots_;
   mutable std::vector<RuntimeRenderEntry> runtimeRenderEntries_;
   mutable std::vector<DestinationFeedbackMarker> destinationFeedbackMarkers_;
   mutable std::vector<LowDetailPreviewCharacter> lowDetailPreviewCharacters_;

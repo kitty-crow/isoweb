@@ -995,7 +995,8 @@ Vec3 World::sampleRuntimeEntities(
   const Ray& ray,
   const Vec3& environmentColour,
   float environmentHitDistance,
-  bool& found
+  bool& found,
+  std::size_t workerSlot
 ) const {
   if (!runtimeRenderCachePrepared_) prepareRenderFrame(ray.direction);
 
@@ -1062,24 +1063,31 @@ Vec3 World::sampleRuntimeEntities(
     }
   }
 
-  // Runtime samples are normally extremely shallow. Keep the common path
-  // entirely on the calling thread's stack so parallel rows need no shared or
-  // thread-local scratch lookup. The vector is only populated if more than
-  // eight dynamic surfaces overlap one ray, preserving unlimited exact
-  // compositing for pathological scenes without taxing ordinary frames.
-  std::array<RuntimeSample, 8> localSamples;
+  // Reuse one scratch arena per renderer worker. This keeps the ordinary
+  // <=8-overlap path allocation-free without a TLS lookup or constructing
+  // containers for every supersample ray. Slots are disjoint during pthread
+  // row rendering; callers outside the renderer use slot zero.
+  const std::size_t safeWorkerSlot = std::min(
+    workerSlot,
+    runtimeScratchSlots_.size() - 1
+  );
+  RuntimeScratch& scratch = runtimeScratchSlots_[safeWorkerSlot];
+  auto& localSamples = scratch.localSamples;
+  auto& overflowSamples = scratch.overflowSamples;
   std::size_t localSampleCount = 0;
-  std::vector<RuntimeSample> overflowSamples;
+  overflowSamples.clear();
   const auto appendSample = [&](const RuntimeSample& value) {
     if (overflowSamples.empty() && localSampleCount < localSamples.size()) {
       localSamples[localSampleCount++] = value;
       return;
     }
     if (overflowSamples.empty()) {
-      overflowSamples.reserve(std::max<std::size_t>(
-        runtimeRenderEntries_.size(),
-        localSamples.size() + 1
-      ));
+      if (overflowSamples.capacity() < runtimeRenderEntries_.size()) {
+        overflowSamples.reserve(std::max<std::size_t>(
+          runtimeRenderEntries_.size(),
+          localSamples.size() + 1
+        ));
+      }
       overflowSamples.insert(
         overflowSamples.end(),
         localSamples.begin(),

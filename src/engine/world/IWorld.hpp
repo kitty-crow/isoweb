@@ -67,6 +67,18 @@ public:
     return environmentColour;
   }
 
+  // Threaded renderers may assign a stable worker slot so a world can keep
+  // reusable per-worker scratch without TLS lookups or per-ray construction.
+  // Worlds that do not need scratch simply delegate to the normal compositor.
+  virtual Vec3 compositeRuntimeForWorker(
+    const Ray& ray,
+    const Vec3& environmentColour,
+    float environmentDistance,
+    std::size_t
+  ) const {
+    return compositeRuntime(ray, environmentColour, environmentDistance);
+  }
+
   // Parallel frame compositing is opt-in. Worlds returning true promise that
   // compositeRuntime() and any lazy static sample refill are safe when called
   // concurrently for disjoint pixels after prepareRenderFrame().
