@@ -27,10 +27,9 @@ jobs:
       - name: Apply exact-output render optimisations
         run: |
           set -euo pipefail
-          for patch in scripts/render-performance-{1..5}.patch; do
-            echo "Checking $patch"
-            git apply --check "$patch"
-            git apply "$patch"
+          for patch_file in scripts/render-performance-{1..5}.patch; do
+            echo "Applying $patch_file by exact context"
+            patch --batch --forward --fuzz=3 -p1 < "$patch_file"
           done
           git diff --check
           rm scripts/render-performance-{1..5}.patch
