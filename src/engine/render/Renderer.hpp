@@ -124,6 +124,8 @@ private:
   int allocatedFrameHeight_ = 0;
   dsr::OrderedImageRgbaU8 frame_;
   std::vector<std::uint8_t> rgba_;
+  // Clean scene-only framebuffer retained separately from UI/control overlays.
+  std::vector<std::uint8_t> sceneRgba_;
 
   std::vector<StaticSample> staticSamples_;
   std::vector<float> gpuScenePacked_;

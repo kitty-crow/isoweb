@@ -282,6 +282,7 @@ void Renderer::ensureFrame() {
 
   const std::size_t required = static_cast<std::size_t>(frameWidth_) * frameHeight_ * 4;
   if (rgba_.size() != required) rgba_.resize(required);
+  if (sceneRgba_.size() != required) sceneRgba_.resize(required);
 }
 
 Ray Renderer::rayForPixel(float px, float py) const {
@@ -996,6 +997,25 @@ void Renderer::render() {
     for (const DamageRect& rect : currentDamageRects_) markDamage(rect);
   }
 
+  // frame_ contains controls from the preceding presented frame. Retained/damage
+  // rendering must start from the clean scene, otherwise semi-transparent control
+  // sprites are blended repeatedly and dirty regions can partially erase them.
+  // Restoring a contiguous RGBA buffer is deliberately cheap compared with the
+  // four exact ray samples avoided for every clean pixel.
+  if (!fullSceneRender && sceneRgba_.size() == pixelCount * 4) {
+    const std::size_t sceneRowBytes = static_cast<std::size_t>(frameWidth_) * 4;
+    for (int y = 0; y < frameHeight_; ++y) {
+      std::uint8_t* destination = reinterpret_cast<std::uint8_t*>(
+        &dsr::image_accessPixel(frame_, 0, y)
+      );
+      std::memcpy(
+        destination,
+        sceneRgba_.data() + static_cast<std::size_t>(y) * sceneRowBytes,
+        sceneRowBytes
+      );
+    }
+  }
+
   // Runtime compositing, gamma conversion and framebuffer writes are independent
   // per row once preview mutation is out of the equation. Thread the hot path
   // as well as static-cache construction so moving Characters can actually use
@@ -1203,6 +1223,21 @@ void Renderer::render() {
   previousDamageRects_ = currentDamageRects_;
   damageHistoryValid_ = true;
   lastRenderedPreviewRevision_ = previewVisualRevision_;
+
+  // Snapshot the exact scene before UI/control sprites are drawn. The next
+  // retained frame restores from this copy, updates only damaged scene pixels,
+  // then applies controls exactly once.
+  const std::size_t sceneRowBytes = static_cast<std::size_t>(frameWidth_) * 4;
+  for (int y = 0; y < frameHeight_; ++y) {
+    const std::uint8_t* source = reinterpret_cast<const std::uint8_t*>(
+      &dsr::image_accessPixel(frame_, 0, y)
+    );
+    std::memcpy(
+      sceneRgba_.data() + static_cast<std::size_t>(y) * sceneRowBytes,
+      source,
+      sceneRowBytes
+    );
+  }
 
   LevelControlState levelState;
   levelState.canMoveUp = world_.activeLevelIndex() + 1 < world_.levelCount();
