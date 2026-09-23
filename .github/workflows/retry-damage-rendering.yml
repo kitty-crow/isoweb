@@ -1,0 +1,41 @@
+name: Retry exact damage rendering
+
+on:
+  push:
+    branches:
+      - perf/render-pipeline-parity
+    paths:
+      - .github/workflows/retry-damage-rendering.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/render-pipeline-parity
+      - name: Align guarded resize block with current renderer
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/apply-damage-rendering.py')
+          text = p.read_text()
+          old = """void Renderer::resize(int width, int height) {\n  frameWidth_ = std::max(1, width);\n  frameHeight_ = std::max(1, height);"""
+          new = """void Renderer::resize(int width, int height) {\n  frameWidth_ = std::max(160, std::min(1600, width));\n  frameHeight_ = std::max(160, std::min(1600, height));"""
+          if old not in text:
+              raise SystemExit('expected guarded resize block not found in staging script')
+          p.write_text(text.replace(old, new, 1))
+          PY
+      - name: Apply retained-frame damage rendering
+        run: python scripts/apply-damage-rendering.py
+      - name: Commit damage rendering
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/engine/world/IWorld.hpp src/engine/world/World.hpp src/engine/world/World.cpp src/engine/render/Renderer.hpp src/engine/render/Renderer.cpp
+          git rm scripts/apply-damage-rendering.py .github/workflows/apply-damage-rendering.yml .github/workflows/retry-damage-rendering.yml
+          git commit -m 'Render only exact dynamic damage regions'
+          git push origin HEAD:perf/render-pipeline-parity
