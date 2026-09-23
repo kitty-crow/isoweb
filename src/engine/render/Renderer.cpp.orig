@@ -836,191 +836,127 @@ void Renderer::render() {
     }
   }
 
-  // Runtime compositing, gamma conversion and framebuffer writes are independent
-  // per row once preview mutation is out of the equation. Thread the hot path
-  // as well as static-cache construction so moving Characters can actually use
-  // the pthread build. Replaying downStep to yBegin preserves the serial
-  // floating-point ray origins exactly, just like sampleStaticRows above.
-  const auto renderRows = [&](int yBegin, int yEnd) {
-    Vec3 rowOrigin = cornerOrigin;
-    for (int row = 0; row < yBegin; ++row) {
-      rowOrigin = rowOrigin + downStep;
-    }
+  Vec3 rowOrigin = cornerOrigin;
+  std::size_t pixelIndex = 0;
+  for (int y = 0; y < frameHeight_; ++y) {
+    Vec3 pixelOrigin = rowOrigin;
+    const float backgroundY[2] = {
+      (static_cast<float>(y) + 0.25f) * inverseFrameHeight,
+      (static_cast<float>(y) + 0.75f) * inverseFrameHeight
+    };
+    const int previewY = previewHeight_ > 0
+      ? std::min(previewHeight_ - 1, y * previewHeight_ / frameHeight_)
+      : 0;
+    const int coarsePreviewY = coarsePreviewHeight_ > 0
+      ? std::min(coarsePreviewHeight_ - 1, y * coarsePreviewHeight_ / frameHeight_)
+      : 0;
+    std::uint8_t* frameRow = reinterpret_cast<std::uint8_t*>(
+      &dsr::image_accessPixel(frame_, 0, y)
+    );
 
-    std::size_t pixelIndex =
-      static_cast<std::size_t>(yBegin) * static_cast<std::size_t>(frameWidth_);
-    for (int y = yBegin; y < yEnd; ++y) {
-      Vec3 pixelOrigin = rowOrigin;
-      const float backgroundY[2] = {
-        (static_cast<float>(y) + 0.25f) * inverseFrameHeight,
-        (static_cast<float>(y) + 0.75f) * inverseFrameHeight
-      };
-      const int previewY = previewHeight_ > 0
-        ? std::min(previewHeight_ - 1, y * previewHeight_ / frameHeight_)
-        : 0;
-      const int coarsePreviewY = coarsePreviewHeight_ > 0
-        ? std::min(coarsePreviewHeight_ - 1, y * coarsePreviewHeight_ / frameHeight_)
-        : 0;
-      std::uint8_t* frameRow = reinterpret_cast<std::uint8_t*>(
-        &dsr::image_accessPixel(frame_, 0, y)
-      );
+    for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
+      PreviewSample* previewForPixel = nullptr;
+      std::size_t previewIndex = 0;
+      int previewX = 0;
+      if (previewWidth_ > 0 && previewHeight_ > 0) {
+        previewX = std::min(previewWidth_ - 1, x * previewWidth_ / frameWidth_);
+        previewIndex = static_cast<std::size_t>(previewY) * previewWidth_ + previewX;
+        previewForPixel = &previewSamples_[previewIndex];
+      }
 
-      for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
-        PreviewSample* previewForPixel = nullptr;
-        std::size_t previewIndex = 0;
-        int previewX = 0;
-        if (previewWidth_ > 0 && previewHeight_ > 0) {
-          previewX = std::min(previewWidth_ - 1, x * previewWidth_ / frameWidth_);
-          previewIndex = static_cast<std::size_t>(previewY) * previewWidth_ + previewX;
-          previewForPixel = &previewSamples_[previewIndex];
-        }
+      PreviewSample* coarseForPixel = nullptr;
+      if (coarsePreviewWidth_ > 0 && coarsePreviewHeight_ > 0) {
+        const int coarsePreviewX = std::min(
+          coarsePreviewWidth_ - 1,
+          x * coarsePreviewWidth_ / frameWidth_
+        );
+        coarseForPixel = &coarsePreviewSamples_[
+          static_cast<std::size_t>(coarsePreviewY) * coarsePreviewWidth_ + coarsePreviewX
+        ];
+      }
 
-        PreviewSample* coarseForPixel = nullptr;
-        if (coarsePreviewWidth_ > 0 && coarsePreviewHeight_ > 0) {
-          const int coarsePreviewX = std::min(
-            coarsePreviewWidth_ - 1,
-            x * coarsePreviewWidth_ / frameWidth_
-          );
-          coarseForPixel = &coarsePreviewSamples_[
-            static_cast<std::size_t>(coarsePreviewY) * coarsePreviewWidth_ + coarsePreviewX
-          ];
-        }
+      Vec3 colour;
+      for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+        const Ray ray{pixelOrigin + sampleOffsets[sampleIndex], forward};
+        const float sampleBackgroundY = backgroundY[sampleIndex >> 1];
 
-        Vec3 colour;
-        for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
-          const Ray ray{pixelOrigin + sampleOffsets[sampleIndex], forward};
-          const float sampleBackgroundY = backgroundY[sampleIndex >> 1];
-
-          Vec3 environmentColour;
-          float environmentDistance = std::numeric_limits<float>::max();
-          if (useStaticCache) {
-            StaticSample& staticSample = staticSamples_[pixelIndex * 4 + sampleIndex];
-            if (staticSample.environmentDistance < 0.0f) {
-              staticSample.colour = world_.sampleEnvironment(
-                ray,
-                sampleBackgroundY,
-                staticSample.environmentDistance
-              );
-            }
-            environmentColour = staticSample.colour;
-            environmentDistance = staticSample.environmentDistance;
-          } else {
-            environmentColour = world_.sampleEnvironment(
+        Vec3 environmentColour;
+        float environmentDistance = std::numeric_limits<float>::max();
+        if (useStaticCache) {
+          StaticSample& staticSample = staticSamples_[pixelIndex * 4 + sampleIndex];
+          if (staticSample.environmentDistance < 0.0f) {
+            staticSample.colour = world_.sampleEnvironment(
               ray,
               sampleBackgroundY,
-              environmentDistance
+              staticSample.environmentDistance
             );
           }
-
-          if (environmentDistance >= NO_HIT_DISTANCE && previewForPixel) {
-            const PreviewSample* displayPreview = previewForPixel->valid ? previewForPixel : nullptr;
-            if (!displayPreview && coarseForPixel) {
-              if (!coarseForPixel->valid) {
-                const int coarseIndex = static_cast<int>(coarseForPixel - coarsePreviewSamples_.data());
-                const int coarseX = coarseIndex % coarsePreviewWidth_;
-                const int coarseY = coarseIndex / coarsePreviewWidth_;
-                const float coarseStepX = width / static_cast<float>(coarsePreviewWidth_);
-                const float coarseStepY = height / static_cast<float>(coarsePreviewHeight_);
-                const Vec3 coarseOrigin =
-                  focus - forward * originDistance - right * (width * 0.5f) + up * (height * 0.5f) +
-                  right * (coarseStepX * (static_cast<float>(coarseX) + 0.5f)) +
-                  up * (-coarseStepY * (static_cast<float>(coarseY) + 0.5f));
-                coarseForPixel->found = world_.sampleLowDetailLowerPreview(
-                  {coarseOrigin, forward},
-                  coarseForPixel->colour
-                );
-                coarseForPixel->valid = true;
-                ++previewCoarseSampleCount_;
-              }
-              displayPreview = coarseForPixel->found ? coarseForPixel : nullptr;
-            }
-
-            // Only genuinely exposed lower-preview texels enter the background
-            // refinement queue. Active-level coverage never gets preview work;
-            // sampleLowDetailLowerPreview itself stops at the first lower level,
-            // so deeper floors covered by a nearer preview level are never sampled.
-            if (displayPreview && displayPreview->found) {
-              environmentColour = displayPreview->colour;
-              if (!previewDemand_[previewIndex]) {
-                previewDemand_[previewIndex] = 1;
-                ++previewDemandedTexelCount_;
-              }
-              const std::size_t tileX = static_cast<std::size_t>(previewX / PREVIEW_TILE_SIZE);
-              const std::size_t tileY = static_cast<std::size_t>(previewY / PREVIEW_TILE_SIZE);
-              previewTileDemand_[tileY * static_cast<std::size_t>(previewTilesX_) + tileX] = 1;
-            }
-          }
-
-          colour = colour + world_.compositeRuntime(
+          environmentColour = staticSample.colour;
+          environmentDistance = staticSample.environmentDistance;
+        } else {
+          environmentColour = world_.sampleEnvironment(
             ray,
-            environmentColour,
+            sampleBackgroundY,
             environmentDistance
           );
         }
-        colour = colour * 0.25f;
 
-        const std::size_t offset = static_cast<std::size_t>(x) * 4;
-        frameRow[offset] = toByte(colour.x);
-        frameRow[offset + 1] = toByte(colour.y);
-        frameRow[offset + 2] = toByte(colour.z);
-        frameRow[offset + 3] = 255;
-        pixelOrigin = pixelOrigin + rightStep;
+        if (environmentDistance >= NO_HIT_DISTANCE && previewForPixel) {
+          const PreviewSample* displayPreview = previewForPixel->valid ? previewForPixel : nullptr;
+          if (!displayPreview && coarseForPixel) {
+            if (!coarseForPixel->valid) {
+              const int coarseIndex = static_cast<int>(coarseForPixel - coarsePreviewSamples_.data());
+              const int coarseX = coarseIndex % coarsePreviewWidth_;
+              const int coarseY = coarseIndex / coarsePreviewWidth_;
+              const float coarseStepX = width / static_cast<float>(coarsePreviewWidth_);
+              const float coarseStepY = height / static_cast<float>(coarsePreviewHeight_);
+              const Vec3 coarseOrigin =
+                focus - forward * originDistance - right * (width * 0.5f) + up * (height * 0.5f) +
+                right * (coarseStepX * (static_cast<float>(coarseX) + 0.5f)) +
+                up * (-coarseStepY * (static_cast<float>(coarseY) + 0.5f));
+              coarseForPixel->found = world_.sampleLowDetailLowerPreview(
+                {coarseOrigin, forward},
+                coarseForPixel->colour
+              );
+              coarseForPixel->valid = true;
+              ++previewCoarseSampleCount_;
+            }
+            displayPreview = coarseForPixel->found ? coarseForPixel : nullptr;
+          }
+
+          // Only genuinely exposed lower-preview texels enter the background
+          // refinement queue. Active-level coverage never gets preview work;
+          // sampleLowDetailLowerPreview itself stops at the first lower level,
+          // so deeper floors covered by a nearer preview level are never sampled.
+          if (displayPreview && displayPreview->found) {
+            environmentColour = displayPreview->colour;
+            if (!previewDemand_[previewIndex]) {
+              previewDemand_[previewIndex] = 1;
+              ++previewDemandedTexelCount_;
+            }
+            const std::size_t tileX = static_cast<std::size_t>(previewX / PREVIEW_TILE_SIZE);
+            const std::size_t tileY = static_cast<std::size_t>(previewY / PREVIEW_TILE_SIZE);
+            previewTileDemand_[tileY * static_cast<std::size_t>(previewTilesX_) + tileX] = 1;
+          }
+        }
+
+        colour = colour + world_.compositeRuntime(
+          ray,
+          environmentColour,
+          environmentDistance
+        );
       }
-      rowOrigin = rowOrigin + downStep;
+      colour = colour * 0.25f;
+
+      const std::size_t offset = static_cast<std::size_t>(x) * 4;
+      frameRow[offset] = toByte(colour.x);
+      frameRow[offset + 1] = toByte(colour.y);
+      frameRow[offset + 2] = toByte(colour.z);
+      frameRow[offset + 3] = 255;
+      pixelOrigin = pixelOrigin + rightStep;
     }
-  };
-
-#ifdef ISOWEB_ENABLE_RENDER_THREADS
-  // Preview discovery mutates shared demand/coarse caches, so keep that uncommon
-  // path serial until its refinement state is immutable. Ordinary active-level
-  // animation has no such shared writes and is safe to divide by rows.
-  const bool parallelComposite =
-    world_.runtimeCompositeThreadSafe() &&
-    previewWidth_ == 0 &&
-    coarsePreviewWidth_ == 0 &&
-    renderThreadLimit_ > 1;
-
-  if (parallelComposite) {
-    const unsigned int reportedThreads = std::thread::hardware_concurrency();
-    const int availableThreads = static_cast<int>(reportedThreads == 0 ? 2 : reportedThreads);
-    int renderThreads = std::max(1, std::min(renderThreadLimit_, availableThreads));
-    renderThreads = std::min(renderThreads, frameHeight_);
-
-    if (renderThreads > 1) {
-      std::vector<int> completedRows(static_cast<std::size_t>(renderThreads), 0);
-      std::vector<std::thread> helpers;
-      helpers.reserve(static_cast<std::size_t>(renderThreads - 1));
-
-      for (int worker = 1; worker < renderThreads; ++worker) {
-        const int yBegin = frameHeight_ * worker / renderThreads;
-        const int yEnd = frameHeight_ * (worker + 1) / renderThreads;
-        helpers.emplace_back([&, worker, yBegin, yEnd]() {
-          renderRows(yBegin, yEnd);
-          completedRows[static_cast<std::size_t>(worker)] = yEnd - yBegin;
-        });
-      }
-
-      const int mainEnd = frameHeight_ / renderThreads;
-      renderRows(0, mainEnd);
-      completedRows[0] = mainEnd;
-
-      for (std::thread& helper : helpers) helper.join();
-
-      int compositeHelperRows = 0;
-      for (int worker = 1; worker < renderThreads; ++worker) {
-        compositeHelperRows += completedRows[static_cast<std::size_t>(worker)];
-      }
-      lastRenderThreadCount_ = std::max(lastRenderThreadCount_, renderThreads);
-      lastRenderHelperRows_ = std::max(lastRenderHelperRows_, compositeHelperRows);
-    } else {
-      renderRows(0, frameHeight_);
-    }
-  } else {
-    renderRows(0, frameHeight_);
+    rowOrigin = rowOrigin + downStep;
   }
-#else
-  renderRows(0, frameHeight_);
-#endif
 
   if (rebuildStaticCache) {
     staticCacheKey_ = nextStaticKey;

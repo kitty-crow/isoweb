@@ -92,14 +92,6 @@ try {
     module._isoweb_reset_zoom();
     module._isoweb_reset_camera();
 
-    const created = module.ccall(
-      'isoweb_create_character',
-      'number',
-      ['string', 'string', 'string', 'string', 'number', 'number', 'number'],
-      ['pthread-render-probe', 'demo', 'default', 'lower', 0.0, 0.0, 0.0]
-    );
-    if (created !== 1) throw new Error('Could not create pthread render probe Character.');
-
     const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
     if (!canvas) throw new Error('Canvas is missing.');
     const context = canvas.getContext('2d');

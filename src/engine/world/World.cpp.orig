@@ -694,11 +694,6 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
     entry.selected = characterSystem_ && characterSystem_->isSelected(character->id);
     entry.previewOverlay = previewOverlayCharacter;
 
-    const Vec3 proxyHalf = entry.proxy.hitBox.halfExtent();
-    entry.broadphaseCentre = entry.proxy.localToWorld(entry.proxy.hitBox.centre());
-    entry.broadphaseRadiusSquared =
-      dot(proxyHalf, proxyHalf) * 1.0001f + 1.0e-6f;
-
     if (character->hasArtwork() && runtimeSpritePlaneValid_) {
       bool implicitMirror = false;
       const SpriteAnimation* animation = character->currentSpriteAnimation(&implicitMirror);
@@ -726,9 +721,6 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
         };
         entry.spriteInverseWidth = 1.0f / width;
         entry.spriteInverseHeight = 1.0f / height;
-        entry.broadphaseCentre = entry.spriteCentre;
-        entry.broadphaseRadiusSquared =
-          (width * width + height * height) * 0.25f * 1.0001f + 1.0e-6f;
       }
     }
 
@@ -1068,29 +1060,10 @@ Vec3 World::sampleRuntimeEntities(
   std::vector<RuntimeSample>& samples = runtimeSampleScratch_;
   samples.clear();
 
-  const float rayDirectionLengthSquared = dot(ray.direction, ray.direction);
-  const float inverseRayDirectionLengthSquared =
-    rayDirectionLengthSquared > 1.0e-14f ? 1.0f / rayDirectionLengthSquared : 0.0f;
-
   for (const RuntimeRenderEntry& entry : runtimeRenderEntries_) {
     const Character* character = entry.character;
     if (!character) continue;
     if (entry.previewOverlay && (!visiblePreviewResolved || entry.levelIndex != visiblePreviewLevel)) continue;
-
-    // Reject almost every screen ray with a conservative sphere before paying
-    // for sprite-plane, atlas, proxy-face or lighting work. This tests distance
-    // to the infinite ray line only, so it may admit extra rays but can never
-    // reject a genuine Character intersection.
-    if (entry.broadphaseRadiusSquared > 0.0f && inverseRayDirectionLengthSquared > 0.0f) {
-      const Vec3 toCentre = entry.broadphaseCentre - ray.origin;
-      const float projection = dot(toCentre, ray.direction);
-      const float perpendicularSquared = std::max(
-        0.0f,
-        dot(toCentre, toCentre) -
-          projection * projection * inverseRayDirectionLengthSquared
-      );
-      if (perpendicularSquared > entry.broadphaseRadiusSquared) continue;
-    }
 
     RuntimeSample sample;
 

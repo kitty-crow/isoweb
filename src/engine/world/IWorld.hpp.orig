@@ -67,11 +67,6 @@ public:
     return environmentColour;
   }
 
-  // Parallel frame compositing is opt-in. Worlds returning true promise that
-  // compositeRuntime() and any lazy static sample refill are safe when called
-  // concurrently for disjoint pixels after prepareRenderFrame().
-  virtual bool runtimeCompositeThreadSafe() const { return false; }
-
   // Called once immediately before a render pass. Worlds can use this to cache
   // frame-invariant entity projection/presentation state out of the ray loop.
   virtual void prepareRenderFrame(const Vec3&) const {}
