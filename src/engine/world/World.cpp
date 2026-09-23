@@ -739,6 +739,7 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
   // Lower-preview geometry is static. Characters and destination feedback are
   // composited separately at full screen resolution, so their motion does not
   // invalidate or restart progressive floor refinement.
+  buildRuntimeRenderBins(viewDirection);
   runtimeRenderCachePrepared_ = true;
 }
 
@@ -1101,7 +1102,8 @@ Vec3 World::sampleRuntimeEntities(
   const float inverseRayDirectionLengthSquared =
     rayDirectionLengthSquared > 1.0e-14f ? 1.0f / rayDirectionLengthSquared : 0.0f;
 
-  for (const RuntimeRenderEntry& entry : runtimeRenderEntries_) {
+  for (std::size_t entryIndex : runtimeCandidateIndices(ray)) {
+    const RuntimeRenderEntry& entry = runtimeRenderEntries_[entryIndex];
     const Character* character = entry.character;
     if (!character) continue;
     if (entry.previewOverlay && (!visiblePreviewResolved || entry.levelIndex != visiblePreviewLevel)) continue;
