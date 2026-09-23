@@ -1,0 +1,23 @@
+name: Fix static tracer module
+
+on:
+  push:
+    branches:
+      - perf/render-pipeline-parity
+    paths:
+      - .github/workflows/fix-static-tracer-module.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/render-pipeline-parity
+      - name: Remove hoisted readback block
+        run: python scripts/fix-static-tracer-module.py
+      - name: Commit correction
+        run: git config user.name 'github-actions[bot]' && git config user.email '41898282+github-actions[bot]@users.noreply.github.com' && git add web/src/presentation/staticTracer.ts && git rm scripts/fix-static-tracer-module.py .github/workflows/fix-static-tracer-module.yml && git commit -m 'Fix WebGL static tracer module initialisation' && git push origin HEAD:perf/render-pipeline-parity
