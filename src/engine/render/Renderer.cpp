@@ -29,7 +29,6 @@ constexpr std::size_t MAX_PREVIEW_PIXELS = 1600000;
 constexpr std::size_t MAX_COARSE_PREVIEW_PIXELS = 90000;
 constexpr unsigned int PREVIEW_IDLE_DELAY_FRAMES = 6;
 constexpr int MAX_RENDER_THREADS = 6;
-constexpr int GAMMA_BUCKET_COUNT = 8192;
 
 float rayOriginDistance(
   const WorldBounds& bounds,
@@ -64,26 +63,6 @@ const std::array<float, 255>& gammaThresholds() {
   return thresholds;
 }
 
-const std::array<std::uint8_t, GAMMA_BUCKET_COUNT>& gammaBucketStarts() {
-  // Most linear-light values are far from an 8-bit gamma boundary. A small
-  // exact coarse index gets us close to upper_bound's answer, after which the
-  // correction loops below normally execute zero times. The correction makes
-  // this a pure acceleration structure: output bytes remain bit-identical to
-  // the old binary search for every float input.
-  static const std::array<std::uint8_t, GAMMA_BUCKET_COUNT> starts = [] {
-    std::array<std::uint8_t, GAMMA_BUCKET_COUNT> values{};
-    const auto& thresholds = gammaThresholds();
-    for (int bucket = 0; bucket < GAMMA_BUCKET_COUNT; ++bucket) {
-      const float lower =
-        static_cast<float>(bucket) / static_cast<float>(GAMMA_BUCKET_COUNT);
-      values[static_cast<std::size_t>(bucket)] = static_cast<std::uint8_t>(
-        std::upper_bound(thresholds.begin(), thresholds.end(), lower) - thresholds.begin()
-      );
-    }
-    return values;
-  }();
-  return starts;
-}
 
 } // namespace
 
@@ -104,22 +83,10 @@ void Renderer::resize(int width, int height) {
 std::uint8_t Renderer::toByte(float value) {
   if (value <= 0.0f) return 0;
   if (value >= 1.0f) return 255;
-
   const auto& thresholds = gammaThresholds();
-  const auto& starts = gammaBucketStarts();
-  int bucket = static_cast<int>(value * static_cast<float>(GAMMA_BUCKET_COUNT));
-  bucket = std::max(0, std::min(GAMMA_BUCKET_COUNT - 1, bucket));
-  int output = starts[static_cast<std::size_t>(bucket)];
-
-  // Correct in both directions so bin-boundary floating-point rounding can
-  // never alter the transfer curve.
-  while (output > 0 && value < thresholds[static_cast<std::size_t>(output - 1)]) {
-    --output;
-  }
-  while (output < 255 && value >= thresholds[static_cast<std::size_t>(output)]) {
-    ++output;
-  }
-  return static_cast<std::uint8_t>(output);
+  return static_cast<std::uint8_t>(
+    std::upper_bound(thresholds.begin(), thresholds.end(), value) - thresholds.begin()
+  );
 }
 
 bool Renderer::staticCacheMatches(const StaticCacheKey& key) const {
