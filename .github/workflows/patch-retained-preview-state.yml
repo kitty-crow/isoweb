@@ -1,0 +1,56 @@
+name: Patch retained preview state
+on:
+  push:
+    branches:
+      - perf/render-pipeline-parity
+    paths:
+      - .retained-preview-state-trigger
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/render-pipeline-parity
+          fetch-depth: 0
+      - name: Preserve progressive preview state across retained renders
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/engine/render/Renderer.cpp')
+          s = p.read_text()
+          s = s.replace(
+          '''  previewCoarseSampleCount_ = 0;\n  previewDemandedTexelCount_ = 0;\n  bool previewFrameChanged = false;''',
+          '''  // Demand/coarse counters describe the currently retained preview state.\n  // Do not erase them until we know this frame will actually rediscover the\n  // preview. A retained dynamic-only frame must keep refinement schedulable.\n  bool previewFrameChanged = false;''')
+          s = s.replace(
+          '''    } else {\n      std::fill(previewDemand_.begin(), previewDemand_.end(), 0);\n      std::fill(previewTileDemand_.begin(), previewTileDemand_.end(), 0);\n    }''',
+          '''    }''')
+          s = s.replace(
+          '''    // Preserve the reference renderer's cache lifetime exactly: the coarse\n    // fallback is transient and is rebuilt for each rendered frame. Threaded\n    // builds still resolve the fresh cache serially before worker fan-out.\n    coarsePreviewSamples_.assign(\n      static_cast<std::size_t>(coarsePreviewWidth_) * coarsePreviewHeight_,\n      PreviewSample()\n    );''',
+          '''    // Allocation/reset is deferred until fullSceneRender is known below.\n    // Retained frames can safely reuse this exact coarse cache because the\n    // preview key/revision and camera are unchanged.''')
+          s = s.replace(
+          '''    coarsePreviewSamples_.clear();\n  }\n\n  const std::size_t pixelCount =''',
+          '''    coarsePreviewSamples_.clear();\n    previewCoarseSampleCount_ = 0;\n    previewDemandedTexelCount_ = 0;\n  }\n\n  const std::size_t pixelCount =''')
+          marker = '''  const bool rebuildStaticCache = useStaticCache && !staticCacheMatches(nextStaticKey);\n  const float inverseFrameWidth = 1.0f / static_cast<float>(frameWidth_);'''
+          replacement = '''  const bool rebuildStaticCache = useStaticCache && !staticCacheMatches(nextStaticKey);\n\n  const bool fullSceneRender =\n    !useStaticCache ||\n    staticFrameChanged ||\n    previewFrameChanged ||\n    previewVisualRevision_ != lastRenderedPreviewRevision_ ||\n    !damageHistoryValid_;\n\n  if (previewWidth_ > 0) {\n    const std::size_t coarseRequired =\n      static_cast<std::size_t>(coarsePreviewWidth_) * coarsePreviewHeight_;\n    if (fullSceneRender) {\n      std::fill(previewDemand_.begin(), previewDemand_.end(), 0);\n      std::fill(previewTileDemand_.begin(), previewTileDemand_.end(), 0);\n      previewCoarseSampleCount_ = 0;\n      previewDemandedTexelCount_ = 0;\n      coarsePreviewSamples_.assign(coarseRequired, PreviewSample());\n    } else if (coarsePreviewSamples_.size() != coarseRequired) {\n      coarsePreviewSamples_.assign(coarseRequired, PreviewSample());\n    }\n  }\n\n  const float inverseFrameWidth = 1.0f / static_cast<float>(frameWidth_);'''
+          if marker not in s:
+              raise SystemExit('static marker not found')
+          s = s.replace(marker, replacement, 1)
+          duplicate = '''  const bool fullSceneRender =\n    !useStaticCache ||\n    staticFrameChanged ||\n    previewFrameChanged ||\n    previewVisualRevision_ != lastRenderedPreviewRevision_ ||\n    !damageHistoryValid_;\n\n  dirtyMinimumX_.assign'''
+          if duplicate not in s:
+              raise SystemExit('duplicate fullSceneRender marker not found')
+          s = s.replace(duplicate, '''  dirtyMinimumX_.assign''', 1)
+          p.write_text(s)
+          PY
+          git diff --check
+          git diff -- src/engine/render/Renderer.cpp
+      - name: Commit correction and clean staging files
+        run: |
+          git config user.name "kitty"
+          git config user.email "141717449+kitty-crow@users.noreply.github.com"
+          git add src/engine/render/Renderer.cpp
+          git rm -f .github/workflows/patch-retained-preview-state.yml .retained-preview-state-trigger
+          git commit -m "Preserve preview refinement state on retained frames"
+          git push origin HEAD:perf/render-pipeline-parity
