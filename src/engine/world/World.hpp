@@ -30,20 +30,6 @@ struct LevelLight {
   float directScale = 1.18f;
 };
 
-template <typename T>
-class ThreadLocalVector {
-public:
-  std::vector<T>& get() const {
-    thread_local std::vector<T> value;
-    return value;
-  }
-
-  operator std::vector<T>&() const { return get(); }
-  void clear() const { get().clear(); }
-  std::size_t capacity() const { return get().capacity(); }
-  void reserve(std::size_t size) const { get().reserve(size); }
-};
-
 class IWorldLevel {
 public:
   virtual ~IWorldLevel() = default;
@@ -411,7 +397,6 @@ private:
   mutable std::vector<DestinationFeedbackMarker> destinationFeedbackMarkers_;
   mutable std::vector<LowDetailPreviewCharacter> lowDetailPreviewCharacters_;
   mutable std::vector<LowDetailPreviewMarker> lowDetailPreviewMarkers_;
-  mutable ThreadLocalVector<RuntimeSample> runtimeSampleScratch_;
   mutable Vec3 runtimeSpritePlaneNormal_;
   mutable Vec3 runtimeSpriteScreenRight_;
   mutable float runtimeSpriteInverseDenominator_ = 0.0f;

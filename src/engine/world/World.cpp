@@ -738,10 +738,6 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
   // Lower-preview geometry is static. Characters and destination feedback are
   // composited separately at full screen resolution, so their motion does not
   // invalidate or restart progressive floor refinement.
-  runtimeSampleScratch_.clear();
-  if (runtimeSampleScratch_.capacity() < runtimeRenderEntries_.size()) {
-    runtimeSampleScratch_.reserve(runtimeRenderEntries_.size());
-  }
   runtimeRenderCachePrepared_ = true;
 }
 
@@ -1065,8 +1061,32 @@ Vec3 World::sampleRuntimeEntities(
     }
   }
 
-  std::vector<RuntimeSample>& samples = runtimeSampleScratch_;
-  samples.clear();
+  // Runtime samples are normally extremely shallow. Keep the common path
+  // entirely on the calling thread's stack so parallel rows need no shared or
+  // thread-local scratch lookup. The vector is only populated if more than
+  // eight dynamic surfaces overlap one ray, preserving unlimited exact
+  // compositing for pathological scenes without taxing ordinary frames.
+  std::array<RuntimeSample, 8> localSamples;
+  std::size_t localSampleCount = 0;
+  std::vector<RuntimeSample> overflowSamples;
+  const auto appendSample = [&](const RuntimeSample& value) {
+    if (overflowSamples.empty() && localSampleCount < localSamples.size()) {
+      localSamples[localSampleCount++] = value;
+      return;
+    }
+    if (overflowSamples.empty()) {
+      overflowSamples.reserve(std::max<std::size_t>(
+        runtimeRenderEntries_.size(),
+        localSamples.size() + 1
+      ));
+      overflowSamples.insert(
+        overflowSamples.end(),
+        localSamples.begin(),
+        localSamples.begin() + static_cast<std::ptrdiff_t>(localSampleCount)
+      );
+    }
+    overflowSamples.push_back(value);
+  };
 
   const float rayDirectionLengthSquared = dot(ray.direction, ray.direction);
   const float inverseRayDirectionLengthSquared =
@@ -1125,7 +1145,7 @@ Vec3 World::sampleRuntimeEntities(
                 sample.point - entry.viewOffset
               );
             }
-            samples.push_back(sample);
+            appendSample(sample);
           }
         }
       }
@@ -1153,24 +1173,40 @@ Vec3 World::sampleRuntimeEntities(
         sample.colour
       );
     }
-    samples.push_back(sample);
+    appendSample(sample);
   }
 
-  if (samples.empty()) {
+  if (localSampleCount == 0 && overflowSamples.empty()) {
     found = destinationFound || previewDestinationFound;
     return found ? compositedEnvironment : Vec3();
   }
 
-  if (samples.size() > 1) {
-    std::sort(samples.begin(), samples.end(), [](const RuntimeSample& a, const RuntimeSample& b) {
-      return a.distance > b.distance;
-    });
+  const auto fartherFirst = [](const RuntimeSample& a, const RuntimeSample& b) {
+    return a.distance > b.distance;
+  };
+  if (!overflowSamples.empty()) {
+    if (overflowSamples.size() > 1) {
+      std::sort(overflowSamples.begin(), overflowSamples.end(), fartherFirst);
+    }
+  } else if (localSampleCount > 1) {
+    std::sort(
+      localSamples.begin(),
+      localSamples.begin() + static_cast<std::ptrdiff_t>(localSampleCount),
+      fartherFirst
+    );
   }
 
   Vec3 colour = compositedEnvironment;
-  for (const RuntimeSample& sample : samples) {
+  const auto compositeSample = [&](const RuntimeSample& sample) {
     const float alpha = std::max(0.0f, std::min(1.0f, sample.alpha));
     colour = sample.colour * alpha + colour * (1.0f - alpha);
+  };
+  if (!overflowSamples.empty()) {
+    for (const RuntimeSample& sample : overflowSamples) compositeSample(sample);
+  } else {
+    for (std::size_t index = 0; index < localSampleCount; ++index) {
+      compositeSample(localSamples[index]);
+    }
   }
   found = true;
   return colour;
