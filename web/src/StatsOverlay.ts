@@ -7,6 +7,9 @@ type MemoryPerformance = Performance & {
     totalJSHeapSize: number;
     jsHeapSizeLimit: number;
   };
+  measureUserAgentSpecificMemory?: () => Promise<{
+    bytes: number;
+  }>;
 };
 
 type NavigatorDiagnostics = Navigator & {
@@ -14,6 +17,7 @@ type NavigatorDiagnostics = Navigator & {
 };
 
 const MIB = 1024 * 1024;
+const MEMORY_SAMPLE_INTERVAL_MS = 2000;
 
 function formatBytes(bytes: number | undefined): string {
   if (bytes === undefined || !Number.isFinite(bytes)) return 'unavailable';
@@ -47,6 +51,9 @@ export class StatsOverlay {
   private renderFps = 0;
   private activity = 'starting';
   private readonly gpu = gpuName();
+  private pageMemoryBytes: number | undefined;
+  private memoryMeasurementPending = false;
+  private lastMemoryMeasurement = Number.NEGATIVE_INFINITY;
 
   constructor(private readonly module: IsowebModule) {
     const root = document.createElement('aside');
@@ -100,11 +107,6 @@ export class StatsOverlay {
       this.values.set(label, value);
     }
 
-    const note = document.createElement('div');
-    note.className = 'stats-note';
-    note.textContent =
-      'Browser sandbox: OS core IDs, per-core utilisation and total process VRAM are not exposed. VRAM shown is IsoWeb-owned WebGL allocation estimate.';
-    scroll.appendChild(note);
     root.appendChild(scroll);
 
     const setMinimised = (minimised: boolean): void => {
@@ -124,6 +126,7 @@ export class StatsOverlay {
 
     document.body.appendChild(root);
     this.root = root;
+    this.requestMemoryMeasurement(performance.now());
     this.update(performance.now(), true);
   }
 
@@ -143,6 +146,35 @@ export class StatsOverlay {
     if (target && target.textContent !== text) target.textContent = text;
   }
 
+  private requestMemoryMeasurement(now: number): void {
+    const memoryPerformance = performance as MemoryPerformance;
+    const measure = memoryPerformance.measureUserAgentSpecificMemory;
+    if (
+      typeof measure !== 'function' ||
+      this.memoryMeasurementPending ||
+      now - this.lastMemoryMeasurement < MEMORY_SAMPLE_INTERVAL_MS
+    ) {
+      return;
+    }
+
+    this.memoryMeasurementPending = true;
+    this.lastMemoryMeasurement = now;
+    void measure.call(performance)
+      .then(result => {
+        if (Number.isFinite(result.bytes) && result.bytes >= 0) {
+          this.pageMemoryBytes = result.bytes;
+        }
+      })
+      .catch(() => {
+        // The API can exist but still be unavailable without the browser's
+        // required isolation/privacy conditions. Legacy heap telemetry and
+        // directly measurable WASM memory remain useful fallbacks.
+      })
+      .finally(() => {
+        this.memoryMeasurementPending = false;
+      });
+  }
+
   private update(now: number, force: boolean): void {
     const elapsed = Math.max(1, now - this.lastUpdate);
     const presented = window.isowebPresentedFrameCount ?? 0;
@@ -151,6 +183,7 @@ export class StatsOverlay {
     }
     this.lastPresentedCount = presented;
     this.lastUpdate = now;
+    this.requestMemoryMeasurement(now);
 
     const averageDisplayMs = this.displayFrameSamples.length
       ? this.displayFrameSamples.reduce((sum, value) => sum + value, 0) /
@@ -167,13 +200,23 @@ export class StatsOverlay {
     const staticGpuMs = window.isowebLastGpuStaticMilliseconds;
     const presentMs = window.isowebLastPresentMilliseconds ?? 0;
 
-    const memory = (performance as MemoryPerformance).memory;
+    const memoryPerformance = performance as MemoryPerformance;
+    const legacyMemory = memoryPerformance.memory;
     const wasmBytes = this.module.HEAPU8?.buffer?.byteLength;
-    const jsHeap = memory
-      ? `${formatBytes(memory.usedJSHeapSize)} / ${formatBytes(memory.totalJSHeapSize)} JS`
-      : 'JS heap unavailable';
+    const memoryParts: string[] = [];
+    if (legacyMemory) {
+      memoryParts.push(
+        `${formatBytes(legacyMemory.usedJSHeapSize)} / ${formatBytes(legacyMemory.totalJSHeapSize)} JS`
+      );
+    }
+    if (this.pageMemoryBytes !== undefined) {
+      memoryParts.push(`~${formatBytes(this.pageMemoryBytes)} page`);
+    }
+    if (memoryParts.length === 0) memoryParts.push('browser heap not exposed');
+    memoryParts.push(`WASM ${formatBytes(wasmBytes)}`);
+
     const deviceMemory = (navigator as NavigatorDiagnostics).deviceMemory;
-    const deviceSuffix = deviceMemory ? `; device ~${deviceMemory} GiB` : '';
+    if (deviceMemory) memoryParts.push(`device ~${deviceMemory} GiB`);
 
     const frameDetail = [
       `${presentMs.toFixed(2)} ms present`,
@@ -206,7 +249,7 @@ export class StatsOverlay {
         ? `GPU static trace; CPU helpers ${threads}/${logicalCores} logical`
         : `${threads}/${logicalCores} logical render threads · ${helpers} helper rows`
     );
-    this.set('RAM', `${jsHeap} · WASM ${formatBytes(wasmBytes)}${deviceSuffix}`);
+    this.set('RAM', memoryParts.join(' · '));
     this.set(
       'VRAM',
       presentation === 'webgl2'
