@@ -1,0 +1,35 @@
+--- a/src/engine/render/Renderer.cpp
++++ b/src/engine/render/Renderer.cpp
+@@ -1,8 +1,20 @@
+ std::uint8_t Renderer::toByte(float value) {
+   if (value <= 0.0f) return 0;
+   if (value >= 1.0f) return 255;
++
+   const auto& thresholds = gammaThresholds();
+-  return static_cast<std::uint8_t>(
+-    std::upper_bound(thresholds.begin(), thresholds.end(), value) - thresholds.begin()
+-  );
++  const auto& starts = gammaBucketStarts();
++  int bucket = static_cast<int>(value * static_cast<float>(GAMMA_BUCKET_COUNT));
++  bucket = std::max(0, std::min(GAMMA_BUCKET_COUNT - 1, bucket));
++  int output = starts[static_cast<std::size_t>(bucket)];
++
++  // Correct in both directions so bin-boundary floating-point rounding can
++  // never alter the transfer curve.
++  while (output > 0 && value < thresholds[static_cast<std::size_t>(output - 1)]) {
++    --output;
++  }
++  while (output < 255 && value >= thresholds[static_cast<std::size_t>(output)]) {
++    ++output;
++  }
++  return static_cast<std::uint8_t>(output);
+ }
+--- a/src/engine/render/Renderer.cpp
++++ b/src/engine/render/Renderer.cpp
+@@ -1,4 +1,6 @@
+ void Renderer::render() {
+   ensureFrame();
++  lastRenderThreadCount_ = 1;
++  lastRenderHelperRows_ = 0;
+ 
+   const WorldBounds& visibleBounds = world_.bounds();
