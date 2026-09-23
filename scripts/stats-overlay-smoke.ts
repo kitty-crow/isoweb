@@ -62,27 +62,6 @@ async function inspect(
     await page.evaluate(configure);
     await page.waitForTimeout(400);
 
-    await page.waitForFunction(
-      () => {
-        const performanceWithMemory = performance as Performance & {
-          memory?: unknown;
-          measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }>;
-        };
-        if (
-          typeof performanceWithMemory.measureUserAgentSpecificMemory !== 'function' ||
-          !crossOriginIsolated
-        ) {
-          return true;
-        }
-        const ramRow = Array.from(document.querySelectorAll('.stats-row')).find(
-          row => row.querySelector('.stats-key')?.textContent === 'RAM'
-        );
-        return ramRow?.querySelector('.stats-value')?.textContent?.includes(' page') ?? false;
-      },
-      undefined,
-      { timeout: 10_000 }
-    );
-
     return await page.evaluate(() => {
       const module = (globalThis as any).Module;
       const panel = document.getElementById('performance-stats');
@@ -239,6 +218,9 @@ try {
     if (!rows.RAM.includes('WASM')) {
       throw new Error(`${name}: RAM diagnostics lost directly measurable WASM memory: ${JSON.stringify(result)}`);
     }
+    if (rows.RAM.includes('JS heap unavailable')) {
+      throw new Error(`${name}: obsolete JS heap unavailable state leaked into RAM diagnostics: ${JSON.stringify(result)}`);
+    }
     if (result.hasStatsNote) {
       throw new Error(`${name}: removed browser sandbox disclaimer is still present`);
     }
@@ -248,15 +230,12 @@ try {
       legacy: boolean;
       isolated: boolean;
     };
-    if (memoryCapabilities.modern && memoryCapabilities.isolated && !rows.RAM.includes(' page')) {
-      throw new Error(`${name}: modern page-memory API is available but unused: ${JSON.stringify(result)}`);
-    }
     if (memoryCapabilities.legacy && !rows.RAM.includes(' JS')) {
       throw new Error(`${name}: legacy JS heap API is available but unused: ${JSON.stringify(result)}`);
     }
     if (
       !memoryCapabilities.legacy &&
-      !(memoryCapabilities.modern && memoryCapabilities.isolated) &&
+      !rows.RAM.includes(' page') &&
       !rows.RAM.includes('browser heap not exposed')
     ) {
       throw new Error(`${name}: unsupported browser memory state is mislabeled: ${JSON.stringify(result)}`);
@@ -323,7 +302,7 @@ try {
   }
 
   console.log(
-    'Stats overlay passed on root query modes with memory telemetry, requested/actual runtime reporting, plus narrow scrolling and control-safe minimise/restore.'
+    'Stats overlay passed on root query modes with non-blocking memory telemetry, requested/actual runtime reporting, plus narrow scrolling and control-safe minimise/restore.'
   );
 } finally {
   await browser.close();
