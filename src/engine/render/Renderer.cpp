@@ -821,11 +821,18 @@ void Renderer::render() {
   // already tell us exactly which pixels expose a lower level, so discover the
   // same coarse cells and demand bits once, serially, then make the hot pass
   // read-only. No preview colour/sample position changes.
+#ifdef ISOWEB_ENABLE_RENDER_THREADS
   const bool previewPreparedReadOnly =
     previewWidth_ == 0 ||
     (useStaticCache && previewWidth_ > 0 && coarsePreviewWidth_ > 0);
+#else
+  // Keep the single-thread/reference renderer in the original lazy preview
+  // evaluation order. Pre-resolution exists only to make preview state immutable
+  // before pthread workers fan out.
+  const bool previewPreparedReadOnly = false;
+#endif
 
-  if (previewWidth_ > 0 && useStaticCache && coarsePreviewWidth_ > 0) {
+  if (previewPreparedReadOnly && previewWidth_ > 0 && useStaticCache && coarsePreviewWidth_ > 0) {
     std::vector<std::uint8_t> coarseNeeded(coarsePreviewSamples_.size(), 0);
 
     for (int y = 0; y < frameHeight_; ++y) {
