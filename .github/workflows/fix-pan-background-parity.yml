@@ -1,0 +1,109 @@
+name: Fix retained pan background parity
+
+on:
+  push:
+    branches:
+      - fix/pan-retention-and-gpu-selection
+    paths:
+      - scripts/.fix-pan-background-parity
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/pan-retention-and-gpu-selection
+      - name: Recompose vertically shifted screen-anchored misses
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/engine/render/Renderer.cpp')
+          text = path.read_text()
+          old = '''          bool translatedPreviewExact = false;
+          if (previewWidth_ > 0 && previewHeight_ > 0) {
+            const int previewX = std::min(
+              previewWidth_ - 1,
+              x * previewWidth_ / frameWidth_
+            );
+            const PreviewSample& preview = previewSamples_[
+              static_cast<std::size_t>(previewY) * previewWidth_ + previewX
+            ];
+            translatedPreviewExact = preview.valid && preview.found;
+            if (!preview.valid) {
+              dirtyMinimumX_[static_cast<std::size_t>(y)] = std::min(
+                dirtyMinimumX_[static_cast<std::size_t>(y)], x
+              );
+              dirtyMaximumX_[static_cast<std::size_t>(y)] = std::max(
+                dirtyMaximumX_[static_cast<std::size_t>(y)], x + 1
+              );
+              continue;
+            }
+          }
+
+          if (panSourceShiftY_ != 0 && !translatedPreviewExact) {
+            dirtyMinimumX_[static_cast<std::size_t>(y)] = std::min(
+              dirtyMinimumX_[static_cast<std::size_t>(y)], x
+            );
+            dirtyMaximumX_[static_cast<std::size_t>(y)] = std::max(
+              dirtyMaximumX_[static_cast<std::size_t>(y)], x + 1
+            );
+          }
+'''
+          new = '''          // The static cache refreshes every no-hit supersample against the
+          // screen-anchored background after a vertical pan. The retained RGBA
+          // scene, however, was translated from the previous screen row. Even
+          // when a lower-preview texel is available, mixed edge pixels may
+          // contain both preview and screen-background samples, so recompose
+          // every vertically shifted environment-miss pixel from the exact
+          // refreshed samples. This remains a sparse retained-frame update.
+          if (panSourceShiftY_ != 0) {
+            dirtyMinimumX_[static_cast<std::size_t>(y)] = std::min(
+              dirtyMinimumX_[static_cast<std::size_t>(y)], x
+            );
+            dirtyMaximumX_[static_cast<std::size_t>(y)] = std::max(
+              dirtyMaximumX_[static_cast<std::size_t>(y)], x + 1
+            );
+            continue;
+          }
+
+          // Pure horizontal translations keep the screen-space background Y
+          // unchanged. They are exact unless the translated high-detail lower
+          // preview sample is missing and must fall back to a newly prepared
+          // coarse sample.
+          if (previewWidth_ > 0 && previewHeight_ > 0) {
+            const int previewX = std::min(
+              previewWidth_ - 1,
+              x * previewWidth_ / frameWidth_
+            );
+            const PreviewSample& preview = previewSamples_[
+              static_cast<std::size_t>(previewY) * previewWidth_ + previewX
+            ];
+            if (!preview.valid) {
+              dirtyMinimumX_[static_cast<std::size_t>(y)] = std::min(
+                dirtyMinimumX_[static_cast<std::size_t>(y)], x
+              );
+              dirtyMaximumX_[static_cast<std::size_t>(y)] = std::max(
+                dirtyMaximumX_[static_cast<std::size_t>(y)], x + 1
+              );
+            }
+          }
+'''
+          if old not in text:
+              raise SystemExit('Expected retained-pan background block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit patch and clean trigger
+        shell: bash
+        run: |
+          rm -f scripts/.fix-pan-background-parity .github/workflows/fix-pan-background-parity.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Preserve screen background parity during retained pan"
+          git push origin HEAD:fix/pan-retention-and-gpu-selection
