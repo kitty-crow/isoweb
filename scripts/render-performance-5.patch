@@ -1,0 +1,124 @@
+--- a/web/src/presentation/frameBackend.ts
++++ b/web/src/presentation/frameBackend.ts
+@@ -1,17 +1,6 @@
+-    // Some WebGL implementations reject SharedArrayBuffer-backed views at the
+-    // upload boundary. Reuse one ordinary ArrayBuffer in pthread builds rather
+-    // than allocating a fresh frame copy each presentation.
+-    let upload: Uint8Array = source;
+-    if (
++    const usesSharedMemory =
+       typeof SharedArrayBuffer === 'function' &&
+-      heap.buffer instanceof SharedArrayBuffer
+-    ) {
+-      if (!this.sharedCopy || this.sharedCopy.byteLength !== byteLength) {
+-        this.sharedCopy = new Uint8Array(byteLength);
+-      }
+-      this.sharedCopy.set(source);
+-      upload = this.sharedCopy;
+-    }
++      heap.buffer instanceof SharedArrayBuffer;
+ 
+     gl.viewport(0, 0, width, height);
+     gl.bindVertexArray(this.vao);
+@@ -19,33 +8,60 @@
+     gl.activeTexture(gl.TEXTURE0);
+     gl.bindTexture(gl.TEXTURE_2D, this.texture);
+ 
+-    if (this.textureWidth !== width || this.textureHeight !== height) {
+-      gl.texImage2D(
+-        gl.TEXTURE_2D,
+-        0,
+-        gl.RGBA8,
+-        width,
+-        height,
+-        0,
+-        gl.RGBA,
+-        gl.UNSIGNED_BYTE,
+-        upload
+-      );
+-      this.textureWidth = width;
+-      this.textureHeight = height;
+-      window.isowebFrameGpuBytes = byteLength;
++    const uploadPixels = (pixels: Uint8Array): void => {
++      if (this.textureWidth !== width || this.textureHeight !== height) {
++        gl.texImage2D(
++          gl.TEXTURE_2D,
++          0,
++          gl.RGBA8,
++          width,
++          height,
++          0,
++          gl.RGBA,
++          gl.UNSIGNED_BYTE,
++          pixels
++        );
++        this.textureWidth = width;
++        this.textureHeight = height;
++        window.isowebFrameGpuBytes = byteLength;
++      } else {
++        gl.texSubImage2D(
++          gl.TEXTURE_2D,
++          0,
++          0,
++          0,
++          width,
++          height,
++          gl.RGBA,
++          gl.UNSIGNED_BYTE,
++          pixels
++        );
++      }
++    };
++
++    // WebGL2 allows shared ArrayBuffer views for pixel upload. Probe once and
++    // remove a full-frame CPU copy when the implementation accepts it; retain
++    // the existing reusable ordinary ArrayBuffer fallback for older bindings.
++    if (usesSharedMemory && this.sharedUploadSupported !== false) {
++      try {
++        uploadPixels(source);
++        this.sharedUploadSupported = true;
++      } catch {
++        this.sharedUploadSupported = false;
++        if (!this.sharedCopy || this.sharedCopy.byteLength !== byteLength) {
++          this.sharedCopy = new Uint8Array(byteLength);
++        }
++        this.sharedCopy.set(source);
++        uploadPixels(this.sharedCopy);
++      }
++    } else if (usesSharedMemory) {
++      if (!this.sharedCopy || this.sharedCopy.byteLength !== byteLength) {
++        this.sharedCopy = new Uint8Array(byteLength);
++      }
++      this.sharedCopy.set(source);
++      uploadPixels(this.sharedCopy);
+     } else {
+-      gl.texSubImage2D(
+-        gl.TEXTURE_2D,
+-        0,
+-        0,
+-        0,
+-        width,
+-        height,
+-        gl.RGBA,
+-        gl.UNSIGNED_BYTE,
+-        upload
+-      );
++      uploadPixels(source);
+     }
+ 
+     gl.drawArrays(gl.TRIANGLES, 0, 3);
+--- a/scripts/pthread-browser-smoke.ts
++++ b/scripts/pthread-browser-smoke.ts
+@@ -2,4 +2,12 @@
+     module._isoweb_reset_zoom();
+     module._isoweb_reset_camera();
+ 
++    const created = module.ccall(
++      'isoweb_create_character',
++      'number',
++      ['string', 'string', 'string', 'string', 'number', 'number', 'number'],
++      ['pthread-render-probe', 'demo', 'default', 'lower', 0.0, 0.0, 0.0]
++    );
++    if (created !== 1) throw new Error('Could not create pthread render probe Character.');
++
+     const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
