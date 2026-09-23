@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Trigger after the patch workflow exists.
 path = Path("src/engine/render/Renderer.cpp")
 text = path.read_text()
 old = """    const std::size_t coarseRequired =
