@@ -22,8 +22,7 @@ jobs:
       - name: Apply correction
         run: |
           set -euo pipefail
-          git apply --check scripts/render-performance-corrective.patch
-          git apply scripts/render-performance-corrective.patch
+          patch --batch --forward --fuzz=0 -p1 < scripts/render-performance-corrective.patch
           rm scripts/render-performance-corrective.patch
           rm .github/workflows/apply-render-corrective.yml
           git diff --check
