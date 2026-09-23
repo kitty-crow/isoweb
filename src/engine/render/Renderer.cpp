@@ -537,11 +537,13 @@ void Renderer::render() {
       1,
       static_cast<int>(std::ceil(frameHeight_ * coarsePreviewScale))
     );
-    const std::size_t coarseRequired =
-      static_cast<std::size_t>(coarsePreviewWidth_) * coarsePreviewHeight_;
-    if (resetPreviewCache || coarsePreviewSamples_.size() != coarseRequired) {
-      coarsePreviewSamples_.assign(coarseRequired, PreviewSample());
-    }
+    // Preserve the reference renderer's cache lifetime exactly: the coarse
+    // fallback is transient and is rebuilt for each rendered frame. Threaded
+    // builds still resolve the fresh cache serially before worker fan-out.
+    coarsePreviewSamples_.assign(
+      static_cast<std::size_t>(coarsePreviewWidth_) * coarsePreviewHeight_,
+      PreviewSample()
+    );
   } else {
     previewFrameChanged = previewCacheValid_;
     previewTilesX_ = 0;
