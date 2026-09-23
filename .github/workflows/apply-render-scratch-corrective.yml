@@ -1,0 +1,36 @@
+name: Apply render scratch correction
+
+on:
+  push:
+    branches:
+      - perf/render-pipeline-parity
+    paths:
+      - scripts/apply-render-scratch-corrective.py
+      - .github/workflows/apply-render-scratch-corrective.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/render-pipeline-parity
+          fetch-depth: 0
+      - name: Apply exact source correction
+        run: |
+          set -euo pipefail
+          python scripts/apply-render-scratch-corrective.py
+          rm scripts/apply-render-scratch-corrective.py
+          rm .github/workflows/apply-render-scratch-corrective.yml
+          git diff --check
+      - name: Commit correction
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Use stack-local runtime render scratch"
+          git push origin HEAD:perf/render-pipeline-parity
