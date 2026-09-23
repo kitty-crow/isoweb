@@ -25,38 +25,30 @@ jobs:
 
           path = Path('scripts/joystick-browser-smoke.ts')
           text = path.read_text()
-          old = """    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Canvas2D missing for retained-pan parity.');
-    const retainedCount = module._isoweb_pan_scene_reuse_count();
-    const retained = new Uint8ClampedArray(
-      context.getImageData(0, 0, canvas.width, canvas.height).data
-    );
-
-    module._isoweb_set_render_thread_limit(1);
-    module._isoweb_render();
-    const full = context.getImageData(0, 0, canvas.width, canvas.height).data;
-"""
-          new = """    const read = (): Uint8Array => {
-      const gl = canvas.getContext('webgl2');
-      if (gl) {
-        const pixels = new Uint8Array(canvas.width * canvas.height * 4);
-        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-        return pixels;
-      }
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error('No readable canvas context for retained-pan parity.');
-      return new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
-    };
-    const retainedCount = module._isoweb_pan_scene_reuse_count();
-    const retained = read();
-
-    module._isoweb_set_render_thread_limit(1);
-    module._isoweb_render();
-    const full = read();
-"""
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one pan parity reader block, found {text.count(old)}')
-          path.write_text(text.replace(old, new, 1))
+          parity = text.index('  const panParity = await page.evaluate(() => {')
+          start = text.index("    const context = canvas.getContext('2d');\n", parity)
+          end = text.index('    let mismatches = 0;\n', start)
+          replacement = '\n'.join([
+              '    const read = (): Uint8Array => {',
+              "      const gl = canvas.getContext('webgl2');",
+              '      if (gl) {',
+              '        const pixels = new Uint8Array(canvas.width * canvas.height * 4);',
+              '        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);',
+              '        return pixels;',
+              '      }',
+              "      const context = canvas.getContext('2d');",
+              "      if (!context) throw new Error('No readable canvas context for retained-pan parity.');",
+              '      return new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);',
+              '    };',
+              '    const retainedCount = module._isoweb_pan_scene_reuse_count();',
+              '    const retained = read();',
+              '',
+              '    module._isoweb_set_render_thread_limit(1);',
+              '    module._isoweb_render();',
+              '    const full = read();',
+              ''
+          ])
+          path.write_text(text[:start] + replacement + text[end:])
           PY
       - name: Commit clean test fix
         shell: bash
@@ -64,6 +56,6 @@ jobs:
           rm -f scripts/.fix-pan-parity-test .github/workflows/fix-pan-parity-test.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/joystick-browser-smoke.ts scripts/.fix-pan-parity-test .github/workflows/fix-pan-parity-test.yml
+          git add -A
           git commit -m "Read pan parity from active presentation backend"
           git push origin HEAD:fix/pan-retention-and-gpu-selection
