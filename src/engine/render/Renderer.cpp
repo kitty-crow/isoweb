@@ -793,7 +793,7 @@ void Renderer::render() {
         std::size_t pixelIndex =
           static_cast<std::size_t>(y) * static_cast<std::size_t>(frameWidth_);
 
-        for (int x = xBegin; x < xEnd; ++x, ++pixelIndex) {
+        for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
           for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
             StaticSample& sample = staticSamples_[pixelIndex * 4 + sampleIndex];
             const Ray ray{pixelOrigin + sampleOffsets[sampleIndex], forward};
@@ -1062,7 +1062,7 @@ void Renderer::render() {
         &dsr::image_accessPixel(frame_, 0, y)
       );
 
-      for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
+      for (int x = xBegin; x < xEnd; ++x, ++pixelIndex) {
         PreviewSample* previewForPixel = nullptr;
         std::size_t previewIndex = 0;
         int previewX = 0;
