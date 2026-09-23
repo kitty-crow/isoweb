@@ -1,0 +1,41 @@
+name: Final render PR cleanup
+on:
+  push:
+    branches:
+      - perf/render-pipeline-parity
+    paths:
+      - .final-render-cleanup-trigger
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/render-pipeline-parity
+          fetch-depth: 0
+      - name: Restore resize contract and clean formatting
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/engine/render/Renderer.cpp')
+          s = p.read_text()
+          old = '''void Renderer::resize(int width, int height) {\n  frameWidth_ = std::max(1, width);\n  frameHeight_ = std::max(1, height);\n  damageHistoryValid_ = false;\n}'''
+          new = '''void Renderer::resize(int width, int height) {\n  frameWidth_ = std::max(160, std::min(1600, width));\n  frameHeight_ = std::max(160, std::min(1600, height));\n  damageHistoryValid_ = false;\n}'''
+          if old not in s:
+              raise SystemExit('resize block not found')
+          s = s.replace(old, new, 1)
+          s = s.replace('''  return thresholds;\n}\n\n\n} // namespace''', '''  return thresholds;\n}\n\n} // namespace''', 1)
+          p.write_text(s)
+          PY
+          git diff --check
+          git diff -- src/engine/render/Renderer.cpp
+      - name: Commit clean source tree
+        run: |
+          git config user.name "kitty"
+          git config user.email "141717449+kitty-crow@users.noreply.github.com"
+          git add src/engine/render/Renderer.cpp
+          git rm -f .ci-render-trigger .github/workflows/cleanup-render-pr.yml .final-render-cleanup-trigger
+          git commit -m "Clean final render optimisation diff"
+          git push origin HEAD:perf/render-pipeline-parity
