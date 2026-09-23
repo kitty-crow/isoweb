@@ -134,7 +134,7 @@ try {
     // Move the dynamic Character without changing the static camera/cache. This
     // render must take the retained-frame damage path. Then invalidate the
     // static cache via the existing thread-limit setter and render the exact
-    // same state in full. Every output byte must match.
+    // same dynamic state as a full redraw. Every output byte must match.
     const moved = module.ccall(
       'isoweb_set_character_location',
       'number',
