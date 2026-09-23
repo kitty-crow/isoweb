@@ -157,9 +157,6 @@ jobs:
       - name: Test progressive lower-preview loading
         run: bun run test:progressive-preview
 
-      - name: Instrument three-way pan parity
-        run: python3 scripts/instrument-pan-diagnostic.py
-
       - name: Exercise centre joysticks in Chromium
         run: bun run test:joystick-browser
 

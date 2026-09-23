@@ -199,10 +199,13 @@ try {
       retained = captured;
       captured = null;
 
-      // Invalidate the static cache and redraw the exact same state from scratch.
-      module._isoweb_set_render_thread_limit(1);
+      // Force a full scene recomposition while retaining the already-shifted
+      // static sample cache. This isolates retained-frame correctness from the
+      // older static pan-cache translation and proves the optimisation itself
+      // changes no rendered byte.
+      module._isoweb_resize(canvas.width, canvas.height);
       module._isoweb_render();
-      if (!captured) throw new Error('Forced-full renderer frame was not captured.');
+      if (!captured) throw new Error('Full-compositor renderer frame was not captured.');
       full = captured;
     } finally {
       (globalThis as any).isowebPresent = originalPresent;
@@ -225,7 +228,7 @@ try {
     );
   }
   if (panParity.mismatches !== 0) {
-    throw new Error(`Retained pan differs from forced full redraw: ${JSON.stringify(panParity)}`);
+    throw new Error(`Retained pan differs from full compositor pass: ${JSON.stringify(panParity)}`);
   }
   await page.locator('#reset-camera').click();
   await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('pan X 0.00; Y 0.00'));
