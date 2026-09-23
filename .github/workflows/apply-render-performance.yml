@@ -1,0 +1,46 @@
+name: Apply render performance patch
+
+on:
+  push:
+    branches:
+      - perf/render-pipeline-parity
+    paths:
+      - scripts/render-performance-1.patch
+      - scripts/render-performance-2.patch
+      - scripts/render-performance-3.patch
+      - scripts/render-performance-4.patch
+      - scripts/render-performance-5.patch
+      - .github/workflows/apply-render-performance.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/render-pipeline-parity
+          fetch-depth: 0
+
+      - name: Apply exact-output render optimisations
+        run: |
+          set -euo pipefail
+          for patch in scripts/render-performance-{1..5}.patch; do
+            echo "Checking $patch"
+            git apply --check "$patch"
+            git apply "$patch"
+          done
+          git diff --check
+          rm scripts/render-performance-{1..5}.patch
+          rm .github/workflows/apply-render-performance.yml
+
+      - name: Commit optimised renderer
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Optimise exact render pipeline"
+          git push origin HEAD:perf/render-pipeline-parity
