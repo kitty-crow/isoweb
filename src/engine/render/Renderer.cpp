@@ -63,7 +63,6 @@ const std::array<float, 255>& gammaThresholds() {
   return thresholds;
 }
 
-
 } // namespace
 
 Renderer::Renderer(const IWorld& world, Camera& camera, ControlSprites& controls)
@@ -75,8 +74,8 @@ void Renderer::setRenderThreadLimit(int limit) {
 }
 
 void Renderer::resize(int width, int height) {
-  frameWidth_ = std::max(1, width);
-  frameHeight_ = std::max(1, height);
+  frameWidth_ = std::max(160, std::min(1600, width));
+  frameHeight_ = std::max(160, std::min(1600, height));
   damageHistoryValid_ = false;
 }
 
