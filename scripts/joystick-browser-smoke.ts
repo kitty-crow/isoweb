@@ -175,23 +175,38 @@ try {
     const module = (globalThis as any).Module;
     const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
     if (!canvas) throw new Error('Canvas missing for retained-pan parity.');
-    const read = (): Uint8Array => {
-      const gl = canvas.getContext('webgl2');
-      if (gl) {
-        const pixels = new Uint8Array(canvas.width * canvas.height * 4);
-        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-        return pixels;
-      }
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error('No readable canvas context for retained-pan parity.');
-      return new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
+    const originalPresent = (globalThis as any).isowebPresent;
+    if (typeof originalPresent !== 'function') throw new Error('Renderer presenter hook is missing.');
+    let captured: Uint8Array | null = null;
+    (globalThis as any).isowebPresent = (...args: any[]) => {
+      const heap = args[0] as Uint8Array;
+      const pointer = args[1] as number;
+      const width = args[2] as number;
+      const height = args[3] as number;
+      const bytes = new Uint8Array(width * height * 4);
+      bytes.set(new Uint8Array(heap.buffer, heap.byteOffset + pointer, bytes.length));
+      captured = bytes;
+      return originalPresent(...args);
     };
-    const retainedCount = module._isoweb_pan_scene_reuse_count();
-    const retained = read();
 
-    module._isoweb_set_render_thread_limit(1);
-    module._isoweb_render();
-    const full = read();
+    const retainedCount = module._isoweb_pan_scene_reuse_count();
+    let retained: Uint8Array;
+    let full: Uint8Array;
+    try {
+      // Re-present the already-retained scene without changing camera/world state.
+      module._isoweb_render();
+      if (!captured) throw new Error('Retained renderer frame was not captured.');
+      retained = captured;
+      captured = null;
+
+      // Invalidate the static cache and redraw the exact same state from scratch.
+      module._isoweb_set_render_thread_limit(1);
+      module._isoweb_render();
+      if (!captured) throw new Error('Forced-full renderer frame was not captured.');
+      full = captured;
+    } finally {
+      (globalThis as any).isowebPresent = originalPresent;
+    }
     let mismatches = 0;
     let firstMismatch = -1;
     let maximumDelta = 0;
