@@ -1,0 +1,46 @@
+name: Consolidate render optimisations
+
+on:
+  push:
+    branches:
+      - perf/render-pipeline-parity
+    paths:
+      - .github/workflows/consolidate-render-optimisations.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/render-pipeline-parity
+      - name: Apply final guarded source transforms
+        run: python scripts/consolidate-render-optimisations.py
+      - name: Remove temporary staging machinery and commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src scripts/pthread-browser-smoke.ts
+          for f in \
+            scripts/consolidate-render-optimisations.py \
+            scripts/apply-damage-rendering.py \
+            .github/workflows/consolidate-render-optimisations.yml \
+            .github/workflows/apply-damage-rendering.yml \
+            .github/workflows/retry-damage-rendering.yml \
+            scripts/apply-static-bvh.py \
+            .github/workflows/apply-static-bvh.yml \
+            scripts/apply-preview-threading.py \
+            .github/workflows/apply-preview-threading.yml \
+            scripts/apply-runtime-bins.py \
+            .github/workflows/apply-runtime-bins.yml \
+            scripts/fix-static-tracer-module.py \
+            .github/workflows/fix-static-tracer-module.yml \
+            scripts/apply-render-scratch-slots.py \
+            .github/workflows/apply-render-scratch-slots.yml; do
+            if [ -e "$f" ]; then git rm -f "$f"; fi
+          done
+          git commit -m 'Complete exact retained-frame render optimisations'
+          git push origin HEAD:perf/render-pipeline-parity
