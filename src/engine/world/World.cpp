@@ -743,6 +743,47 @@ void World::prepareRenderFrame(const Vec3& viewDirection) const {
   runtimeRenderCachePrepared_ = true;
 }
 
+void World::collectRuntimeDamageBounds(std::vector<RuntimeDamageBound>& output) const {
+  output.clear();
+  output.reserve(
+    runtimeRenderEntries_.size() +
+    destinationFeedbackMarkers_.size() +
+    lowDetailPreviewMarkers_.size()
+  );
+
+  for (const RuntimeRenderEntry& entry : runtimeRenderEntries_) {
+    RuntimeDamageBound bound;
+    bound.centre = entry.broadphaseCentre;
+    bound.radius = std::sqrt(std::max(0.0f, entry.broadphaseRadiusSquared));
+    output.push_back(bound);
+  }
+
+  const auto markerRadius = [](float minimumX, float maximumX, float minimumY, float maximumY) {
+    const float halfX = std::max(std::fabs(minimumX), std::fabs(maximumX));
+    const float halfY = std::max(std::fabs(minimumY), std::fabs(maximumY));
+    return std::sqrt(halfX * halfX + halfY * halfY) + 0.08f;
+  };
+
+  for (const DestinationFeedbackMarker& marker : destinationFeedbackMarkers_) {
+    RuntimeDamageBound bound;
+    bound.centre = {marker.position.x, marker.position.y, marker.floorZ};
+    bound.radius = markerRadius(
+      marker.minimumX, marker.maximumX, marker.minimumY, marker.maximumY
+    );
+    output.push_back(bound);
+  }
+
+  for (const LowDetailPreviewMarker& marker : lowDetailPreviewMarkers_) {
+    RuntimeDamageBound bound;
+    const Vec3 offset = levelOffsetInActiveView(marker.levelIndex);
+    bound.centre = marker.position + offset;
+    bound.radius = markerRadius(
+      marker.minimumX, marker.maximumX, marker.minimumY, marker.maximumY
+    ) + 0.08f;
+    output.push_back(bound);
+  }
+}
+
 bool World::setLevelLight(
   const std::string& levelId,
   const Vec3& position,

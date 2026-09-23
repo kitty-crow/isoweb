@@ -31,6 +31,7 @@ public:
     staticCacheValid_ = false;
     previewCacheValid_ = false;
     previewIdleFrames_ = 0;
+    damageHistoryValid_ = false;
   }
 
   int width() const { return frameWidth_; }
@@ -67,6 +68,13 @@ private:
     Vec3 colour;
     bool found = false;
     bool valid = false;
+  };
+
+  struct DamageRect {
+    int minimumX = 0;
+    int minimumY = 0;
+    int maximumX = 0;
+    int maximumY = 0;
   };
 
   struct StaticCacheKey {
@@ -141,6 +149,15 @@ private:
   std::size_t previewCoarseSampleCount_ = 0;
   std::size_t previewRefinedSampleCount_ = 0;
   std::size_t previewDemandedTexelCount_ = 0;
+  std::size_t previewVisualRevision_ = 0;
+  std::size_t lastRenderedPreviewRevision_ = 0;
+
+  std::vector<RuntimeDamageBound> runtimeDamageBounds_;
+  std::vector<DamageRect> previousDamageRects_;
+  std::vector<DamageRect> currentDamageRects_;
+  std::vector<int> dirtyMinimumX_;
+  std::vector<int> dirtyMaximumX_;
+  bool damageHistoryValid_ = false;
 
   std::vector<Vec3> panBackgroundRows_;
   StaticCacheKey staticCacheKey_;

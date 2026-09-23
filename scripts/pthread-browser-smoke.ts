@@ -131,6 +131,39 @@ try {
       }
     }
 
+    // Move the dynamic Character without changing the static camera/cache. This
+    // render must take the retained-frame damage path. Then invalidate the
+    // static cache via the existing thread-limit setter and render the exact
+    // same state in full. Every output byte must match.
+    const moved = module.ccall(
+      'isoweb_set_character_location',
+      'number',
+      ['string', 'string', 'string', 'string', 'number', 'number', 'number'],
+      ['pthread-render-probe', 'demo', 'default', 'lower', 0.42, 0.18, 0.0]
+    );
+    if (moved !== 1) throw new Error('Could not move pthread render probe Character.');
+    module._isoweb_render();
+    const incremental = new Uint8ClampedArray(
+      context.getImageData(0, 0, canvas.width, canvas.height).data
+    );
+
+    // setRenderThreadLimit intentionally invalidates the static cache even when
+    // the numerical limit is unchanged, giving this test a same-state full redraw.
+    module._isoweb_set_render_thread_limit(4);
+    module._isoweb_render();
+    const forcedFull = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let damageMismatchCount = 0;
+    let damageMaxChannelDelta = 0;
+    let damageFirstMismatch = -1;
+    for (let index = 0; index < incremental.length; ++index) {
+      const delta = Math.abs(incremental[index] - forcedFull[index]);
+      if (delta !== 0) {
+        ++damageMismatchCount;
+        if (damageFirstMismatch < 0) damageFirstMismatch = index;
+        if (delta > damageMaxChannelDelta) damageMaxChannelDelta = delta;
+      }
+    }
+
     return {
       width: canvas.width,
       height: canvas.height,
@@ -142,6 +175,9 @@ try {
       mismatchCount,
       maxChannelDelta,
       firstMismatch,
+      damageMismatchCount,
+      damageMaxChannelDelta,
+      damageFirstMismatch,
       hardwareConcurrency: navigator.hardwareConcurrency
     };
   });
@@ -154,6 +190,9 @@ try {
   }
   if (result.mismatchCount !== 0) {
     throw new Error(`Parallel render differs from same-binary single-thread reference: ${JSON.stringify(result)}`);
+  }
+  if (result.damageMismatchCount !== 0) {
+    throw new Error(`Incremental damage render differs from forced full redraw: ${JSON.stringify(result)}`);
   }
   if (errors.length) throw new Error(errors.join('\n\n'));
 

@@ -19,6 +19,11 @@ struct WorldBounds {
   std::vector<Vec3> points;
 };
 
+struct RuntimeDamageBound {
+  Vec3 centre;
+  float radius = 0.0f;
+};
+
 class IWorld {
 public:
   virtual ~IWorld() = default;
@@ -77,6 +82,13 @@ public:
     std::size_t
   ) const {
     return compositeRuntime(ray, environmentColour, environmentDistance);
+  }
+
+  // Conservative world-space bounds covering every pixel that runtime
+  // compositing may alter. Renderers may use these only to skip pixels whose
+  // previous scene value is already exact. Empty means no dynamic damage.
+  virtual void collectRuntimeDamageBounds(std::vector<RuntimeDamageBound>& output) const {
+    output.clear();
   }
 
   // Parallel frame compositing is opt-in. Worlds returning true promise that

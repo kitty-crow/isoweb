@@ -159,6 +159,8 @@ public:
     return found ? runtime : environmentColour;
   }
 
+  void collectRuntimeDamageBounds(std::vector<RuntimeDamageBound>& output) const override;
+
   bool traceEnvironment(const Ray& ray, SceneSurfaceHit& hit) const override;
   const std::vector<Object>& objects() const override;
   bool intersectsSolid(const HitBox& hitBox) const override;

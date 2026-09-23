@@ -96,8 +96,9 @@ void Renderer::setRenderThreadLimit(int limit) {
 }
 
 void Renderer::resize(int width, int height) {
-  frameWidth_ = std::max(160, std::min(1600, width));
-  frameHeight_ = std::max(160, std::min(1600, height));
+  frameWidth_ = std::max(1, width);
+  frameHeight_ = std::max(1, height);
+  damageHistoryValid_ = false;
 }
 
 std::uint8_t Renderer::toByte(float value) {
@@ -443,6 +444,7 @@ bool Renderer::refinePreview(std::size_t maxTiles) {
     }
   }
 
+  if (changed) ++previewVisualRevision_;
   return changed;
 }
 
@@ -496,6 +498,7 @@ void Renderer::render() {
   coarsePreviewHeight_ = 0;
   previewCoarseSampleCount_ = 0;
   previewDemandedTexelCount_ = 0;
+  bool previewFrameChanged = false;
   if (world_.supportsLowDetailLowerPreview()) {
     float previewScale = std::max(0.0625f, std::min(1.0f, world_.lowerPreviewResolutionScale()));
     const double requestedPreviewPixels =
@@ -526,6 +529,7 @@ void Renderer::render() {
     const std::size_t tileCount = static_cast<std::size_t>(previewTilesX_) * previewTilesY_;
     const bool resetPreviewCache =
       !previewCacheMatches(nextPreviewKey) || previewSamples_.size() != required;
+    previewFrameChanged = resetPreviewCache;
     if (resetPreviewCache) {
       previewSamples_.assign(required, PreviewSample());
       previewDemand_.assign(required, 0);
@@ -571,6 +575,7 @@ void Renderer::render() {
       coarsePreviewSamples_.assign(coarseRequired, PreviewSample());
     }
   } else {
+    previewFrameChanged = previewCacheValid_;
     previewTilesX_ = 0;
     previewTilesY_ = 0;
     previewCacheValid_ = false;
@@ -593,6 +598,9 @@ void Renderer::render() {
   nextStaticKey.panX = camera_.panX();
   nextStaticKey.panY = camera_.panY();
   nextStaticKey.viewHeight = height;
+
+  const bool staticFrameChanged =
+    !useStaticCache || !staticCacheMatches(nextStaticKey);
 
   if (useStaticCache) {
     const std::size_t sampleCount = pixelCount * 4;
@@ -785,7 +793,7 @@ void Renderer::render() {
         std::size_t pixelIndex =
           static_cast<std::size_t>(y) * static_cast<std::size_t>(frameWidth_);
 
-        for (int x = 0; x < frameWidth_; ++x, ++pixelIndex) {
+        for (int x = xBegin; x < xEnd; ++x, ++pixelIndex) {
           for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
             StaticSample& sample = staticSamples_[pixelIndex * 4 + sampleIndex];
             const Ray ray{pixelOrigin + sampleOffsets[sampleIndex], forward};
@@ -955,6 +963,65 @@ void Renderer::render() {
     }
   }
 
+  // Project exact runtime damage conservatively into the orthographic frame.
+  // When static/cache/preview state is unchanged, every pixel outside current
+  // and previous dynamic bounds is already the exact desired pixel from the
+  // preceding frame. Reusing it avoids the full-screen four-sample compositor.
+  world_.collectRuntimeDamageBounds(runtimeDamageBounds_);
+  currentDamageRects_.clear();
+  currentDamageRects_.reserve(runtimeDamageBounds_.size());
+  const float pixelsPerWorldX = static_cast<float>(frameWidth_) / width;
+  const float pixelsPerWorldY = static_cast<float>(frameHeight_) / height;
+
+  for (const RuntimeDamageBound& bound : runtimeDamageBounds_) {
+    if (bound.radius < 0.0f) continue;
+    const Vec3 delta = bound.centre - focus;
+    const float centreX =
+      (0.5f + dot(delta, right) / width) * static_cast<float>(frameWidth_);
+    const float centreY =
+      (0.5f - dot(delta, up) / height) * static_cast<float>(frameHeight_);
+    const float radiusX = bound.radius * pixelsPerWorldX + 3.0f;
+    const float radiusY = bound.radius * pixelsPerWorldY + 3.0f;
+    DamageRect rect;
+    rect.minimumX = std::max(0, static_cast<int>(std::floor(centreX - radiusX)));
+    rect.maximumX = std::min(frameWidth_, static_cast<int>(std::ceil(centreX + radiusX)) + 1);
+    rect.minimumY = std::max(0, static_cast<int>(std::floor(centreY - radiusY)));
+    rect.maximumY = std::min(frameHeight_, static_cast<int>(std::ceil(centreY + radiusY)) + 1);
+    if (rect.minimumX < rect.maximumX && rect.minimumY < rect.maximumY) {
+      currentDamageRects_.push_back(rect);
+    }
+  }
+
+  const bool fullSceneRender =
+    !useStaticCache ||
+    staticFrameChanged ||
+    previewFrameChanged ||
+    previewVisualRevision_ != lastRenderedPreviewRevision_ ||
+    !damageHistoryValid_;
+
+  dirtyMinimumX_.assign(static_cast<std::size_t>(frameHeight_), frameWidth_);
+  dirtyMaximumX_.assign(static_cast<std::size_t>(frameHeight_), 0);
+  const auto markDamage = [&](const DamageRect& rect) {
+    for (int y = rect.minimumY; y < rect.maximumY; ++y) {
+      dirtyMinimumX_[static_cast<std::size_t>(y)] = std::min(
+        dirtyMinimumX_[static_cast<std::size_t>(y)],
+        rect.minimumX
+      );
+      dirtyMaximumX_[static_cast<std::size_t>(y)] = std::max(
+        dirtyMaximumX_[static_cast<std::size_t>(y)],
+        rect.maximumX
+      );
+    }
+  };
+
+  if (fullSceneRender) {
+    std::fill(dirtyMinimumX_.begin(), dirtyMinimumX_.end(), 0);
+    std::fill(dirtyMaximumX_.begin(), dirtyMaximumX_.end(), frameWidth_);
+  } else {
+    for (const DamageRect& rect : previousDamageRects_) markDamage(rect);
+    for (const DamageRect& rect : currentDamageRects_) markDamage(rect);
+  }
+
   // Runtime compositing, gamma conversion and framebuffer writes are independent
   // per row once preview mutation is out of the equation. Thread the hot path
   // as well as static-cache construction so moving Characters can actually use
@@ -966,10 +1033,21 @@ void Renderer::render() {
       rowOrigin = rowOrigin + downStep;
     }
 
-    std::size_t pixelIndex =
-      static_cast<std::size_t>(yBegin) * static_cast<std::size_t>(frameWidth_);
     for (int y = yBegin; y < yEnd; ++y) {
+      const int xBegin = dirtyMinimumX_[static_cast<std::size_t>(y)];
+      const int xEnd = dirtyMaximumX_[static_cast<std::size_t>(y)];
+      if (xBegin >= xEnd) {
+        rowOrigin = rowOrigin + downStep;
+        continue;
+      }
+
       Vec3 pixelOrigin = rowOrigin;
+      for (int skippedX = 0; skippedX < xBegin; ++skippedX) {
+        pixelOrigin = pixelOrigin + rightStep;
+      }
+      std::size_t pixelIndex =
+        static_cast<std::size_t>(y) * static_cast<std::size_t>(frameWidth_) +
+        static_cast<std::size_t>(xBegin);
       const float backgroundY[2] = {
         (static_cast<float>(y) + 0.25f) * inverseFrameHeight,
         (static_cast<float>(y) + 0.75f) * inverseFrameHeight
@@ -1147,6 +1225,10 @@ void Renderer::render() {
     staticCacheValid_ = true;
     ++staticCacheBuildCount_;
   }
+
+  previousDamageRects_ = currentDamageRects_;
+  damageHistoryValid_ = true;
+  lastRenderedPreviewRevision_ = previewVisualRevision_;
 
   LevelControlState levelState;
   levelState.canMoveUp = world_.activeLevelIndex() + 1 < world_.levelCount();
