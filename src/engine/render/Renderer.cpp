@@ -524,7 +524,9 @@ void Renderer::render() {
 
     const std::size_t required = static_cast<std::size_t>(previewWidth_) * previewHeight_;
     const std::size_t tileCount = static_cast<std::size_t>(previewTilesX_) * previewTilesY_;
-    if (!previewCacheMatches(nextPreviewKey) || previewSamples_.size() != required) {
+    const bool resetPreviewCache =
+      !previewCacheMatches(nextPreviewKey) || previewSamples_.size() != required;
+    if (resetPreviewCache) {
       previewSamples_.assign(required, PreviewSample());
       previewDemand_.assign(required, 0);
       previewTileDemand_.assign(tileCount, 0);
@@ -563,10 +565,11 @@ void Renderer::render() {
       1,
       static_cast<int>(std::ceil(frameHeight_ * coarsePreviewScale))
     );
-    coarsePreviewSamples_.assign(
-      static_cast<std::size_t>(coarsePreviewWidth_) * coarsePreviewHeight_,
-      PreviewSample()
-    );
+    const std::size_t coarseRequired =
+      static_cast<std::size_t>(coarsePreviewWidth_) * coarsePreviewHeight_;
+    if (resetPreviewCache || coarsePreviewSamples_.size() != coarseRequired) {
+      coarsePreviewSamples_.assign(coarseRequired, PreviewSample());
+    }
   } else {
     previewTilesX_ = 0;
     previewTilesY_ = 0;
@@ -836,6 +839,122 @@ void Renderer::render() {
     }
   }
 
+  // Resolve lower-preview discovery before runtime compositing. The previous
+  // implementation lazily filled coarse preview cells and demand masks from
+  // inside the per-sample loop, which made the moving-frame compositor unsafe
+  // to thread whenever stacked-level preview was enabled. Static hit distances
+  // already tell us exactly which pixels expose a lower level, so discover the
+  // same coarse cells and demand bits once, serially, then make the hot pass
+  // read-only. No preview colour/sample position changes.
+  const bool previewPreparedReadOnly =
+    previewWidth_ == 0 ||
+    (useStaticCache && previewWidth_ > 0 && coarsePreviewWidth_ > 0);
+
+  if (previewWidth_ > 0 && useStaticCache && coarsePreviewWidth_ > 0) {
+    std::vector<std::uint8_t> coarseNeeded(coarsePreviewSamples_.size(), 0);
+
+    for (int y = 0; y < frameHeight_; ++y) {
+      const int previewY = std::min(previewHeight_ - 1, y * previewHeight_ / frameHeight_);
+      const int coarseY = std::min(
+        coarsePreviewHeight_ - 1,
+        y * coarsePreviewHeight_ / frameHeight_
+      );
+      for (int x = 0; x < frameWidth_; ++x) {
+        const std::size_t pixelIndex =
+          static_cast<std::size_t>(y) * frameWidth_ + static_cast<std::size_t>(x);
+        bool exposesPreview = false;
+        for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+          if (staticSamples_[pixelIndex * 4 + sampleIndex].environmentDistance >= NO_HIT_DISTANCE) {
+            exposesPreview = true;
+            break;
+          }
+        }
+        if (!exposesPreview) continue;
+
+        const int previewX = std::min(previewWidth_ - 1, x * previewWidth_ / frameWidth_);
+        const std::size_t previewIndex =
+          static_cast<std::size_t>(previewY) * previewWidth_ + previewX;
+        if (previewSamples_[previewIndex].valid) continue;
+
+        const int coarseX = std::min(
+          coarsePreviewWidth_ - 1,
+          x * coarsePreviewWidth_ / frameWidth_
+        );
+        const std::size_t coarseIndex =
+          static_cast<std::size_t>(coarseY) * coarsePreviewWidth_ + coarseX;
+        if (!coarsePreviewSamples_[coarseIndex].valid) coarseNeeded[coarseIndex] = 1;
+      }
+    }
+
+    const float coarseStepX = width / static_cast<float>(coarsePreviewWidth_);
+    const float coarseStepY = height / static_cast<float>(coarsePreviewHeight_);
+    for (std::size_t coarseIndex = 0; coarseIndex < coarseNeeded.size(); ++coarseIndex) {
+      if (!coarseNeeded[coarseIndex]) continue;
+      PreviewSample& sample = coarsePreviewSamples_[coarseIndex];
+      const int coarseX = static_cast<int>(coarseIndex % coarsePreviewWidth_);
+      const int coarseY = static_cast<int>(coarseIndex / coarsePreviewWidth_);
+      const Vec3 coarseOrigin =
+        focus - forward * originDistance - right * (width * 0.5f) + up * (height * 0.5f) +
+        right * (coarseStepX * (static_cast<float>(coarseX) + 0.5f)) +
+        up * (-coarseStepY * (static_cast<float>(coarseY) + 0.5f));
+      sample.found = world_.sampleLowDetailLowerPreview(
+        {coarseOrigin, forward},
+        sample.colour
+      );
+      sample.valid = true;
+      ++previewCoarseSampleCount_;
+    }
+
+    // Demand is per preview texel/tile, not per supersample. Marking once when
+    // any of the four exact static samples misses produces the same set as the
+    // old in-loop writes while avoiding cross-worker mutation.
+    for (int y = 0; y < frameHeight_; ++y) {
+      const int previewY = std::min(previewHeight_ - 1, y * previewHeight_ / frameHeight_);
+      const int coarseY = std::min(
+        coarsePreviewHeight_ - 1,
+        y * coarsePreviewHeight_ / frameHeight_
+      );
+      for (int x = 0; x < frameWidth_; ++x) {
+        const std::size_t pixelIndex =
+          static_cast<std::size_t>(y) * frameWidth_ + static_cast<std::size_t>(x);
+        bool exposesPreview = false;
+        for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+          if (staticSamples_[pixelIndex * 4 + sampleIndex].environmentDistance >= NO_HIT_DISTANCE) {
+            exposesPreview = true;
+            break;
+          }
+        }
+        if (!exposesPreview) continue;
+
+        const int previewX = std::min(previewWidth_ - 1, x * previewWidth_ / frameWidth_);
+        const std::size_t previewIndex =
+          static_cast<std::size_t>(previewY) * previewWidth_ + previewX;
+        const PreviewSample* displayPreview = previewSamples_[previewIndex].valid
+          ? &previewSamples_[previewIndex]
+          : nullptr;
+        if (!displayPreview) {
+          const int coarseX = std::min(
+            coarsePreviewWidth_ - 1,
+            x * coarsePreviewWidth_ / frameWidth_
+          );
+          const PreviewSample& coarse = coarsePreviewSamples_[
+            static_cast<std::size_t>(coarseY) * coarsePreviewWidth_ + coarseX
+          ];
+          if (coarse.valid && coarse.found) displayPreview = &coarse;
+        }
+        if (!displayPreview || !displayPreview->found) continue;
+
+        if (!previewDemand_[previewIndex]) {
+          previewDemand_[previewIndex] = 1;
+          ++previewDemandedTexelCount_;
+        }
+        const std::size_t tileX = static_cast<std::size_t>(previewX / PREVIEW_TILE_SIZE);
+        const std::size_t tileY = static_cast<std::size_t>(previewY / PREVIEW_TILE_SIZE);
+        previewTileDemand_[tileY * static_cast<std::size_t>(previewTilesX_) + tileX] = 1;
+      }
+    }
+  }
+
   // Runtime compositing, gamma conversion and framebuffer writes are independent
   // per row once preview mutation is out of the equation. Thread the hot path
   // as well as static-cache construction so moving Characters can actually use
@@ -915,7 +1034,7 @@ void Renderer::render() {
           if (environmentDistance >= NO_HIT_DISTANCE && previewForPixel) {
             const PreviewSample* displayPreview = previewForPixel->valid ? previewForPixel : nullptr;
             if (!displayPreview && coarseForPixel) {
-              if (!coarseForPixel->valid) {
+              if (!coarseForPixel->valid && !previewPreparedReadOnly) {
                 const int coarseIndex = static_cast<int>(coarseForPixel - coarsePreviewSamples_.data());
                 const int coarseX = coarseIndex % coarsePreviewWidth_;
                 const int coarseY = coarseIndex / coarsePreviewWidth_;
@@ -932,22 +1051,22 @@ void Renderer::render() {
                 coarseForPixel->valid = true;
                 ++previewCoarseSampleCount_;
               }
-              displayPreview = coarseForPixel->found ? coarseForPixel : nullptr;
+              displayPreview = coarseForPixel->valid && coarseForPixel->found
+                ? coarseForPixel
+                : nullptr;
             }
 
-            // Only genuinely exposed lower-preview texels enter the background
-            // refinement queue. Active-level coverage never gets preview work;
-            // sampleLowDetailLowerPreview itself stops at the first lower level,
-            // so deeper floors covered by a nearer preview level are never sampled.
             if (displayPreview && displayPreview->found) {
               environmentColour = displayPreview->colour;
-              if (!previewDemand_[previewIndex]) {
-                previewDemand_[previewIndex] = 1;
-                ++previewDemandedTexelCount_;
+              if (!previewPreparedReadOnly) {
+                if (!previewDemand_[previewIndex]) {
+                  previewDemand_[previewIndex] = 1;
+                  ++previewDemandedTexelCount_;
+                }
+                const std::size_t tileX = static_cast<std::size_t>(previewX / PREVIEW_TILE_SIZE);
+                const std::size_t tileY = static_cast<std::size_t>(previewY / PREVIEW_TILE_SIZE);
+                previewTileDemand_[tileY * static_cast<std::size_t>(previewTilesX_) + tileX] = 1;
               }
-              const std::size_t tileX = static_cast<std::size_t>(previewX / PREVIEW_TILE_SIZE);
-              const std::size_t tileY = static_cast<std::size_t>(previewY / PREVIEW_TILE_SIZE);
-              previewTileDemand_[tileY * static_cast<std::size_t>(previewTilesX_) + tileX] = 1;
             }
           }
 
@@ -972,13 +1091,13 @@ void Renderer::render() {
   };
 
 #ifdef ISOWEB_ENABLE_RENDER_THREADS
-  // Preview discovery mutates shared demand/coarse caches, so keep that uncommon
-  // path serial until its refinement state is immutable. Ordinary active-level
-  // animation has no such shared writes and is safe to divide by rows.
+  // The IsoWeb preview path above is now immutable during compositing, so
+  // stacked-level scenes can use the same pthread row fan-out as ordinary
+  // active-level animation. Generic worlds without exact static cache distances
+  // retain the serial lazy-preview fallback.
   const bool parallelComposite =
     world_.runtimeCompositeThreadSafe() &&
-    previewWidth_ == 0 &&
-    coarsePreviewWidth_ == 0 &&
+    previewPreparedReadOnly &&
     renderThreadLimit_ > 1;
 
   if (parallelComposite) {
