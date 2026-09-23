@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Trigger after the workflow definition exists.
 hpp = Path("src/engine/render/Renderer.hpp")
 hpp_text = hpp.read_text()
 old = "  dsr::OrderedImageRgbaU8 frame_;\n  std::vector<std::uint8_t> rgba_;\n"
