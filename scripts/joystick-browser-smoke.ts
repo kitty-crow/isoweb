@@ -158,6 +158,9 @@ try {
 
   console.log('[joystick-browser] pan centre disc continuously without rebuilding static world');
   const buildsBeforePan = await page.evaluate(() => (globalThis as any).Module._isoweb_static_cache_build_count());
+  const retainedPansBefore = await page.evaluate(() =>
+    (globalThis as any).Module._isoweb_pan_scene_reuse_count()
+  );
   await drag('#reset-camera', 32, 0, 360);
   const pannedStatus = await status();
   const panMatch = pannedStatus.match(/pan X (-?\d+(?:\.\d+)?); Y (-?\d+(?:\.\d+)?)/);
@@ -167,6 +170,40 @@ try {
   const buildsAfterPan = await page.evaluate(() => (globalThis as any).Module._isoweb_static_cache_build_count());
   if (buildsAfterPan !== buildsBeforePan) {
     throw new Error(`Continuous pan rebuilt the full static world: ${buildsBeforePan} -> ${buildsAfterPan}`);
+  }
+  const panParity = await page.evaluate(() => {
+    const module = (globalThis as any).Module;
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement | null;
+    if (!canvas) throw new Error('Canvas missing for retained-pan parity.');
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas2D missing for retained-pan parity.');
+    const retainedCount = module._isoweb_pan_scene_reuse_count();
+    const retained = new Uint8ClampedArray(
+      context.getImageData(0, 0, canvas.width, canvas.height).data
+    );
+
+    module._isoweb_set_render_thread_limit(1);
+    module._isoweb_render();
+    const full = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let mismatches = 0;
+    let firstMismatch = -1;
+    let maximumDelta = 0;
+    for (let index = 0; index < retained.length; ++index) {
+      const delta = Math.abs(retained[index] - full[index]);
+      if (delta === 0) continue;
+      ++mismatches;
+      if (firstMismatch < 0) firstMismatch = index;
+      maximumDelta = Math.max(maximumDelta, delta);
+    }
+    return { retainedCount, mismatches, firstMismatch, maximumDelta };
+  });
+  if (panParity.retainedCount <= retainedPansBefore) {
+    throw new Error(
+      `Camera pan did not use retained scene reuse: ${retainedPansBefore} -> ${panParity.retainedCount}`
+    );
+  }
+  if (panParity.mismatches !== 0) {
+    throw new Error(`Retained pan differs from forced full redraw: ${JSON.stringify(panParity)}`);
   }
   await page.locator('#reset-camera').click();
   await page.waitForFunction(() => document.getElementById('view-status')?.textContent?.includes('pan X 0.00; Y 0.00'));

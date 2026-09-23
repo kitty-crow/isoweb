@@ -501,6 +501,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_static_cache_build_count() {
   return static_cast<int>(application().staticCacheBuildCount());
 }
 
+extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_pan_scene_reuse_count() {
+  return static_cast<int>(application().panSceneReuseCount());
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE int isoweb_last_render_thread_count() {
   return application().lastRenderThreadCount();
 }

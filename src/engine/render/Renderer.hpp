@@ -44,6 +44,7 @@ public:
   float wholeZoomScale() const { return frameWholeZoomScale_; }
   std::size_t staticCacheBuildCount() const { return staticCacheBuildCount_; }
   std::size_t staticCacheShiftCount() const { return staticCacheShiftCount_; }
+  std::size_t panSceneReuseCount() const { return panSceneReuseCount_; }
   int lastRenderThreadCount() const { return lastRenderThreadCount_; }
   int lastRenderHelperRows() const { return lastRenderHelperRows_; }
   StaticRenderBackend lastStaticRenderBackend() const { return lastStaticRenderBackend_; }
@@ -105,6 +106,21 @@ private:
   bool staticCacheMatches(const StaticCacheKey& key) const;
   bool staticCacheMatchesExceptPan(const StaticCacheKey& key) const;
   bool previewCacheMatches(const PreviewCacheKey& key) const;
+  bool previewCacheMatchesExceptPan(const PreviewCacheKey& key) const;
+  bool calculatePanPixelShift(
+    const StaticCacheKey& key,
+    const Vec3& right,
+    const Vec3& up,
+    float viewWidth,
+    float viewHeight,
+    int& sourceShiftX,
+    int& sourceShiftY
+  ) const;
+  bool shiftPreviewCacheForPan(
+    const PreviewCacheKey& key,
+    int sourceShiftX,
+    int sourceShiftY
+  );
   bool shiftStaticCacheForPan(
     const StaticCacheKey& key,
     const Vec3& forward,
@@ -160,12 +176,16 @@ private:
   std::vector<int> dirtyMinimumX_;
   std::vector<int> dirtyMaximumX_;
   bool damageHistoryValid_ = false;
+  bool panSceneReuseValid_ = false;
+  int panSourceShiftX_ = 0;
+  int panSourceShiftY_ = 0;
 
   std::vector<Vec3> panBackgroundRows_;
   StaticCacheKey staticCacheKey_;
   bool staticCacheValid_ = false;
   std::size_t staticCacheBuildCount_ = 0;
   std::size_t staticCacheShiftCount_ = 0;
+  std::size_t panSceneReuseCount_ = 0;
   int lastRenderThreadCount_ = 1;
   int lastRenderHelperRows_ = 0;
   StaticRenderBackend lastStaticRenderBackend_ = StaticRenderBackend::SingleThreadCpu;

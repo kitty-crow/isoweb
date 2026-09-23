@@ -48,6 +48,7 @@ public:
   std::size_t defaultLevelIndex() const { return world_.defaultLevelIndex(); }
   std::size_t staticCacheBuildCount() const { return renderer_.staticCacheBuildCount(); }
   std::size_t staticCacheShiftCount() const { return renderer_.staticCacheShiftCount(); }
+  std::size_t panSceneReuseCount() const { return renderer_.panSceneReuseCount(); }
   int lastRenderThreadCount() const { return renderer_.lastRenderThreadCount(); }
   int lastRenderHelperRows() const { return renderer_.lastRenderHelperRows(); }
   int lastStaticRenderBackend() const {
