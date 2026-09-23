@@ -969,7 +969,8 @@ Vec3 World::sample(const Ray& ray, float backgroundY) const {
     ray,
     environmentColour,
     environmentHitDistance,
-    runtimeFound
+    runtimeFound,
+    0
   );
   return runtimeFound ? runtime : environmentColour;
 }
