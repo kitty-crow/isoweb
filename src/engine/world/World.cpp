@@ -1,6 +1,7 @@
 #include "engine/world/World.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
