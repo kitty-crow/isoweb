@@ -681,6 +681,18 @@ export class WebGlStaticTracer {
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
 
+    const outputFloatCount = width * height * 16;
+    // StaticSample is four float32 values. Preserve the GPU-computed IEEE-754
+    // bit patterns exactly through a Uint32 view of WASM memory. Ordinary
+    // ArrayBuffer-backed WASM can receive readPixels directly; pthread shared
+    // memory keeps the browser-owned staging buffer for compatibility.
+    const target = new Uint32Array(
+      heap.buffer,
+      heap.byteOffset + outputPointer,
+      outputFloatCount
+    );
+    const readback = usesSharedMemory ? this.resultBuffer : target;
+
     const started = performance.now();
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.readPixels(
