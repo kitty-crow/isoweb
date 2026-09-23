@@ -464,8 +464,9 @@ void Renderer::render() {
   previewHeight_ = 0;
   coarsePreviewWidth_ = 0;
   coarsePreviewHeight_ = 0;
-  previewCoarseSampleCount_ = 0;
-  previewDemandedTexelCount_ = 0;
+  // Demand/coarse counters describe the currently retained preview state.
+  // Do not erase them until we know this frame will actually rediscover the
+  // preview. A retained dynamic-only frame must keep refinement schedulable.
   bool previewFrameChanged = false;
   if (world_.supportsLowDetailLowerPreview()) {
     float previewScale = std::max(0.0625f, std::min(1.0f, world_.lowerPreviewResolutionScale()));
@@ -506,9 +507,6 @@ void Renderer::render() {
       previewCacheValid_ = true;
       previewRefineCursor_ = 0;
       previewIdleFrames_ = PREVIEW_IDLE_DELAY_FRAMES;
-    } else {
-      std::fill(previewDemand_.begin(), previewDemand_.end(), 0);
-      std::fill(previewTileDemand_.begin(), previewTileDemand_.end(), 0);
     }
 
     const float previewStepX = width / static_cast<float>(previewWidth_);
@@ -537,13 +535,9 @@ void Renderer::render() {
       1,
       static_cast<int>(std::ceil(frameHeight_ * coarsePreviewScale))
     );
-    // Preserve the reference renderer's cache lifetime exactly: the coarse
-    // fallback is transient and is rebuilt for each rendered frame. Threaded
-    // builds still resolve the fresh cache serially before worker fan-out.
-    coarsePreviewSamples_.assign(
-      static_cast<std::size_t>(coarsePreviewWidth_) * coarsePreviewHeight_,
-      PreviewSample()
-    );
+    // Allocation/reset is deferred until fullSceneRender is known below.
+    // Retained frames can safely reuse this exact coarse cache because the
+    // preview key/revision and camera are unchanged.
   } else {
     previewFrameChanged = previewCacheValid_;
     previewTilesX_ = 0;
@@ -553,6 +547,8 @@ void Renderer::render() {
     previewDemand_.clear();
     previewTileDemand_.clear();
     coarsePreviewSamples_.clear();
+    previewCoarseSampleCount_ = 0;
+    previewDemandedTexelCount_ = 0;
   }
 
   const std::size_t pixelCount =
@@ -586,6 +582,28 @@ void Renderer::render() {
   }
 
   const bool rebuildStaticCache = useStaticCache && !staticCacheMatches(nextStaticKey);
+
+  const bool fullSceneRender =
+    !useStaticCache ||
+    staticFrameChanged ||
+    previewFrameChanged ||
+    previewVisualRevision_ != lastRenderedPreviewRevision_ ||
+    !damageHistoryValid_;
+
+  if (previewWidth_ > 0) {
+    const std::size_t coarseRequired =
+      static_cast<std::size_t>(coarsePreviewWidth_) * coarsePreviewHeight_;
+    if (fullSceneRender) {
+      std::fill(previewDemand_.begin(), previewDemand_.end(), 0);
+      std::fill(previewTileDemand_.begin(), previewTileDemand_.end(), 0);
+      previewCoarseSampleCount_ = 0;
+      previewDemandedTexelCount_ = 0;
+      coarsePreviewSamples_.assign(coarseRequired, PreviewSample());
+    } else if (coarsePreviewSamples_.size() != coarseRequired) {
+      coarsePreviewSamples_.assign(coarseRequired, PreviewSample());
+    }
+  }
+
   const float inverseFrameWidth = 1.0f / static_cast<float>(frameWidth_);
   const float inverseFrameHeight = 1.0f / static_cast<float>(frameHeight_);
   const Vec3 rightStep = right * (width * inverseFrameWidth);
@@ -968,13 +986,6 @@ void Renderer::render() {
       currentDamageRects_.push_back(rect);
     }
   }
-
-  const bool fullSceneRender =
-    !useStaticCache ||
-    staticFrameChanged ||
-    previewFrameChanged ||
-    previewVisualRevision_ != lastRenderedPreviewRevision_ ||
-    !damageHistoryValid_;
 
   dirtyMinimumX_.assign(static_cast<std::size_t>(frameHeight_), frameWidth_);
   dirtyMaximumX_.assign(static_cast<std::size_t>(frameHeight_), 0);
